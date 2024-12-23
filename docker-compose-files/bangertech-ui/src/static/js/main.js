@@ -64,18 +64,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <div class="group-section">
                                         <h2><i class="fa ${group.icon}"></i> ${group.name}</h2>
                                         <div class="container-grid">
-                                            ${group.containers.map(container => `
-                                                <div class="container-card">
-                                                    <div class="status-indicator ${container.status}"></div>
-                                                    <h3>${container.name}</h3>
-                                                    <p>Port: ${container.port || 'N/A'}</p>
-                                                    <p>${container.description || ''}</p>
-                                                    <div class="actions">
-                                                        <button class="install-btn">Install</button>
-                                                        <button class="status-btn">Status</button>
-                                                    </div>
-                                                </div>
-                                            `).join('')}
+                                            ${group.containers.map(container => createContainerCard(container)).join('')}
                                         </div>
                                     </div>
                                 `;
@@ -852,10 +841,11 @@ function toggleContainer(name) {
     .then(data => {
         if (data.status === 'success') {
             showNotification('success', data.message);
+            // Aktualisiere Container-Status
+            updateContainerStatus();
         } else {
             showNotification('error', data.message);
         }
-        updateContainerStatus();
     })
     .catch(error => {
         console.error('Error:', error);
@@ -863,6 +853,35 @@ function toggleContainer(name) {
     })
     .finally(() => {
         button.disabled = false;
+        // Button-Text wird durch updateContainerStatus aktualisiert
+    });
+}
+
+function updateContainer(name) {
+    const button = event.target;
+    button.disabled = true;
+    button.innerHTML = '<i class="fa fa-spinner fa-spin"></i>';
+
+    fetch(`/api/update/${name}`, {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            showNotification('success', data.message);
+            // Aktualisiere Container-Status
+            updateContainerStatus();
+        } else {
+            showNotification('error', data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showNotification('error', `Error updating container ${name}`);
+    })
+    .finally(() => {
+        button.disabled = false;
+        button.innerHTML = 'Update';
     });
 }
 
@@ -908,3 +927,24 @@ document.addEventListener('DOMContentLoaded', () => {
         document.documentElement.setAttribute('data-theme', savedTheme);
     }
 }); 
+
+function createContainerCard(container) {
+    return `
+        <div class="container-card">
+            <div class="status-indicator ${container.status}"></div>
+            <h3>${container.name}</h3>
+            <p>Port: ${container.port || 'N/A'}</p>
+            <p>${container.description || ''}</p>
+            <div class="actions">
+                ${!container.installed ? `
+                    <button class="install-btn" onclick="installContainer('${container.name}')">Install</button>
+                ` : `
+                    <button class="status-btn" onclick="toggleContainer('${container.name}')">
+                        ${container.status === 'running' ? 'Stop' : 'Start'}
+                    </button>
+                    <button class="update-btn" onclick="updateContainer('${container.name}')">Update</button>
+                `}
+            </div>
+        </div>
+    `;
+} 

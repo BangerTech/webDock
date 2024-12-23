@@ -281,70 +281,92 @@ def debug():
         logger.exception("Error in debug route")
         return {'error': str(e)}, 500
 
+def get_installed_containers():
+    """Überprüft welche Container installiert sind"""
+    try:
+        # Hole alle Container (auch gestoppte)
+        result = subprocess.run(
+            ['docker', 'ps', '-a', '--format', '{{.Names}}'],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode == 0:
+            return set(result.stdout.strip().split('\n')) if result.stdout.strip() else set()
+        return set()
+    except Exception as e:
+        logger.error(f"Error getting installed containers: {str(e)}")
+        return set()
+
+def get_running_containers():
+    """Überprüft welche Container laufen"""
+    try:
+        result = subprocess.run(
+            ['docker', 'ps', '--format', '{{.Names}}'],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode == 0:
+            return set(result.stdout.strip().split('\n')) if result.stdout.strip() else set()
+        return set()
+    except Exception as e:
+        logger.error(f"Error getting running containers: {str(e)}")
+        return set()
+
 @app.route('/api/containers')
 def get_containers():
     try:
+        compose_dir = '/app/docker-compose-files'
         containers = []
         processed_services = set()
-        compose_dir = '/app/docker-compose-files'
-        logger.info(f"Searching for containers in: {compose_dir}")
         
-        # Hole alle laufenden Container
-        running_containers = get_container_status(compose_dir)
-        logger.info(f"All running containers: {running_containers}")
+        # Hole aktuelle Container-Status
+        installed_containers = get_installed_containers()
+        running_containers = get_running_containers()
         
-        # Durchsuche alle Unterverzeichnisse nach docker-compose.yml Dateien
         for root, dirs, files in os.walk(compose_dir):
             if 'docker-compose.yml' in files:
-                compose_file = os.path.join(root, 'docker-compose.yml')
-                logger.info(f"\n=== Processing compose file: {compose_file} ===")
-                group_name = os.path.basename(root)
-                
                 try:
-                    with open(compose_file, 'r') as f:
+                    with open(os.path.join(root, 'docker-compose.yml')) as f:
                         compose_data = yaml.safe_load(f)
-                        
-                        if compose_data and 'services' in compose_data:
-                            logger.info(f"Services found in {compose_file}:")
-                            for service_name in compose_data['services'].keys():
-                                logger.info(f"  - {service_name}")
+                        if not compose_data or 'services' not in compose_data:
+                            continue
                             
-                            for service_name, service_data in compose_data['services'].items():
-                                service_id = f"{group_name}/{service_name}"
-                                if service_id in processed_services:
-                                    logger.warning(f"Skipping duplicate service: {service_id}")
-                                    continue
-                                processed_services.add(service_id)
+                        group_name = os.path.basename(root)
+                        
+                        for service_name, service_data in compose_data['services'].items():
+                            if service_name in processed_services:
+                                continue
                                 
-                                # Prüfe verschiedene mögliche Container-Namen
-                                container_names = [
-                                    f"{root.split('/')[-1]}-{service_name}-1",  # Docker Compose v2 Format
-                                    f"{root.split('/')[-1]}_{service_name}_1",  # Docker Compose v1 Format
-                                    service_name,  # Einfacher Name
-                                    f"{service_name}-1",  # Alternatives Format
-                                    f"{service_name}_1"  # Alternatives Format
-                                ]
-                                
-                                status = 'stopped'
-                                for container in running_containers:
-                                    container_name = container.get('Name', '')
-                                    if any(name in container_name for name in container_names):
-                                        status = 'running' if container.get('State') == 'running' else 'stopped'
-                                        logger.info(f"Container {container_name} status: {status}")
-                                        break
-                                
-                                container = {
-                                    'name': service_name,
-                                    'status': status,
-                                    'port': _extract_port(service_data.get('ports', [])),
-                                    'description': service_data.get('labels', {}).get('description', ''),
-                                    'group': _get_container_group(group_name),
-                                    'icon': _get_group_icon(group_name)
-                                }
-                                logger.info(f"Adding container: {container}")
-                                containers.append(container)
+                            processed_services.add(service_name)
+                            
+                            # Prüfe verschiedene mögliche Container-Namen
+                            container_names = [
+                                service_name,
+                                f"{os.path.basename(root)}-{service_name}-1",
+                                f"{os.path.basename(root)}_{service_name}_1",
+                                f"{service_name}-1",
+                                f"{service_name}_1"
+                            ]
+                            
+                            # Container-Status ermitteln
+                            is_installed = any(name in installed_containers for name in container_names)
+                            is_running = any(name in running_containers for name in container_names)
+                            
+                            status = 'running' if is_running else 'stopped' if is_installed else 'not_installed'
+                            
+                            container = {
+                                'name': service_name,
+                                'status': status,
+                                'installed': is_installed,
+                                'port': _extract_port(service_data.get('ports', [])),
+                                'description': service_data.get('labels', {}).get('description', ''),
+                                'group': _get_container_group(group_name),
+                                'icon': _get_group_icon(group_name)
+                            }
+                            
+                            containers.append(container)
                 except Exception as e:
-                    logger.error(f"Error reading {compose_file}: {str(e)}")
+                    logger.error(f"Error reading {os.path.join(root, 'docker-compose.yml')}: {str(e)}")
         
         logger.info(f"\n=== Summary ===")
         logger.info(f"Total containers found: {len(containers)}")
@@ -448,46 +470,68 @@ def install_container():
 @app.route('/api/toggle/<container_name>', methods=['POST'])
 def toggle_container(container_name):
     try:
-        compose_dir = '/app/docker-compose-files'
-        # Finde das richtige Verzeichnis für den Container
-        for root, dirs, files in os.walk(compose_dir):
-            if 'docker-compose.yml' in files:
-                with open(os.path.join(root, 'docker-compose.yml')) as f:
-                    compose_data = yaml.safe_load(f)
-                    if compose_data and 'services' in compose_data:
-                        if container_name in compose_data['services']:
-                            # Prüfe den aktuellen Status
-                            status = get_container_status(root)
-                            is_running = False
-                            for container in status:
-                                if container.get('Service') == container_name:
-                                    is_running = container.get('State') == 'running'
-                                    break
-                            
-                            # Führe entsprechenden Befehl aus
-                            cmd = ["docker", "compose", "--project-directory", root]
-                            if is_running:
-                                cmd.extend(["stop", container_name])
-                            else:
-                                cmd.extend(["start", container_name])
-                            
-                            result = subprocess.run(cmd, cwd=root, capture_output=True, text=True)
-                            if result.returncode == 0:
-                                return jsonify({
-                                    'status': 'success',
-                                    'message': f'Container {container_name} {"stopped" if is_running else "started"}'
-                                })
-                            return jsonify({
-                                'status': 'error',
-                                'message': result.stderr
-                            }), 500
+        # Prüfe ob Container läuft
+        result = subprocess.run(
+            ['docker', 'ps', '--format', '{{.Names}}'],
+            capture_output=True,
+            text=True
+        )
+        running_containers = set(result.stdout.strip().split('\n')) if result.stdout.strip() else set()
+        
+        # Mögliche Container-Namen
+        container_names = [
+            container_name,
+            f"{container_name}-1",
+            f"{container_name}_1"
+        ]
+        
+        is_running = any(name in running_containers for name in container_names)
+        
+        if is_running:
+            # Stoppe Container
+            subprocess.run(['docker', 'compose', '-f', f'/home/The-BangerTECH-Utility-main/docker-compose-data/{container_name}/docker-compose.yml', 'down'])
+            message = f"Container {container_name} stopped"
+        else:
+            # Starte Container
+            subprocess.run(['docker', 'compose', '-f', f'/home/The-BangerTECH-Utility-main/docker-compose-data/{container_name}/docker-compose.yml', 'up', '-d'])
+            message = f"Container {container_name} started"
+        
         return jsonify({
-            'status': 'error',
-            'message': f'Container {container_name} not found'
-        }), 404
+            'status': 'success',
+            'message': message
+        })
     except Exception as e:
         logger.exception(f"Error toggling container {container_name}")
-        return {'error': str(e)}, 500
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/update/<container_name>', methods=['POST'])
+def update_container(container_name):
+    try:
+        # Führe Pull und Neustart durch
+        compose_file = f'/home/The-BangerTECH-Utility-main/docker-compose-data/{container_name}/docker-compose.yml'
+        
+        # Stoppe Container
+        subprocess.run(['docker', 'compose', '-f', compose_file, 'down'])
+        
+        # Hole neuestes Image
+        subprocess.run(['docker', 'compose', '-f', compose_file, 'pull'])
+        
+        # Starte Container neu
+        subprocess.run(['docker', 'compose', '-f', compose_file, 'up', '-d'])
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Container {container_name} updated successfully'
+        })
+    except Exception as e:
+        logger.exception(f"Error updating container {container_name}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
 
 @app.route('/static/img/<path:filename>')
 def serve_image(filename):
