@@ -708,3 +708,23 @@ section h2 i {
     color: var(--color-success);
     text-decoration: underline;
 }
+
+.container-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.update-indicator {
+    color: var(--color-warning);
+    font-size: 1.2em;
+    cursor: help;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 0.6; }
+    50% { opacity: 1; }
+    100% { opacity: 0.6; }
+}

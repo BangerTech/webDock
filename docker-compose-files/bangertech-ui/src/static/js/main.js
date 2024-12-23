@@ -932,7 +932,14 @@ function createContainerCard(container) {
     return `
         <div class="container-card">
             <div class="status-indicator ${container.status}"></div>
-            <h3>${container.name}</h3>
+            <div class="container-header">
+                <h3>${container.name}</h3>
+                ${container.update_available ? `
+                    <span class="update-indicator" title="Update available">
+                        <i class="fa fa-arrow-circle-up"></i>
+                    </span>
+                ` : ''}
+            </div>
             <p>Port: ${container.port ? 
                 `<a href="http://${window.location.hostname}:${container.port}" 
                     target="_blank" 

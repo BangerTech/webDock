@@ -348,6 +348,41 @@ def get_running_containers():
         logger.error(f"Error getting running containers: {str(e)}")
         return set()
 
+def check_for_updates(container_name):
+    """Prüft ob Updates für einen Container verfügbar sind"""
+    try:
+        # Hole aktuelles Image und Tag
+        result = subprocess.run(
+            ['docker', 'inspect', '--format', '{{.Config.Image}}', container_name],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            return False
+             
+        current_image = result.stdout.strip()
+         
+        # Hole neuestes Image von Docker Hub
+        subprocess.run(['docker', 'pull', current_image], capture_output=True)
+         
+        # Vergleiche Image IDs
+        current = subprocess.run(
+            ['docker', 'inspect', '--format', '{{.Id}}', container_name],
+            capture_output=True,
+            text=True
+        ).stdout.strip()
+         
+        latest = subprocess.run(
+            ['docker', 'inspect', '--format', '{{.Id}}', current_image],
+            capture_output=True,
+            text=True
+        ).stdout.strip()
+         
+        return current != latest
+    except Exception as e:
+        logger.error(f"Error checking updates for {container_name}: {str(e)}")
+        return False
+
 @app.route('/api/containers')
 def get_containers():
     try:
@@ -358,6 +393,11 @@ def get_containers():
         # Hole aktuelle Container-Status
         installed_containers = get_installed_containers()
         running_containers = get_running_containers()
+        
+        # Hole Update-Status für laufende Container
+        updates_available = {}
+        for container in running_containers:
+            updates_available[container] = check_for_updates(container)
         
         for root, dirs, files in os.walk(compose_dir):
             if 'docker-compose.yml' in files:
@@ -394,6 +434,7 @@ def get_containers():
                                 'name': service_name,
                                 'status': status,
                                 'installed': is_installed,
+                                'update_available': any(updates_available.get(name, False) for name in container_names),
                                 'port': _extract_port(service_data.get('ports', [])),
                                 'description': service_data.get('labels', {}).get('description', ''),
                                 'group': _get_container_group(group_name),
