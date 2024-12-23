@@ -284,22 +284,48 @@ def debug():
 def get_installed_containers():
     """Überprüft welche Container installiert sind"""
     try:
-        # Prüfe das Docker-Compose-Datenverzeichnis
-        data_dir = '/home/The-BangerTECH-Utility-main/docker-compose-data'
-        installed = set()
+        # Starte mit bangertech-ui als installiertem Container
+        installed = {'bangertech-ui'}
         
-        # Durchsuche das Verzeichnis nach installierten Containern
-        for item in os.listdir(data_dir):
-            if os.path.isdir(os.path.join(data_dir, item)):
-                compose_file = os.path.join(data_dir, item, 'docker-compose.yml')
-                if os.path.exists(compose_file):
-                    try:
-                        with open(compose_file) as f:
-                            compose_data = yaml.safe_load(f)
-                            if compose_data and 'services' in compose_data:
-                                installed.add(item)
-                    except Exception as e:
-                        logger.error(f"Error reading {compose_file}: {str(e)}")
+        # Liste der zu prüfenden Verzeichnisse
+        data_dirs = [
+            '/home/The-BangerTECH-Utility-main/docker-compose-data',  # Hauptverzeichnis
+            os.path.expanduser('~/docker-compose-data'),               # Home-Verzeichnis
+        ]
+        
+        # Durchsuche alle Verzeichnisse
+        for data_dir in data_dirs:
+            if not os.path.exists(data_dir):
+                logger.debug(f"Directory does not exist: {data_dir}")
+                continue
+            
+            logger.debug(f"Checking directory: {data_dir}")
+            
+            # Prüfe ob es eine docker-compose.yml im Verzeichnis gibt
+            compose_file = os.path.join(data_dir, 'docker-compose.yml')
+            if os.path.exists(compose_file):
+                try:
+                    with open(compose_file) as f:
+                        compose_data = yaml.safe_load(f)
+                        if compose_data and 'services' in compose_data:
+                            installed.update(compose_data['services'].keys())
+                            logger.debug(f"Found services in {compose_file}: {compose_data['services'].keys()}")
+                except Exception as e:
+                    logger.error(f"Error reading {compose_file}: {str(e)}")
+                continue
+            
+            for item in os.listdir(data_dir):
+                if os.path.isdir(os.path.join(data_dir, item)):
+                    compose_file = os.path.join(data_dir, item, 'docker-compose.yml')
+                    if os.path.exists(compose_file):
+                        try:
+                            with open(compose_file) as f:
+                                compose_data = yaml.safe_load(f)
+                                if compose_data and 'services' in compose_data:
+                                    installed.update(compose_data['services'].keys())
+                                    logger.debug(f"Found services in {compose_file}: {compose_data['services'].keys()}")
+                        except Exception as e:
+                            logger.error(f"Error reading {compose_file}: {str(e)}")
         
         logger.info(f"Found installed containers: {installed}")
         return installed
