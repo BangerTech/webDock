@@ -941,11 +941,6 @@ function createContainerCard(container) {
                         </button>
                     ` : ''}
                 </div>
-                ${container.update_available ? `
-                    <span class="update-indicator" title="Update available">
-                        <i class="fa fa-arrow-circle-up"></i>
-                    </span>
-                ` : ''}
             </div>
             <p>Port: ${container.port ? 
                 `<a href="http://${window.location.hostname}:${container.port}" 
@@ -960,7 +955,11 @@ function createContainerCard(container) {
                     <button class="status-btn" onclick="toggleContainer('${container.name}')">
                         ${container.status === 'running' ? 'Stop' : 'Start'}
                     </button>
-                    <button class="update-btn" onclick="updateContainer('${container.name}')">Update</button>
+                    <button class="update-btn${container.update_available ? ' update-available' : ''}" 
+                            onclick="updateContainer('${container.name}')"
+                            title="${container.update_available ? 'Update available!' : 'Check for updates'}">
+                        Update
+                    </button>
                 ` : `
                     <button class="install-btn" onclick="installContainer('${container.name}')">Install</button>
                 `}
