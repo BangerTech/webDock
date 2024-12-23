@@ -962,21 +962,33 @@ def get_container_config(container_name):
 def container_config(container_name):
     try:
         # Bestimme den Pfad zur docker-compose.yml
-        compose_path = f'/home/The-BangerTECH-Utility-main/docker-compose-data/{container_name}/docker-compose.yml'
+        if container_name == 'bangertech-ui':
+            compose_path = '/app/docker-compose-files/bangertech-ui/docker-compose.yml'
+        else:
+            compose_path = f'/home/The-BangerTECH-Utility-main/docker-compose-data/{container_name}/docker-compose.yml'
+        
+        logger.info(f"Looking for compose file at: {compose_path}")
+        logger.info(f"File exists: {os.path.exists(compose_path)}")
         
         if request.method == 'GET':
             # Lese aktuelle Konfiguration
             if not os.path.exists(compose_path):
+                logger.error(f"Configuration file not found at {compose_path}")
                 return jsonify({
                     'status': 'error',
                     'message': 'Configuration file not found'
                 }), 404
              
             with open(compose_path, 'r') as f:
-                return jsonify({
+                yaml_content = f.read()
+                logger.info(f"Read YAML content length: {len(yaml_content)}")
+                logger.info(f"YAML content preview: {yaml_content[:200]}...")  # Log first 200 chars
+                response_data = {
                     'status': 'success',
-                    'yaml': f.read()
-                })
+                    'yaml': yaml_content
+                }
+                logger.info(f"Sending response: {str(response_data)[:200]}...")
+                return jsonify(response_data)
          
         elif request.method == 'POST':
             # Speichere neue Konfiguration
@@ -1052,6 +1064,56 @@ def update_port_mapping(compose_content, new_port):
     except Exception as e:
         logger.error(f"Error updating port mapping: {str(e)}")
         raise
+
+@app.route('/api/container/<container_name>/info')
+def container_info(container_name):
+    try:
+        # Hole Container-Informationen mit docker inspect
+        result = subprocess.run(
+            ['docker', 'inspect', container_name],
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode != 0:
+            return jsonify({
+                'status': 'error',
+                'message': 'Container not found'
+            }), 404
+        
+        info = json.loads(result.stdout)[0]
+        
+        # Extrahiere relevante Informationen
+        network_settings = info.get('NetworkSettings', {})
+        networks = list(network_settings.get('Networks', {}).keys())
+        
+        return jsonify({
+            'status': info.get('State', {}).get('Status', 'unknown'),
+            'network': networks[0] if networks else None,
+            'volumes': [
+                f"{mount.get('Source')} -> {mount.get('Destination')}"
+                for mount in info.get('Mounts', [])
+                if mount.get('Source') and mount.get('Destination')
+            ],
+            'ports': [
+                {
+                    'published': binding[0]['HostPort'],
+                    'target': container_port.split('/')[0]
+                }
+                for container_port, binding in network_settings.get('Ports', {}).items()
+                if binding
+            ],
+            'image': info.get('Config', {}).get('Image'),
+            'created': info.get('Created'),
+            'command': info.get('Config', {}).get('Cmd', [])
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error getting info for {container_name}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
 
 if __name__ == '__main__':
     # Initialisiere die Anwendung

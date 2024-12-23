@@ -936,8 +936,8 @@ function createContainerCard(container) {
                 <div class="name-with-settings">
                     <h3>${container.name}</h3>
                     ${container.installed ? `
-                        <button class="settings-btn" onclick="openSettings('${container.name}')" title="Container Settings">
-                            <i class="fa fa-cog"></i>
+                        <button class="info-btn" onclick="openInfo('${container.name}')" title="Container Information">
+                            <i class="fa fa-info-circle"></i>
                         </button>
                     ` : ''}
                 </div>
@@ -968,11 +968,29 @@ function createContainerCard(container) {
     `;
 }
 
-async function openSettings(containerName) {
+async function openInfo(containerName) {
     try {
+        // Hole Container-Informationen
+        const response = await fetch(`/api/container/${containerName}/info`);
+        const info = await response.json();
+        
+        // Debug-Ausgabe
+        console.log('Container Info:', info);
+        
         // Hole aktuelle docker-compose.yml
-        const response = await fetch(`/api/container/${containerName}/config`);
-        const config = await response.json();
+        const configResponse = await fetch(`/api/container/${containerName}/config`);
+        console.log('Config Response:', configResponse);
+        if (!configResponse.ok) {
+            throw new Error(`Failed to load config: ${configResponse.status} ${configResponse.statusText}`);
+        }
+        const config = await configResponse.json();
+        console.log('Config Data:', JSON.stringify(config, null, 2));
+        
+        // Überprüfe ob die YAML-Daten vorhanden sind
+        if (!config || !config.yaml) {
+            console.error('Missing YAML data in config:', config);
+            throw new Error('No YAML configuration found');
+        }
         
         // Erstelle Modal
         const modal = document.createElement('div');
@@ -980,18 +998,78 @@ async function openSettings(containerName) {
         modal.innerHTML = `
             <div class="modal-content">
                 <div class="modal-header">
-                    <h2>Settings: ${containerName}</h2>
+                    <h2><i class="fa fa-info-circle"></i> ${containerName}</h2>
+                    <button class="close-modal">&times;</button>
                 </div>
                 <div class="modal-body">
-                    <form id="settings-form">
-                        <div class="form-group">
-                            <label>docker-compose.yml:</label>
-                            <textarea id="compose-config" rows="20" style="width: 100%; font-family: monospace;">${config.yaml}</textarea>
+                    <div class="info-tabs">
+                        <button class="tab-btn active" data-tab="info">Information</button>
+                        <button class="tab-btn" data-tab="config">Configuration</button>
+                    </div>
+                    
+                    <div class="tab-content active" id="info-tab">
+                        <div class="info-grid">
+                            <div class="info-item">
+                                <h3><i class="fa fa-check-circle"></i> Status</h3>
+                                <p class="${info.status}">${info.status || 'unknown'}</p>
+                            </div>
+                            <div class="info-item">
+                                <h3><i class="fa fa-network-wired"></i> Network</h3>
+                                <p>${info.network ? `<span class="network-badge">${info.network}</span>` : 'N/A'}</p>
+                            </div>
+                            <div class="info-item">
+                                <h3><i class="fa fa-hdd"></i> Volumes</h3>
+                                ${info.volumes && info.volumes.length > 0 ? `
+                                    <ul class="volume-list">
+                                        ${info.volumes.map(v => `<li><code>${v}</code></li>`).join('')}
+                                    </ul>
+                                ` : '<p>No volumes</p>'}
+                            </div>
+                            <div class="info-item">
+                                <h3><i class="fa fa-globe"></i> Ports</h3>
+                                ${info.ports && info.ports.length > 0 ? `
+                                    <ul class="port-list">
+                                        ${info.ports.map(p => `
+                                            <li>
+                                                <code>${p.published}:${p.target}</code>
+                                                ${p.published ? `
+                                                    <a href="http://${window.location.hostname}:${p.published}" 
+                                                       target="_blank" 
+                                                       class="port-link">
+                                                        <i class="fa fa-external-link"></i>
+                                                    </a>
+                                                ` : ''}
+                                            </li>
+                                        `).join('')}
+                                    </ul>
+                                ` : '<p>No ports exposed</p>'}
+                            </div>
+                            <div class="info-item">
+                                <h3><i class="fa fa-terminal"></i> Image</h3>
+                                <p><code>${info.image || 'N/A'}</code></p>
+                            </div>
+                            <div class="info-item">
+                                <h3><i class="fa fa-clock-o"></i> Created</h3>
+                                <p>${new Date(info.created).toLocaleString()}</p>
+                            </div>
                         </div>
-                    </form>
-                </div>
-                <div class="modal-footer">
-                    <button onclick="saveSettings('${containerName}')" class="save-btn">Save & Restart</button>
+                    </div>
+                    
+                    <div class="tab-content hidden" id="config-tab">
+                        <div class="config-header">
+                            <h3>docker-compose.yml</h3>
+                        </div>
+                        <form id="settings-form">
+                            <div class="form-group">
+                                <textarea id="compose-config" rows="20" spellcheck="false">${config.yaml}</textarea>
+                            </div>
+                            <div class="form-actions">
+                                <button type="button" onclick="saveSettings('${containerName}')" class="save-btn">
+                                    <i class="fa fa-save"></i> Save & Restart
+                                </button>
+                            </div>
+                        </form>
+                    </div>
                 </div>
             </div>
         `;
@@ -999,22 +1077,36 @@ async function openSettings(containerName) {
         document.body.appendChild(modal);
         setTimeout(() => modal.classList.add('show'), 10);
         
-        // Schließe Modal bei Klick außerhalb
+        // Tab-Funktionalität
+        modal.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                modal.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                modal.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+                btn.classList.add('active');
+                const tabId = btn.dataset.tab + '-tab';
+                document.getElementById(tabId).classList.remove('hidden');
+            });
+        });
+        
+        // Schließen-Funktionalität
+        modal.querySelector('.close-modal').addEventListener('click', closeModal);
         modal.addEventListener('click', (e) => {
-            if (e.target === modal) {
-                closeModal();
-            }
+            if (e.target === modal) closeModal();
         });
     } catch (error) {
         console.error('Error:', error);
-        showNotification('error', `Error loading settings for ${containerName}`);
+        showNotification('error', `Error loading info for ${containerName}`);
     }
-}
+} 
 
 async function saveSettings(containerName) {
     const config = document.getElementById('compose-config').value;
+    const saveBtn = document.querySelector('.save-btn');
     
     try {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Saving...';
+        
         const response = await fetch(`/api/container/${containerName}/config`, {
             method: 'POST',
             headers: {
@@ -1026,9 +1118,17 @@ async function saveSettings(containerName) {
         const data = await response.json();
         if (data.status === 'success') {
             showNotification('success', 'Settings saved successfully');
+            
+            // Starte Container neu
+            const restartResponse = await fetch(`/api/container/${containerName}/restart`, {
+                method: 'POST'
+            });
+            
+            if (restartResponse.ok) {
+                showNotification('success', 'Container restarted successfully');
+            }
+            
             closeModal();
-            // Container neu starten
-            await fetch(`/api/container/${containerName}/restart`, { method: 'POST' });
             updateContainerStatus();
         } else {
             throw new Error(data.message || 'Failed to save settings');
@@ -1036,5 +1136,10 @@ async function saveSettings(containerName) {
     } catch (error) {
         console.error('Error:', error);
         showNotification('error', `Error saving settings: ${error.message}`);
+    } finally {
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="fa fa-save"></i> Save & Restart';
+        }
     }
 } 
