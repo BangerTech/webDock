@@ -958,20 +958,70 @@ def get_container_config(container_name):
         logger.error(f"Error reading config for {container_name}: {str(e)}")
         return None
 
-@app.route('/api/container/<container_name>/config', methods=['GET'])
-def get_container_configuration(container_name):
-    """API Endpoint für Container-Konfiguration"""
+@app.route('/api/container/<container_name>/config', methods=['GET', 'POST'])
+def container_config(container_name):
     try:
-        config = get_container_config(container_name)
-        if config is None:
-            return jsonify({
-                'status': 'error',
-                'message': f'Configuration for {container_name} not found'
-            }), 404
+        # Bestimme den Pfad zur docker-compose.yml
+        compose_path = f'/home/The-BangerTECH-Utility-main/docker-compose-data/{container_name}/docker-compose.yml'
+        
+        if request.method == 'GET':
+            # Lese aktuelle Konfiguration
+            if not os.path.exists(compose_path):
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Configuration file not found'
+                }), 404
              
-        return jsonify(config)
+            with open(compose_path, 'r') as f:
+                return jsonify({
+                    'status': 'success',
+                    'yaml': f.read()
+                })
+         
+        elif request.method == 'POST':
+            # Speichere neue Konfiguration
+            data = request.get_json()
+             
+            # Validiere YAML
+            try:
+                yaml.safe_load(data['yaml'])
+            except Exception as e:
+                return jsonify({
+                    'status': 'error',
+                    'message': f'Invalid YAML: {str(e)}'
+                }), 400
+             
+            # Speichere Konfiguration
+            with open(compose_path, 'w') as f:
+                f.write(data['yaml'])
+             
+            return jsonify({
+                'status': 'success',
+                'message': 'Configuration saved successfully'
+            })
+             
     except Exception as e:
-        logger.exception(f"Error getting configuration for {container_name}")
+        logger.exception(f"Error handling config for {container_name}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/container/<container_name>/restart', methods=['POST'])
+def restart_container(container_name):
+    try:
+        compose_file = f'/home/The-BangerTECH-Utility-main/docker-compose-data/{container_name}/docker-compose.yml'
+        
+        # Neustart des Containers
+        subprocess.run(['docker', 'compose', '-f', compose_file, 'down'])
+        subprocess.run(['docker', 'compose', '-f', compose_file, 'up', '-d'])
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Container {container_name} restarted successfully'
+        })
+    except Exception as e:
+        logger.exception(f"Error restarting {container_name}")
         return jsonify({
             'status': 'error',
             'message': str(e)

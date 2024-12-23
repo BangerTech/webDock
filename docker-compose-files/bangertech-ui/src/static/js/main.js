@@ -933,7 +933,14 @@ function createContainerCard(container) {
         <div class="container-card">
             <div class="status-indicator ${container.status}"></div>
             <div class="container-header">
-                <h3>${container.name}</h3>
+                <div class="name-with-settings">
+                    <h3>${container.name}</h3>
+                    ${container.installed ? `
+                        <button class="settings-btn" onclick="openSettings('${container.name}')" title="Container Settings">
+                            <i class="fa fa-cog"></i>
+                        </button>
+                    ` : ''}
+                </div>
                 ${container.update_available ? `
                     <span class="update-indicator" title="Update available">
                         <i class="fa fa-arrow-circle-up"></i>
@@ -960,4 +967,75 @@ function createContainerCard(container) {
             </div>
         </div>
     `;
+}
+
+async function openSettings(containerName) {
+    try {
+        // Hole aktuelle docker-compose.yml
+        const response = await fetch(`/api/container/${containerName}/config`);
+        const config = await response.json();
+        
+        // Erstelle Modal
+        const modal = document.createElement('div');
+        modal.className = 'modal';
+        modal.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Settings: ${containerName}</h2>
+                </div>
+                <div class="modal-body">
+                    <form id="settings-form">
+                        <div class="form-group">
+                            <label>docker-compose.yml:</label>
+                            <textarea id="compose-config" rows="20" style="width: 100%; font-family: monospace;">${config.yaml}</textarea>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button onclick="saveSettings('${containerName}')" class="save-btn">Save & Restart</button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        setTimeout(() => modal.classList.add('show'), 10);
+        
+        // Schließe Modal bei Klick außerhalb
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                closeModal();
+            }
+        });
+    } catch (error) {
+        console.error('Error:', error);
+        showNotification('error', `Error loading settings for ${containerName}`);
+    }
+}
+
+async function saveSettings(containerName) {
+    const config = document.getElementById('compose-config').value;
+    
+    try {
+        const response = await fetch(`/api/container/${containerName}/config`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ yaml: config })
+        });
+        
+        const data = await response.json();
+        if (data.status === 'success') {
+            showNotification('success', 'Settings saved successfully');
+            closeModal();
+            // Container neu starten
+            await fetch(`/api/container/${containerName}/restart`, { method: 'POST' });
+            updateContainerStatus();
+        } else {
+            throw new Error(data.message || 'Failed to save settings');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        showNotification('error', `Error saving settings: ${error.message}`);
+    }
 } 

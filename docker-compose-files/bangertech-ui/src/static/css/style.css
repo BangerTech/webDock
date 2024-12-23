@@ -728,3 +728,25 @@ section h2 i {
     50% { opacity: 1; }
     100% { opacity: 0.6; }
 }
+
+.name-with-settings {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.settings-btn {
+    background: none;
+    border: none;
+    color: var(--color-main-text);
+    opacity: 0.5;
+    cursor: pointer;
+    padding: 5px;
+    font-size: 1.1em;
+    transition: all 0.3s ease;
+}
+
+.settings-btn:hover {
+    opacity: 1;
+    transform: rotate(45deg);
+}

@@ -11,4 +11,3 @@ services:
     restart: unless-stopped
     volumes:
     - ./appdata/config:/config
-version: '3'
