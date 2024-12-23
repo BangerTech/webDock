@@ -1,0 +1,6 @@
+flask==2.0.3
+werkzeug==2.0.3
+docker==5.0.0
+requests==2.26.0
+pyyaml==6.0.1
+psutil==5.9.0 

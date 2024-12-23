@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BangerTech Utility</title>
+    <link rel="stylesheet" href="static/css/style.css">
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css">
+</head>
+<body class="nc-theme">
+    <header>
+        <div class="logo">
+            <img src="static/img/logo.png" alt="BangerTech" class="logo-image">
+        </div>
+        <nav>
+            <ul>
+                <li><a href="#containers" class="active" data-tab="containers"><i class="fa fa-cubes"></i> Containers</a></li>
+                <li><a href="#status" data-tab="status"><i class="fa fa-dashboard"></i> Status</a></li>
+                <li><a href="#settings" data-tab="settings"><i class="fa fa-cog"></i> Settings</a></li>
+                <li>
+                    <button id="theme-toggle" class="theme-toggle">
+                        <i class="fa fa-moon-o"></i>
+                    </button>
+                </li>
+            </ul>
+        </nav>
+    </header>
+
+    <main>
+        <div id="containers" class="tab-content active">
+            <div class="container-filters">
+                <div class="filter-buttons">
+                    <button class="filter-btn active" data-filter="all">
+                        <i class="fa fa-th-large"></i> All
+                    </button>
+                    <button class="filter-btn" data-filter="running">
+                        <i class="fa fa-play"></i> Running
+                    </button>
+                    <button class="filter-btn" data-filter="stopped">
+                        <i class="fa fa-stop"></i> Stopped
+                    </button>
+                </div>
+            </div>
+            <div class="container-groups">
+                <!-- Container-Gruppen werden durch JavaScript eingefügt -->
+            </div>
+        </div>
+
+        <div id="status" class="tab-content">
+            <div class="status-page">
+                <!-- System Status -->
+                <section class="system-status">
+                    <h2><i class="fa fa-server"></i> System Status</h2>
+                    <div class="status-grid">
+                        <div class="status-card">
+                            <h3>CPU Usage</h3>
+                            <div class="gauge-chart" id="cpu-gauge"></div>
+                            <div class="gauge-value" id="cpu-value">0%</div>
+                        </div>
+                        <div class="status-card">
+                            <h3>Memory Usage</h3>
+                            <div class="gauge-chart" id="memory-gauge"></div>
+                            <div class="gauge-value" id="memory-value">0%</div>
+                        </div>
+                        <div class="status-card">
+                            <h3>Disk Usage</h3>
+                            <div class="gauge-chart" id="disk-gauge"></div>
+                            <div class="gauge-value" id="disk-value">0%</div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Container Health -->
+                <section class="container-health">
+                    <h2><i class="fa fa-heartbeat"></i> Container Health</h2>
+                    <div class="health-grid" id="container-health">
+                        <!-- Wird dynamisch gefüllt -->
+                    </div>
+                </section>
+
+                <!-- System Logs -->
+                <section class="system-logs">
+                    <h2><i class="fa fa-list"></i> System Logs</h2>
+                    <div class="log-viewer">
+                        <pre id="system-logs"></pre>
+                    </div>
+                </section>
+            </div>
+        </div>
+
+        <div id="settings" class="tab-content">
+            <div class="settings-page">
+                <!-- General Settings -->
+                <section class="settings-section">
+                    <h2><i class="fa fa-cog"></i> General Settings</h2>
+                    <div class="settings-grid">
+                        <div class="setting-card">
+                            <h3>Theme</h3>
+                            <select id="theme-select">
+                                <option value="light">Light</option>
+                                <option value="dark">Dark</option>
+                                <option value="system">System Default</option>
+                            </select>
+                        </div>
+                        <div class="setting-card">
+                            <h3>Auto-Update</h3>
+                            <label class="switch">
+                                <input type="checkbox" id="auto-update" checked>
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+                        <div class="setting-card">
+                            <h3>Refresh Interval</h3>
+                            <select id="refresh-interval">
+                                <option value="30">30 seconds</option>
+                                <option value="60">1 minute</option>
+                                <option value="300">5 minutes</option>
+                            </select>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Docker Settings -->
+                <section class="settings-section">
+                    <h2><i class="fa fa-docker"></i> Docker Settings</h2>
+                    <div class="docker-settings">
+                        <!-- Category Management -->
+                        <div class="setting-card">
+                            <h3>Container Categories</h3>
+                            <div class="category-manager">
+                                <div class="category-list">
+                                    <!-- Kategorien werden hier dynamisch eingefügt -->
+                                </div>
+                                <div class="category-actions">
+                                    <button id="add-category" class="primary-btn">
+                                        <i class="fa fa-plus"></i> Add Category
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="setting-card">
+                            <h3>Container Data Location</h3>
+                            <div class="path-input">
+                                <input type="text" id="data-location" 
+                                    placeholder="/home/The-BangerTECH-Utility-main/docker-compose-data"
+                                    value="/home/The-BangerTECH-Utility-main/docker-compose-data">
+                                <button id="browse-location" class="browse-btn">
+                                    <i class="fa fa-folder-open"></i>
+                                </button>
+                                <button id="save-location" class="save-btn">
+                                    <i class="fa fa-save"></i> Save
+                                </button>
+                            </div>
+                            <small class="hint">This is where all container data will be stored</small>
+                        </div>
+                        <div class="setting-card">
+                            <h3>Default Network</h3>
+                            <input type="text" id="docker-network" value="bridge" readonly>
+                        </div>
+                        <div class="setting-card">
+                            <h3>Docker Version</h3>
+                            <input type="text" id="docker-version" readonly>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </main>
+
+    <script src="static/js/main.js"></script>
+    <div id="debug" style="display:none; padding: 20px;">
+        <h3>Debug Information</h3>
+        <pre id="debug-info"></pre>
+    </div>
+    <script>
+        // Container-Anzeige
+        fetch('/api/containers')
+            .then(response => response.json())
+            .then(data => {
+                const groups = document.querySelector('.container-groups');
+                Object.values(data).forEach(group => {
+                    groups.innerHTML += `
+                        <div class="group-section">
+                            <h2><i class="fa ${group.icon}"></i> ${group.name}</h2>
+                            <div class="container-grid">
+                                ${group.containers.map(container => `
+                                    <div class="container-card">
+                                        <div class="status-indicator ${container.status}"></div>
+                                        <h3>${container.name}</h3>
+                                        <p>Port: ${container.port}</p>
+                                        <p>${container.description}</p>
+                                        <div class="actions">
+                                            <button class="install-btn">Install</button>
+                                            <button class="status-btn">Status</button>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `;
+                });
+            })
+            .catch(error => {
+                document.getElementById('debug-info').textContent = 'Error: ' + error;
+                document.getElementById('debug').style.display = 'block';
+            });
+    </script>
+    <!-- Directory Browser Modal -->
+    <div id="directory-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Select Directory</h2>
+                <button class="close-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="directory-nav">
+                    <button id="parent-dir" class="nav-btn">
+                        <i class="fa fa-level-up"></i> Parent Directory
+                    </button>
+                    <span id="current-path">/</span>
+                </div>
+                <div class="directory-list">
+                    <!-- Directories will be listed here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="select-directory" class="save-btn">Select</button>
+                <button class="close-modal">Cancel</button>
+            </div>
+        </div>
+    </div>
+    <!-- Category Modal -->
+    <div id="category-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fa fa-folder"></i> <span id="category-modal-title">Add Category</span></h2>
+                <button class="close-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="category-form">
+                    <div class="form-group">
+                        <label for="category-name">Name</label>
+                        <input type="text" id="category-name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="category-icon">Icon</label>
+                        <select id="category-icon" required>
+                            <option value="fa-folder">📁 Folder</option>
+                            <option value="fa-home">🏠 Home</option>
+                            <option value="fa-chart-line">📈 Chart</option>
+                            <option value="fa-network-wired">🌐 Network</option>
+                            <option value="fa-code">💻 Code</option>
+                            <option value="fa-comments">💬 Chat</option>
+                            <option value="fa-play-circle">▶️ Media</option>
+                            <option value="fa-th-large">📊 Dashboard</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="category-description">Description</label>
+                        <textarea id="category-description" rows="3"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Containers</label>
+                        <div class="container-selector">
+                            <!-- Container-Liste wird dynamisch gefüllt -->
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="submit" form="category-form" class="save-btn">Save Category</button>
+                <button class="close-modal">Cancel</button>
+            </div>
+        </div>
+    </div>
+</body>
+</html> 
