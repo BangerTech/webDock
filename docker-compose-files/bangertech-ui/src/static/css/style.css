@@ -697,3 +697,14 @@ section h2 i {
 .install-btn:hover {
     background-color: var(--color-success);
 }
+
+.port-link {
+    color: var(--color-primary);
+    text-decoration: none;
+    transition: color 0.3s;
+}
+
+.port-link:hover {
+    color: var(--color-success);
+    text-decoration: underline;
+}

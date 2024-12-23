@@ -933,7 +933,13 @@ function createContainerCard(container) {
         <div class="container-card">
             <div class="status-indicator ${container.status}"></div>
             <h3>${container.name}</h3>
-            <p>Port: ${container.port || 'N/A'}</p>
+            <p>Port: ${container.port ? 
+                `<a href="http://${window.location.hostname}:${container.port}" 
+                    target="_blank" 
+                    class="port-link"
+                    title="Open container interface"
+                >${container.port}</a>` 
+                : 'N/A'}</p>
             <p>${container.description || ''}</p>
             <div class="actions">
                 ${container.installed ? `
