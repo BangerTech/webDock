@@ -6,7 +6,6 @@ services:
       - "8585:80"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /home/The-BangerTECH-Utility-main/docker-compose-files/bangertech-ui/src/static/img:/app/static/img
       - /usr/bin/docker:/usr/bin/docker:ro
       - /usr/libexec/docker/cli-plugins/docker-compose:/usr/libexec/docker/cli-plugins/docker-compose:ro
       - /home/The-BangerTECH-Utility-main/docker-compose-files:/app/docker-compose-files

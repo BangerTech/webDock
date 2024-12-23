@@ -936,13 +936,13 @@ function createContainerCard(container) {
             <p>Port: ${container.port || 'N/A'}</p>
             <p>${container.description || ''}</p>
             <div class="actions">
-                ${!container.installed ? `
-                    <button class="install-btn" onclick="installContainer('${container.name}')">Install</button>
-                ` : `
+                ${container.installed ? `
                     <button class="status-btn" onclick="toggleContainer('${container.name}')">
                         ${container.status === 'running' ? 'Stop' : 'Start'}
                     </button>
                     <button class="update-btn" onclick="updateContainer('${container.name}')">Update</button>
+                ` : `
+                    <button class="install-btn" onclick="installContainer('${container.name}')">Install</button>
                 `}
             </div>
         </div>

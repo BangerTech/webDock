@@ -284,15 +284,25 @@ def debug():
 def get_installed_containers():
     """Überprüft welche Container installiert sind"""
     try:
-        # Hole alle Container (auch gestoppte)
-        result = subprocess.run(
-            ['docker', 'ps', '-a', '--format', '{{.Names}}'],
-            capture_output=True,
-            text=True
-        )
-        if result.returncode == 0:
-            return set(result.stdout.strip().split('\n')) if result.stdout.strip() else set()
-        return set()
+        # Prüfe das Docker-Compose-Datenverzeichnis
+        data_dir = '/home/The-BangerTECH-Utility-main/docker-compose-data'
+        installed = set()
+        
+        # Durchsuche das Verzeichnis nach installierten Containern
+        for item in os.listdir(data_dir):
+            if os.path.isdir(os.path.join(data_dir, item)):
+                compose_file = os.path.join(data_dir, item, 'docker-compose.yml')
+                if os.path.exists(compose_file):
+                    try:
+                        with open(compose_file) as f:
+                            compose_data = yaml.safe_load(f)
+                            if compose_data and 'services' in compose_data:
+                                installed.add(item)
+                    except Exception as e:
+                        logger.error(f"Error reading {compose_file}: {str(e)}")
+        
+        logger.info(f"Found installed containers: {installed}")
+        return installed
     except Exception as e:
         logger.error(f"Error getting installed containers: {str(e)}")
         return set()
