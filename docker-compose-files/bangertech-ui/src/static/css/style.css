@@ -920,3 +920,31 @@ section h2 i {
     display: flex;
     flex-direction: column;
 }
+
+.button-group {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.update-btn, .info-btn {
+    padding: 6px 12px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    background-color: var(--button-bg);
+    color: var(--button-text);
+}
+
+.update-btn:hover, .info-btn:hover {
+    background-color: var(--button-hover-bg);
+}
+
+.container-card a {
+    color: var(--link-color);
+    text-decoration: none;
+}
+
+.container-card a:hover {
+    text-decoration: underline;
+}

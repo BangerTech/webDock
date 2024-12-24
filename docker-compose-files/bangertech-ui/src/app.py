@@ -30,6 +30,9 @@ CACHE_TIMEOUT = 300  # 5 Minuten
 last_update = 0
 config_cache = {}
 
+CONFIG_DIR = '/app/config'
+CATEGORIES_FILE = os.path.join(CONFIG_DIR, 'categories.yaml')
+
 def update_configs_periodically():
     """Aktualisiert die Container-Konfigurationen im Hintergrund"""
     while True:
@@ -93,35 +96,94 @@ def _extract_port(ports):
 
 def load_categories():
     try:
-        with open('/app/categories.yaml', 'r') as f:
+        # Stelle sicher, dass das Verzeichnis existiert
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        
+        if not os.path.exists(CATEGORIES_FILE):
+            # Erstelle Standard-Kategorien wenn die Datei nicht existiert
+            default_categories = {
+                'categories': {
+                    'smart_home': {
+                        'name': 'Smart Home',
+                        'icon': 'fa-home',
+                        'description': 'Home automation and IoT containers',
+                        'containers': []
+                    },
+                    'monitoring': {
+                        'name': 'Monitoring',
+                        'icon': 'fa-chart-line',
+                        'description': 'System and network monitoring tools',
+                        'containers': []
+                    }
+                }
+            }
+            with open(CATEGORIES_FILE, 'w') as f:
+                yaml.dump(default_categories, f)
+        
+        with open(CATEGORIES_FILE, 'r') as f:
             return yaml.safe_load(f)
     except Exception as e:
         logger.error(f"Error loading categories: {str(e)}")
-        # Erstelle Standard-Kategorien wenn die Datei nicht existiert
-        default_categories = {
-            'categories': {
-                'smart_home': {
-                    'name': 'Smart Home',
-                    'icon': 'fa-home',
-                    'description': 'Home automation and IoT containers',
-                    'containers': []
-                },
-                'monitoring': {
-                    'name': 'Monitoring',
-                    'icon': 'fa-chart-line',
-                    'description': 'System and network monitoring tools',
-                    'containers': []
-                }
-            }
+        return {'categories': {}}
+
+@app.route('/api/categories', methods=['POST'])
+def add_category():
+    try:
+        data = request.json
+        categories = load_categories()
+        
+        # Füge neue Kategorie hinzu
+        category_id = data['id']
+        categories['categories'][category_id] = {
+            'name': data['name'],
+            'icon': data['icon'],
+            'description': data.get('description', ''),
+            'containers': data.get('containers', [])
         }
-        # Speichere die Standard-Kategorien
-        try:
-            with open('/app/categories.yaml', 'w') as f:
-                yaml.dump(default_categories, f)
-            return default_categories
-        except Exception as write_error:
-            logger.error(f"Error creating default categories: {str(write_error)}")
-            return {'categories': {}}
+        
+        # Speichere aktualisierte Kategorien
+        with open(CATEGORIES_FILE, 'w') as f:
+            yaml.dump(categories, f)
+        
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        logger.exception("Error adding category")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/categories/<category_id>', methods=['PUT'])
+def update_category(category_id):
+    try:
+        data = request.json
+        categories = load_categories()
+        
+        if category_id not in categories['categories']:
+            return jsonify({'error': 'Category not found'}), 404
+        
+        # Aktualisiere die Kategorie
+        categories['categories'][category_id].update({
+            'name': data['name'],
+            'icon': data['icon'],
+            'description': data.get('description', ''),
+            'containers': data.get('containers', [])
+        })
+        
+        # Speichere aktualisierte Kategorien
+        with open(CATEGORIES_FILE, 'w') as f:
+            yaml.dump(categories, f)
+        
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        logger.exception("Error updating category")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/categories', methods=['GET'])
+def get_categories():
+    try:
+        categories = load_categories()
+        return jsonify(categories)
+    except Exception as e:
+        logger.exception("Error getting categories")
+        return jsonify({'error': str(e)}), 500
 
 def _get_container_group(dirname):
     categories = load_categories()
@@ -531,6 +593,9 @@ def get_containers():
         grouped_containers = {}
         total_containers = 0
         
+        # Debug-Log für Kategorien
+        logger.info(f"Loaded categories: {categories}")
+        
         for container_name, compose_data in container_configs.items():
             total_containers += len(compose_data['services'])
             
@@ -538,8 +603,11 @@ def get_containers():
             config_file = os.path.join('/home/The-BangerTECH-Utility-main/docker-compose-files', container_name, 'config.yml')
             container_config = {}
             if os.path.exists(config_file):
-                with open(config_file) as cf:
-                    container_config = yaml.safe_load(cf)
+                try:
+                    with open(config_file) as cf:
+                        container_config = yaml.safe_load(cf) or {}
+                except Exception as e:
+                    logger.error(f"Error loading config for {container_name}: {e}")
             
             for service_name, service_data in compose_data['services'].items():
                 if service_name in processed_services:
@@ -550,8 +618,11 @@ def get_containers():
                 # Bestimme die Kategorie
                 category = 'Other'
                 for cat_id, cat_data in categories.get('categories', {}).items():
+                    logger.info(f"Checking category {cat_id} for container {service_name}")
+                    logger.info(f"Category containers: {cat_data.get('containers', [])}")
                     if service_name in cat_data.get('containers', []):
                         category = cat_data['name']
+                        logger.info(f"Found category {category} for container {service_name}")
                         break
                 
                 # Extrahiere Port aus service_data
@@ -563,8 +634,8 @@ def get_containers():
                     'name': service_name,
                     'status': 'running' if service_name in running_containers else 'stopped',
                     'installed': service_name in installed_containers,
-                    'description': container_config.get('description', 
-                         service_data.get('labels', {}).get('description', '')),
+                    'description': container_config.get('description', '') or 
+                                 service_data.get('labels', {}).get('description', ''),
                     'group': category,
                     'icon': categories.get('categories', {}).get(category, {}).get('icon', 'fa-cube'),
                     'version': container_config.get('version', 'latest'),
