@@ -12,7 +12,11 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Erstelle Verzeichnisse
-RUN mkdir -p /app/static/css /app/static/js /app/static/img /app/templates
+RUN mkdir -p /app/static/css \
+            /app/static/js \
+            /app/static/img \
+            /app/templates \
+            /app/docker-compose-files
 
 # Kopiere die Anwendung
 COPY src/app.py /app/

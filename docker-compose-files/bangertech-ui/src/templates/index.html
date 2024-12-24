@@ -5,9 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BangerTech Utility</title>
     <link rel="stylesheet" href="static/css/style.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" 
-          crossorigin="anonymous" 
-          referrerpolicy="no-referrer" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
 </head>
 <body class="nc-theme">
     <header>
@@ -181,7 +179,14 @@
             .then(response => response.json())
             .then(data => {
                 const groups = document.querySelector('.container-groups');
+                if (!data || typeof data !== 'object') {
+                    throw new Error('Invalid data format received from server');
+                }
                 Object.values(data).forEach(group => {
+                    if (!group || !group.containers) {
+                        console.warn('Invalid group data:', group);
+                        return;
+                    }
                     groups.innerHTML += `
                         <div class="group-section">
                             <h2><i class="fa ${group.icon}"></i> ${group.name}</h2>
@@ -190,11 +195,20 @@
                                     <div class="container-card">
                                         <div class="status-indicator ${container.status}"></div>
                                         <h3>${container.name}</h3>
-                                        <p>Port: ${container.port}</p>
-                                        <p>${container.description}</p>
+                                        <p>Port: ${container.port || 'N/A'}</p>
+                                        <p>${container.description || ''}</p>
                                         <div class="actions">
-                                            <button class="install-btn">Install</button>
-                                            <button class="status-btn">Status</button>
+                                            ${container.installed ? `
+                                                <button class="status-btn ${container.status}" 
+                                                        onclick="toggleContainer('${container.name}')">
+                                                    ${container.status === 'running' ? 'Stop' : 'Start'}
+                                                </button>
+                                            ` : `
+                                                <button class="install-btn" 
+                                                        onclick="installContainer('${container.name}')">
+                                                    Install
+                                                </button>
+                                            `}
                                         </div>
                                     </div>
                                 `).join('')}
@@ -204,6 +218,7 @@
                 });
             })
             .catch(error => {
+                console.error('Error:', error);
                 document.getElementById('debug-info').textContent = 'Error: ' + error;
                 document.getElementById('debug').style.display = 'block';
             });

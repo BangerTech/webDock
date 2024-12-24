@@ -8,8 +8,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /usr/bin/docker:/usr/bin/docker:ro
       - /usr/libexec/docker/cli-plugins/docker-compose:/usr/libexec/docker/cli-plugins/docker-compose:ro
-      - /home/The-BangerTECH-Utility-main/docker-compose-files:/app/docker-compose-files
       - /home/The-BangerTECH-Utility-main/docker-compose-data:/home/The-BangerTECH-Utility-main/docker-compose-data
+      - /home/The-BangerTECH-Utility-main/docker-compose-files:/app/docker-compose-files
+      - ./categories.yaml:/app/categories.yaml:ro
     environment:
       - DOCKER_HOST=unix:///var/run/docker.sock
       - FLASK_DEBUG=1

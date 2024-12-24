@@ -7,6 +7,9 @@ import json
 import time
 import psutil
 import datetime
+import requests
+import threading
+from functools import lru_cache
 
 # Konfiguriere Logging
 logging.basicConfig(level=logging.DEBUG)
@@ -19,14 +22,74 @@ app = Flask(__name__,
 )
 app.debug = True
 
+GITHUB_RAW_URL = "https://raw.githubusercontent.com/BangerTech/webDock/main/docker-compose-files"
+GITHUB_API_URL = "https://api.github.com/repos/BangerTech/webDock/contents/docker-compose-files"
+
+# Cache für Container-Konfigurationen
+CACHE_TIMEOUT = 300  # 5 Minuten
+last_update = 0
+config_cache = {}
+
+def update_configs_periodically():
+    """Aktualisiert die Container-Konfigurationen im Hintergrund"""
+    while True:
+        try:
+            logger.info("Starting background update of container configurations...")
+            download_compose_files()
+            time.sleep(CACHE_TIMEOUT)
+        except Exception as e:
+            logger.error(f"Error in background update: {e}")
+            time.sleep(60)  # Warte eine Minute bei Fehler
+
+# Starte Background-Thread
+update_thread = threading.Thread(target=update_configs_periodically, daemon=True)
+update_thread.start()
+
+@lru_cache(maxsize=100)
+def get_cached_containers():
+    """Gibt gecachte Container-Konfigurationen zurück"""
+    global last_update, config_cache
+    
+    current_time = time.time()
+    if current_time - last_update > CACHE_TIMEOUT:
+        compose_dir = '/home/The-BangerTECH-Utility-main/docker-compose-files'
+        if not os.path.exists(compose_dir):
+            download_compose_files()
+        config_cache = load_container_configs(compose_dir)
+        last_update = current_time
+    
+    return config_cache
+
+def load_container_configs(compose_dir):
+    """Lädt Container-Konfigurationen aus dem Dateisystem"""
+    configs = {}
+    for root, dirs, files in os.walk(compose_dir):
+        if 'docker-compose.yml' in files:
+            try:
+                with open(os.path.join(root, 'docker-compose.yml')) as f:
+                    compose_data = yaml.safe_load(f)
+                    if compose_data and 'services' in compose_data:
+                        container_name = os.path.basename(root)
+                        configs[container_name] = compose_data
+            except Exception as e:
+                logger.error(f"Error loading config for {root}: {e}")
+    return configs
+
 def _extract_port(ports):
     if not ports:
         return None
-    # Extrahiere den ersten Port aus der Port-Liste
-    port = str(ports[0])
-    if ':' in port:
-        return int(port.split(':')[0])
-    return int(port)
+    # Konvertiere Port-Definitionen in lesbare Form
+    try:
+        if isinstance(ports, list):
+            for port in ports:
+                if isinstance(port, str) and ':' in port:
+                    return port.split(':')[0]  # Nimm den Host-Port
+                elif isinstance(port, (int, str)):
+                    return str(port)
+        return None
+    except Exception as e:
+        logger.error(f"Error extracting port: {e}")
+        return None
 
 def load_categories():
     try:
@@ -232,6 +295,78 @@ def setup_container_environment(container_name, root_dir):
         logger.exception(f"Error setting up environment for {container_name}")
         return False
 
+def download_compose_files():
+    """Lädt alle docker-compose Dateien von GitHub"""
+    try:
+        logger.info("Starting download of compose files from GitHub...")
+        # Hole Verzeichnisliste von GitHub
+        headers = {'Accept': 'application/vnd.github.v3+json'}
+        response = requests.get(GITHUB_API_URL, headers=headers)
+        if response.status_code != 200:
+            logger.error(f"Failed to get directory listing: {response.status_code} - {response.text}")
+            return
+        
+        # Vollständige API-Antwort loggen
+        try:
+            response_data = response.json()
+            logger.info("Full GitHub API Response:")
+            for item in response_data:
+                logger.info(f"Name: {item.get('name')}, Type: {item.get('type')}")
+        except Exception as e:
+            logger.error(f"Error parsing GitHub response: {e}")
+            return
+        
+        directories = [item['name'] for item in response.json() if item['type'] == 'dir']
+        logger.info(f"Found {len(directories)} directories: {sorted(directories)}")
+        
+        compose_dir = '/home/The-BangerTECH-Utility-main/docker-compose-files'
+        
+        # Erstelle Hauptverzeichnis
+        os.makedirs(compose_dir, exist_ok=True)
+        
+        for dir_name in directories:
+            logger.info(f"Processing directory: {dir_name}")
+            dir_path = os.path.join(compose_dir, dir_name)
+            os.makedirs(dir_path, exist_ok=True)
+            
+            # Lade docker-compose.yml
+            compose_url = f"{GITHUB_RAW_URL}/{dir_name}/docker-compose.yml"
+            logger.info(f"Downloading from: {compose_url}")
+            compose_response = requests.get(compose_url, headers=headers)
+            if compose_response.status_code == 200:
+                with open(os.path.join(dir_path, 'docker-compose.yml'), 'w') as f:
+                    f.write(compose_response.text)
+                logger.info(f"Successfully downloaded docker-compose.yml for {dir_name}")
+            else:
+                logger.error(f"Failed to download docker-compose.yml for {dir_name}: {compose_response.status_code} - {compose_response.text}")
+                # Versuche alternative Dateinamen
+                alternative_names = ['compose.yml', 'docker-compose.yaml', 'compose.yaml']
+                for alt_name in alternative_names:
+                    alt_url = f"{GITHUB_RAW_URL}/{dir_name}/{alt_name}"
+                    logger.info(f"Trying alternative file: {alt_url}")
+                    alt_response = requests.get(alt_url, headers=headers)
+                    if alt_response.status_code == 200:
+                        with open(os.path.join(dir_path, 'docker-compose.yml'), 'w') as f:
+                            f.write(alt_response.text)
+                        logger.info(f"Successfully downloaded {alt_name} for {dir_name}")
+                        break
+            
+            # Prüfe auf config.yml
+            config_url = f"{GITHUB_RAW_URL}/{dir_name}/config.yml"
+            config_response = requests.get(config_url, headers=headers)
+            if config_response.status_code == 200:
+                with open(os.path.join(dir_path, 'config.yml'), 'w') as f:
+                    f.write(config_response.text)
+                logger.info(f"Successfully downloaded config.yml for {dir_name}")
+        
+        logger.info(f"Successfully downloaded {len(directories)} container configurations")
+        # Liste alle heruntergeladenen Dateien auf
+        for root, dirs, files in os.walk(compose_dir):
+            logger.info(f"Contents of {root}: {files}")
+    except Exception as e:
+        logger.error(f"Error downloading compose files: {str(e)}")
+        logger.exception("Full traceback:")
+
 @app.route('/')
 def index():
     try:
@@ -386,89 +521,83 @@ def check_for_updates(container_name):
 @app.route('/api/containers')
 def get_containers():
     try:
-        compose_dir = '/app/docker-compose-files'
-        containers = []
-        processed_services = set()
+        # Hole Container-Konfigurationen aus dem Cache
+        container_configs = get_cached_containers()
         
-        # Hole aktuelle Container-Status
+        processed_services = set()
         installed_containers = get_installed_containers()
         running_containers = get_running_containers()
+        categories = load_categories()
+        grouped_containers = {}
+        total_containers = 0
         
-        # Hole Update-Status für laufende Container
-        updates_available = {}
-        for container in running_containers:
-            updates_available[container] = check_for_updates(container)
-        
-        for root, dirs, files in os.walk(compose_dir):
-            if 'docker-compose.yml' in files:
-                try:
-                    with open(os.path.join(root, 'docker-compose.yml')) as f:
-                        compose_data = yaml.safe_load(f)
-                        if not compose_data or 'services' not in compose_data:
-                            continue
-                            
-                        group_name = os.path.basename(root)
-                        
-                        for service_name, service_data in compose_data['services'].items():
-                            if service_name in processed_services:
-                                continue
-                                
-                            processed_services.add(service_name)
-                            
-                            # Prüfe verschiedene mögliche Container-Namen
-                            container_names = [
-                                service_name,
-                                f"{os.path.basename(root)}-{service_name}-1",
-                                f"{os.path.basename(root)}_{service_name}_1",
-                                f"{service_name}-1",
-                                f"{service_name}_1"
-                            ]
-                            
-                            # Container-Status ermitteln
-                            is_installed = any(name in installed_containers for name in container_names)
-                            is_running = any(name in running_containers for name in container_names)
-                            
-                            status = 'running' if is_running else 'stopped' if is_installed else 'not_installed'
-                            
-                            container = {
-                                'name': service_name,
-                                'status': status,
-                                'installed': is_installed,
-                                'update_available': any(updates_available.get(name, False) for name in container_names),
-                                'port': _extract_port(service_data.get('ports', [])),
-                                'description': service_data.get('labels', {}).get('description', ''),
-                                'group': _get_container_group(group_name),
-                                'icon': _get_group_icon(group_name)
-                            }
-                            
-                            containers.append(container)
-                except Exception as e:
-                    logger.error(f"Error reading {os.path.join(root, 'docker-compose.yml')}: {str(e)}")
+        for container_name, compose_data in container_configs.items():
+            total_containers += len(compose_data['services'])
+            
+            # Prüfe auf zusätzliche Konfiguration im richtigen Pfad
+            config_file = os.path.join('/home/The-BangerTECH-Utility-main/docker-compose-files', container_name, 'config.yml')
+            container_config = {}
+            if os.path.exists(config_file):
+                with open(config_file) as cf:
+                    container_config = yaml.safe_load(cf)
+            
+            for service_name, service_data in compose_data['services'].items():
+                if service_name in processed_services:
+                    continue
+                    
+                processed_services.add(service_name)
+                
+                # Bestimme die Kategorie
+                category = 'Other'
+                for cat_id, cat_data in categories.get('categories', {}).items():
+                    if service_name in cat_data.get('containers', []):
+                        category = cat_data['name']
+                        break
+                
+                # Extrahiere Port aus service_data
+                port = None
+                if 'ports' in service_data:
+                    port = _extract_port(service_data['ports'])
+                
+                container = {
+                    'name': service_name,
+                    'status': 'running' if service_name in running_containers else 'stopped',
+                    'installed': service_name in installed_containers,
+                    'description': container_config.get('description', 
+                         service_data.get('labels', {}).get('description', '')),
+                    'group': category,
+                    'icon': categories.get('categories', {}).get(category, {}).get('icon', 'fa-cube'),
+                    'version': container_config.get('version', 'latest'),
+                    'port': port,
+                    'volumes': service_data.get('volumes', [])
+                }
+                
+                # Gruppiere Container nach Kategorie
+                if category not in grouped_containers:
+                    grouped_containers[category] = {
+                        'name': category,
+                        'icon': categories.get('categories', {}).get(category, {}).get('icon', 'fa-cube'),
+                        'containers': []
+                    }
+                grouped_containers[category]['containers'].append(container)
         
         logger.info(f"\n=== Summary ===")
-        logger.info(f"Total containers found: {len(containers)}")
+        logger.info(f"Total containers found: {total_containers}")
         logger.info(f"Unique services: {len(processed_services)}")
         logger.info(f"Services: {sorted(list(processed_services))}")
         
-        if not containers:
+        if not processed_services:
             logger.warning("No containers found in docker-compose-files directory")
         
-        # Gruppiere Container
-        grouped_containers = {}
-        for container in containers:
-            group = container['group']
-            if group not in grouped_containers:
-                grouped_containers[group] = {
-                    'name': group,
-                    'icon': container['icon'],
-                    'containers': []
-                }
-            grouped_containers[group]['containers'].append(container)
+        # Debug-Ausgabe der gruppierten Container
+        logger.info("Grouped Containers:")
+        for category, data in grouped_containers.items():
+            logger.info(f"{category}: {len(data['containers'])} containers")
         
         return jsonify(grouped_containers)
     except Exception as e:
         logger.exception("Error in get_containers")
-        return {'error': str(e)}, 500
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/install', methods=['POST'])
 def install_container():
@@ -483,7 +612,7 @@ def install_container():
         os.makedirs(install_path, exist_ok=True)
         
         # Kopiere docker-compose.yml
-        compose_template = f'/app/docker-compose-files/{container_name}/docker-compose.yml'
+        compose_template = f'/home/The-BangerTECH-Utility-main/docker-compose-files/{container_name}/docker-compose.yml'
         target_compose = os.path.join(install_path, 'docker-compose.yml')
         
         with open(compose_template, 'r') as src:
@@ -1114,6 +1243,36 @@ def container_info(container_name):
             'status': 'error',
             'message': str(e)
         }), 500
+
+@app.route('/api/debug/compose-files')
+def debug_compose_files():
+    """Debug-Endpunkt zum Überprüfen der heruntergeladenen Dateien"""
+    compose_dir = '/home/The-BangerTECH-Utility-main/docker-compose-files'
+    result = {
+        'directory_exists': os.path.exists(compose_dir),
+        'directory_contents': {},
+        'github_test': None
+    }
+    
+    if result['directory_exists']:
+        for root, dirs, files in os.walk(compose_dir):
+            rel_path = os.path.relpath(root, compose_dir)
+            result['directory_contents'][rel_path] = {
+                'directories': dirs,
+                'files': files
+            }
+    
+    # Teste GitHub-API
+    try:
+        response = requests.get(GITHUB_API_URL)
+        result['github_test'] = {
+            'status_code': response.status_code,
+            'response': response.json() if response.status_code == 200 else None
+        }
+    except Exception as e:
+        result['github_test'] = {'error': str(e)}
+    
+    return jsonify(result)
 
 if __name__ == '__main__':
     # Initialisiere die Anwendung
