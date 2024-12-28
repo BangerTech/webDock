@@ -1,0 +1,18 @@
+services:
+  bangertech-ui:
+    container_name: bangertech-ui
+    build: .
+    ports:
+      - "8585:80"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/docker:/usr/bin/docker:ro
+      - /usr/libexec/docker/cli-plugins/docker-compose:/usr/libexec/docker/cli-plugins/docker-compose:ro
+      - /home/webDock/docker-compose-data:/home/webDock/docker-compose-data
+      - /home/webDock/docker-compose-files:/app/docker-compose-files
+      - /home/webDock/docker-compose-data/config:/app/config
+    environment:
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - FLASK_DEBUG=1
+      - FLASK_ENV=development
+    restart: unless-stopped
