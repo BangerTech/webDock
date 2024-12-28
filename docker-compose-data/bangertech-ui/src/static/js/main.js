@@ -906,14 +906,21 @@ function getEnvDescription(key) {
 // Angepasste executeInstall Funktion
 async function executeInstall(containerName) {
     const form = document.getElementById('install-form');
+    const modalContent = document.querySelector('.modal-content');
     const installBtn = document.querySelector('.install-btn');
     const progress = document.querySelector('.install-progress');
     
     try {
-        // Deaktiviere Install-Button und zeige Progress
-        installBtn.style.display = 'none';
-        progress.style.display = 'flex';
-        
+        // Zeige Installations-Animation
+        modalContent.innerHTML = `
+            <div class="install-progress">
+                <div class="install-spinner">
+                    <i class="fa fa-cog fa-spin"></i>
+                </div>
+                <span class="install-status">Installing ${containerName}...</span>
+            </div>
+        `;
+
         // Hole die aktuelle data-location aus den Settings
         const locationResponse = await fetch('/api/settings/data-location');
         const locationData = await locationResponse.json();
@@ -936,9 +943,7 @@ async function executeInstall(containerName) {
         
         const response = await fetch('/api/install', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 name: containerName,
                 path: `${baseDir}/${containerName}`,
@@ -949,18 +954,37 @@ async function executeInstall(containerName) {
         
         const data = await response.json();
         if (data.status === 'success') {
-            showNotification('success', data.message);
-            closeModal();
+            // Zeige Erfolgs-Nachricht
+            modalContent.innerHTML = `
+                <div class="install-success">
+                    <i class="fa fa-check-circle"></i>
+                    <h3>${containerName} installed successfully!</h3>
+                    <p>The container has been installed and started.</p>
+                    <button class="btn primary" onclick="closeModal()">Close</button>
+                </div>
+            `;
+            
+            // Aktualisiere Container-Status
             updateContainerStatus(true);
+            
+            // Schließe Modal automatisch nach 3 Sekunden
+            setTimeout(() => {
+                closeModal();
+            }, 3000);
         } else {
             throw new Error(data.message || 'Installation failed');
         }
     } catch (error) {
         console.error('Error:', error);
-        showNotification('error', `Error installing ${containerName}: ${error.message}`);
-        // Zeige Install-Button wieder an
-        installBtn.style.display = 'block';
-        progress.style.display = 'none';
+        // Zeige Fehler-Nachricht
+        modalContent.innerHTML = `
+            <div class="install-success error">
+                <i class="fa fa-times-circle"></i>
+                <h3>Installation Failed</h3>
+                <p>${error.message}</p>
+                <button class="btn" onclick="closeModal()">Close</button>
+            </div>
+        `;
     }
 }
 
