@@ -55,7 +55,7 @@ def get_cached_containers():
     
     current_time = time.time()
     if current_time - last_update > CACHE_TIMEOUT:
-        compose_dir = '/home/The-BangerTECH-Utility-main/docker-compose-files'
+        compose_dir = '/home/webDock/docker-compose-files'
         if not os.path.exists(compose_dir):
             download_compose_files()
         config_cache = load_container_configs(compose_dir)
@@ -243,7 +243,7 @@ def get_container_status(project_name):
 def setup_container_environment(container_name, root_dir):
     """Bereitet die Umgebung für einen Container vor"""
     try:
-        base_dir = '/home/The-BangerTECH-Utility-main/docker-compose-data'
+        base_dir = '/home/webDock/docker-compose-data'
         logger.info(f"Setting up environment for {container_name} in {base_dir}")
         
         # Container-spezifische Setups
@@ -381,7 +381,7 @@ def download_compose_files():
         directories = [item['name'] for item in response.json() if item['type'] == 'dir']
         logger.info(f"Found {len(directories)} directories: {sorted(directories)}")
         
-        compose_dir = '/home/The-BangerTECH-Utility-main/docker-compose-files'
+        compose_dir = '/home/webDock/docker-compose-files'
         
         # Erstelle Hauptverzeichnis
         os.makedirs(compose_dir, exist_ok=True)
@@ -486,8 +486,8 @@ def get_installed_containers():
         
         # Liste der zu prüfenden Verzeichnisse
         data_dirs = [
-            '/home/The-BangerTECH-Utility-main/docker-compose-data',  # Hauptverzeichnis
-            os.path.expanduser('~/docker-compose-data'),               # Home-Verzeichnis
+            '/home/webDock/docker-compose-data',  # Hauptverzeichnis
+            os.path.expanduser('~/docker-compose-data'),  # Home-Verzeichnis
         ]
         
         # Durchsuche alle Verzeichnisse
@@ -600,7 +600,7 @@ def get_containers():
             total_containers += len(compose_data['services'])
             
             # Prüfe auf zusätzliche Konfiguration im richtigen Pfad
-            config_file = os.path.join('/home/The-BangerTECH-Utility-main/docker-compose-files', container_name, 'config.yml')
+            config_file = os.path.join('/home/webDock/docker-compose-files', container_name, 'config.yml')
             container_config = {}
             if os.path.exists(config_file):
                 try:
@@ -683,7 +683,7 @@ def install_container():
         os.makedirs(install_path, exist_ok=True)
         
         # Kopiere docker-compose.yml
-        compose_template = f'/home/The-BangerTECH-Utility-main/docker-compose-files/{container_name}/docker-compose.yml'
+        compose_template = f'/home/webDock/docker-compose-files/{container_name}/docker-compose.yml'
         target_compose = os.path.join(install_path, 'docker-compose.yml')
         
         with open(compose_template, 'r') as src:
@@ -691,7 +691,7 @@ def install_container():
             
         # Ersetze Pfade und Ports
         compose_content = compose_content.replace(
-            '/home/The-BangerTECH-Utility-main/docker-compose-data',
+            '/home/webDock/docker-compose-data',
             os.path.dirname(install_path)
         )
         
@@ -766,11 +766,11 @@ def toggle_container(container_name):
         
         if is_running:
             # Stoppe Container
-            subprocess.run(['docker', 'compose', '-f', f'/home/The-BangerTECH-Utility-main/docker-compose-data/{container_name}/docker-compose.yml', 'down'])
+            subprocess.run(['docker', 'compose', '-f', f'/home/webDock/docker-compose-data/{container_name}/docker-compose.yml', 'down'])
             message = f"Container {container_name} stopped"
         else:
             # Starte Container
-            subprocess.run(['docker', 'compose', '-f', f'/home/The-BangerTECH-Utility-main/docker-compose-data/{container_name}/docker-compose.yml', 'up', '-d'])
+            subprocess.run(['docker', 'compose', '-f', f'/home/webDock/docker-compose-data/{container_name}/docker-compose.yml', 'up', '-d'])
             message = f"Container {container_name} started"
         
         return jsonify({
@@ -788,7 +788,7 @@ def toggle_container(container_name):
 def update_container(container_name):
     try:
         # Führe Pull und Neustart durch
-        compose_file = f'/home/The-BangerTECH-Utility-main/docker-compose-data/{container_name}/docker-compose.yml'
+        compose_file = f'/home/webDock/docker-compose-data/{container_name}/docker-compose.yml'
         
         # Stoppe Container
         subprocess.run(['docker', 'compose', '-f', compose_file, 'down'])
@@ -970,11 +970,11 @@ def handle_data_location():
                 with open(config_file, 'r') as f:
                     config = json.load(f)
                     return jsonify({
-                        'location': config.get('data_location', '/home/The-BangerTECH-Utility-main/docker-compose-data')
+                        'location': config.get('data_location', '/home/webDock/docker-compose-data')
                     })
             except FileNotFoundError:
                 return jsonify({
-                    'location': '/home/The-BangerTECH-Utility-main/docker-compose-data'
+                    'location': '/home/webDock/docker-compose-data'
                 })
  
     except Exception as e:
@@ -1163,9 +1163,9 @@ def container_config(container_name):
     try:
         # Bestimme den Pfad zur docker-compose.yml
         if container_name == 'bangertech-ui':
-            compose_path = '/app/docker-compose-files/bangertech-ui/docker-compose.yml'
+            compose_path = '/home/webDock/docker-compose-data/bangertech-ui/docker-compose.yml'
         else:
-            compose_path = f'/home/The-BangerTECH-Utility-main/docker-compose-data/{container_name}/docker-compose.yml'
+            compose_path = f'/home/webDock/docker-compose-data/{container_name}/docker-compose.yml'
         
         logger.info(f"Looking for compose file at: {compose_path}")
         logger.info(f"File exists: {os.path.exists(compose_path)}")
@@ -1222,7 +1222,7 @@ def container_config(container_name):
 @app.route('/api/container/<container_name>/restart', methods=['POST'])
 def restart_container(container_name):
     try:
-        compose_file = f'/home/The-BangerTECH-Utility-main/docker-compose-data/{container_name}/docker-compose.yml'
+        compose_file = f'/home/webDock/docker-compose-data/{container_name}/docker-compose.yml'
         
         # Neustart des Containers
         subprocess.run(['docker', 'compose', '-f', compose_file, 'down'])
@@ -1318,7 +1318,7 @@ def container_info(container_name):
 @app.route('/api/debug/compose-files')
 def debug_compose_files():
     """Debug-Endpunkt zum Überprüfen der heruntergeladenen Dateien"""
-    compose_dir = '/home/The-BangerTECH-Utility-main/docker-compose-files'
+    compose_dir = '/home/webDock/docker-compose-files'
     result = {
         'directory_exists': os.path.exists(compose_dir),
         'directory_contents': {},

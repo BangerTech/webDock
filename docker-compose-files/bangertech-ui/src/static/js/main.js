@@ -1,12 +1,32 @@
+// Definiere loadingOverlay global
+let loadingOverlay;
+
+// Behalte die Scroll-Position
+let lastScrollPosition = 0;
+
 document.addEventListener('DOMContentLoaded', function() {
-    // Container-Status-Updates als globale Funktion
-    window.updateContainerStatus = function() {
+    // Initialisiere loadingOverlay
+    loadingOverlay = document.getElementById('loading-overlay');
+    
+    // Modifizierte Container-Status-Update Funktion
+    window.updateContainerStatus = function(preserveScroll = false) {
+        if (preserveScroll) {
+            lastScrollPosition = window.scrollY;
+        }
+        
+        if (loadingOverlay) {
+            loadingOverlay.style.display = 'flex';
+        }
+        
         fetch('/api/containers')
             .then(response => response.json())
             .then(data => {
                 const groups = document.querySelector('.container-groups');
-                if (!groups) return;  // Früher Check
-                groups.innerHTML = '';
+                if (!groups) return;
+                
+                // Erstelle temporäres Element für Vergleich
+                const tempDiv = document.createElement('div');
+                tempDiv.className = 'container-groups';
                 
                 // Hole zuerst die Kategorien
                 fetch('/api/categories')
@@ -58,9 +78,10 @@ document.addEventListener('DOMContentLoaded', function() {
                                 return nameA.localeCompare(nameB);
                             });
                         
+                        // Fülle das temporäre Element
                         sortedGroups.forEach(([name, group]) => {
                             if (group.containers.length > 0) {
-                                groups.innerHTML += `
+                                tempDiv.innerHTML += `
                                     <div class="group-section">
                                         <h2><i class="fa ${group.icon}"></i> ${group.name}</h2>
                                         <div class="container-grid">
@@ -71,33 +92,62 @@ document.addEventListener('DOMContentLoaded', function() {
                             }
                         });
                         
-                        // Füge Event-Listener für die Buttons hinzu
-                        document.querySelectorAll('.install-btn').forEach(btn => {
-                            btn.addEventListener('click', (e) => {
-                                const containerName = e.target.closest('.container-card').querySelector('h3').textContent;
-                                installContainer(containerName);
+                        // Vergleiche und aktualisiere nur wenn es Änderungen gibt
+                        if (groups.innerHTML !== tempDiv.innerHTML) {
+                            groups.innerHTML = tempDiv.innerHTML;
+                            
+                            // Füge Event-Listener für die Buttons hinzu
+                            document.querySelectorAll('.install-btn').forEach(btn => {
+                                btn.addEventListener('click', (e) => {
+                                    const containerName = e.target.closest('.container-card').querySelector('h3').textContent;
+                                    installContainer(containerName);
+                                });
                             });
-                        });
-                        
-                        document.querySelectorAll('.status-btn').forEach(btn => {
-                            btn.addEventListener('click', (e) => {
-                                const containerName = e.target.closest('.container-card').querySelector('h3').textContent;
-                                toggleContainer(containerName);
+                            
+                            document.querySelectorAll('.status-btn').forEach(btn => {
+                                btn.addEventListener('click', (e) => {
+                                    const containerName = e.target.closest('.container-card').querySelector('h3').textContent;
+                                    toggleContainer(containerName);
+                                });
                             });
-                        });
+                        }
                     });
             })
             .catch(error => {
                 console.error('Error:', error);
                 showNotification('error', 'Failed to load containers');
+            })
+            .finally(() => {
+                if (loadingOverlay) {
+                    loadingOverlay.style.display = 'none';
+                }
+                
+                // Stelle Scroll-Position wieder her
+                if (preserveScroll) {
+                    window.scrollTo(0, lastScrollPosition);
+                }
             });
     }
 
-    // Initial update
-    updateContainerStatus();
-    
-    // Update every 30 seconds
-    setInterval(updateContainerStatus, 30000);
+    // Initialer Update-Aufruf (ohne Scroll-Erhaltung)
+    updateContainerStatus(false);
+
+    // Periodische Updates mit Scroll-Erhaltung
+    setInterval(() => {
+        // Prüfe ob der Benutzer gerade scrollt oder mit der Seite interagiert
+        if (!document.querySelector('.modal.show') && !document.activeElement.tagName.match(/input|select|textarea/i)) {
+            updateContainerStatus(true);
+        }
+    }, 30000);
+
+    // Event-Listener für manuelle Aktualisierung
+    document.addEventListener('keydown', function(e) {
+        // Manuelle Aktualisierung mit F5 oder Strg+R verhindern
+        if (e.key === 'F5' || (e.ctrlKey && e.key === 'r')) {
+            e.preventDefault();
+            updateContainerStatus(true);
+        }
+    });
 
     // Tab Switching
     const tabs = document.querySelectorAll('[data-tab]');
@@ -829,31 +879,28 @@ async function executeInstall(containerName) {
     }
 }
 
+// Modifizierte Toggle-Funktion
 function toggleContainer(name) {
-    const button = event.target;
-    button.disabled = true;
-    button.innerHTML = '<i class="fa fa-spinner fa-spin"></i>';
-
+    if (loadingOverlay) {
+        loadingOverlay.style.display = 'flex';
+    }
+    
+    // Speichere Scroll-Position
+    lastScrollPosition = window.scrollY;
+    
     fetch(`/api/toggle/${name}`, {
         method: 'POST'
     })
     .then(response => response.json())
     .then(data => {
         if (data.status === 'success') {
-            showNotification('success', data.message);
-            // Aktualisiere Container-Status
-            updateContainerStatus();
-        } else {
-            showNotification('error', data.message);
+            updateContainerStatus(true);
         }
     })
-    .catch(error => {
-        console.error('Error:', error);
-        showNotification('error', `Error toggling container ${name}`);
-    })
     .finally(() => {
-        button.disabled = false;
-        // Button-Text wird durch updateContainerStatus aktualisiert
+        if (loadingOverlay) {
+            loadingOverlay.style.display = 'none';
+        }
     });
 }
 
