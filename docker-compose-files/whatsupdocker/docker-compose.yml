@@ -1,5 +1,3 @@
-version: '3'
-
 services:
   whatsupdocker:
     image: fmartinou/whats-up-docker

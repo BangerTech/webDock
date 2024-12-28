@@ -1,4 +1,3 @@
-version: "3"
 services:
   code-server:
     image: lscr.io/linuxserver/code-server:latest
