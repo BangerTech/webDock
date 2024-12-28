@@ -788,18 +788,11 @@ def update_container(container_name):
 def serve_image(filename):
     try:
         img_dir = os.path.join(app.static_folder, 'img', 'icons')
-        # Entferne "icons/" vom Dateinamen, falls vorhanden
         clean_filename = filename.replace('icons/', '')
         
-        logger.info(f"Looking for image {clean_filename} in {img_dir}")
-        logger.info(f"Directory exists: {os.path.exists(img_dir)}")
-        logger.info(f"Directory contents: {os.listdir(img_dir) if os.path.exists(img_dir) else 'Directory not found'}")
-        
         if os.path.exists(os.path.join(img_dir, clean_filename)):
-            logger.info(f"Found image file: {clean_filename}")
             return send_from_directory(img_dir, clean_filename)
         else:
-            logger.warning(f"Image not found: {clean_filename}")
             return send_from_directory(img_dir, 'bangertech.png')
             
     except Exception as e:
