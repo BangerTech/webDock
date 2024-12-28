@@ -40,5 +40,5 @@ case $INSTALL_TYPE in
         # ... Rest des originalen Codes ...
         )
         # ... Rest des originalen Codes ...
-        ;;
-esac
+      ;;
+      esac

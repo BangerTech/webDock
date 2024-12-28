@@ -5,6 +5,9 @@ let loadingOverlay;
 let lastScrollPosition = 0;
 let lastContainerStates = new Map();
 
+// Globale closeModal Funktion
+function closeModal() { const modal = document.querySelector('.modal'); if (modal) { modal.classList.remove('show'); setTimeout(() => modal.remove(), 300); } }
+
 document.addEventListener('DOMContentLoaded', function() {
     // Initialisiere loadingOverlay
     loadingOverlay = document.getElementById('loading-overlay');
@@ -582,15 +585,6 @@ document.addEventListener('DOMContentLoaded', function() {
             });
     }
 
-    function closeModal(modalId) {
-        const modal = document.getElementById(modalId);
-        modal.classList.remove('show');
-        if (modalId === 'category-modal') {
-            document.getElementById('category-form').reset();
-            document.getElementById('category-form').removeAttribute('data-editing');
-        }
-    }
-
     document.getElementById('add-category').addEventListener('click', () => {
         document.getElementById('category-modal-title').textContent = 'Add Category';
         document.getElementById('category-form').reset();
@@ -795,83 +789,151 @@ function installContainer(name) {
         });
 }
 
-async function showInstallModal(containerName, dataLocation) {
+async function showInstallModal(containerName) {
     try {
-        // Hole Container-spezifische Konfiguration
-        const response = await fetch(`/api/container/${containerName}/config`);
+        // Hole Template-Konfiguration
+        const response = await fetch(`/api/container/${containerName}/config?template=true`);
+        if (!response.ok) {
+            throw new Error(`Failed to load config: ${response.status}`);
+        }
         const config = await response.json();
         
-        // Erstelle Modal für Container-Konfiguration
+        // Parse YAML für Environment-Variablen und Ports
+        const yamlConfig = jsyaml.load(config.yaml);
+        const service = yamlConfig.services[containerName];
+        
+        // Extrahiere Ports und Environment-Variablen
+        const ports = service.ports || [];
+        const environment = service.environment || {};
+        
+        // Erstelle Modal
         const modal = document.createElement('div');
-        modal.className = 'modal show';
+        modal.className = 'modal';
         modal.innerHTML = `
             <div class="modal-content">
                 <div class="modal-header">
-                    <h2>Install ${containerName}</h2>
+                    <h2><i class="fa fa-download"></i> Install ${containerName}</h2>
+                    <button class="close-modal">&times;</button>
                 </div>
                 <div class="modal-body">
                     <form id="install-form">
-                        <div class="form-group">
-                            <label>Installation Directory:</label>
-                            <input type="text" id="install-path" value="${dataLocation}/${containerName}" readonly>
-                        </div>
-                        ${config.ports ? `
-                            <div class="form-group">
-                                <label>Port:</label>
-                                <input type="number" id="port" value="${config.ports[0]}">
+                        ${ports.length > 0 ? `
+                            <div class="config-section">
+                                <h3><i class="fa fa-globe"></i> Port Configuration</h3>
+                                ${ports.map((port, index) => {
+                                    const [hostPort, containerPort] = port.split(':');
+                                    return `
+                                        <div class="form-group">
+                                            <label>Port Mapping (Container Port: ${containerPort}):</label>
+                                            <input type="number" 
+                                                   name="port_${index}" 
+                                                   value="${hostPort}"
+                                                   min="1"
+                                                   max="65535"
+                                                   class="port-input">
+                                        </div>
+                                    `;
+                                }).join('')}
                             </div>
                         ` : ''}
-                        ${config.env ? Object.entries(config.env).map(([key, value]) => `
-                            <div class="form-group">
-                                <label>${key}:</label>
-                                <input type="text" name="env_${key}" value="${value}">
+                        
+                        ${Object.keys(environment).length > 0 ? `
+                            <div class="config-section">
+                                <h3><i class="fa fa-cogs"></i> Environment Variables</h3>
+                                ${Object.entries(environment).map(([key, defaultValue]) => `
+                                    <div class="form-group">
+                                        <label>${key}:</label>
+                                        <input type="text" 
+                                               name="env_${key}" 
+                                               value="${defaultValue || ''}"
+                                               placeholder="${getEnvPlaceholder(key)}"
+                                               class="env-input">
+                                        ${getEnvDescription(key)}
+                                    </div>
+                                `).join('')}
                             </div>
-                        `).join('') : ''}
+                        ` : ''}
                     </form>
                 </div>
                 <div class="modal-footer">
-                    <button class="install-btn" onclick="executeInstall('${containerName}')">Install</button>
+                    <div class="install-progress" style="display: none;">
+                        <div class="docker-spinner">
+                            <i class="fa fa-docker fa-spin"></i>
+                        </div>
+                        <span class="install-status">Installing...</span>
+                    </div>
+                    <button class="install-btn" onclick="executeInstall('${containerName}')">
+                        <i class="fa fa-download"></i> Install
+                    </button>
                 </div>
             </div>
         `;
         
         document.body.appendChild(modal);
+        setTimeout(() => modal.classList.add('show'), 10);
         
-        // Schließe Modal auch bei Klick außerhalb
+        // Schließen-Funktionalität
+        modal.querySelector('.close-modal').addEventListener('click', closeModal);
         modal.addEventListener('click', (e) => {
-            if (e.target === modal) {
-                closeModal();
-            }
+            if (e.target === modal) closeModal();
         });
+        
     } catch (error) {
         console.error('Error:', error);
         showNotification('error', `Error preparing installation for ${containerName}`);
     }
 }
 
-function closeModal() {
-    const modal = document.querySelector('.modal');
-    if (modal) {
-        modal.classList.remove('show');
-        setTimeout(() => {
-            modal.remove();
-        }, 300);  // Warte auf Animation
-    }
+// Hilfsfunktionen für Environment-Variablen
+function getEnvPlaceholder(key) {
+    const placeholders = {
+        'TZ': 'Europe/Berlin',
+        'PUID': '1000',
+        'PGID': '1000'
+    };
+    return placeholders[key] || '';
 }
 
+function getEnvDescription(key) {
+    const descriptions = {
+        'TZ': '<small class="hint">Timezone for the container</small>',
+        'PUID': '<small class="hint">User ID for container permissions</small>',
+        'PGID': '<small class="hint">Group ID for container permissions</small>'
+    };
+    return descriptions[key] || '';
+}
+
+// Angepasste executeInstall Funktion
 async function executeInstall(containerName) {
     const form = document.getElementById('install-form');
-    const installPath = document.getElementById('install-path').value;
-    const port = document.getElementById('port')?.value;
-    
-    // Sammle Environment-Variablen
-    const envVars = {};
-    form.querySelectorAll('input[name^="env_"]').forEach(input => {
-        const key = input.name.replace('env_', '');
-        envVars[key] = input.value;
-    });
+    const installBtn = document.querySelector('.install-btn');
+    const progress = document.querySelector('.install-progress');
     
     try {
+        // Deaktiviere Install-Button und zeige Progress
+        installBtn.style.display = 'none';
+        progress.style.display = 'flex';
+        
+        // Hole die aktuelle data-location aus den Settings
+        const locationResponse = await fetch('/api/settings/data-location');
+        const locationData = await locationResponse.json();
+        const baseDir = locationData.location;
+        
+        // Sammle Ports
+        const ports = {};
+        form.querySelectorAll('.port-input').forEach((input, index) => {
+            ports[index] = input.value;
+        });
+        
+        // Sammle Environment-Variablen
+        const envVars = {};
+        form.querySelectorAll('.env-input').forEach(input => {
+            const key = input.name.replace('env_', '');
+            if (input.value) {
+                envVars[key] = input.value;
+            }
+        });
+        
         const response = await fetch('/api/install', {
             method: 'POST',
             headers: {
@@ -879,23 +941,26 @@ async function executeInstall(containerName) {
             },
             body: JSON.stringify({
                 name: containerName,
-                path: installPath,
-                port: port,
+                path: `${baseDir}/${containerName}`,
+                ports: ports,
                 env: envVars
             })
         });
         
         const data = await response.json();
         if (data.status === 'success') {
-            showNotification('success', `${containerName} installed successfully`);
+            showNotification('success', data.message);
             closeModal();
-            updateContainerStatus();
+            updateContainerStatus(true);
         } else {
             throw new Error(data.message || 'Installation failed');
         }
     } catch (error) {
         console.error('Error:', error);
         showNotification('error', `Error installing ${containerName}: ${error.message}`);
+        // Zeige Install-Button wieder an
+        installBtn.style.display = 'block';
+        progress.style.display = 'none';
     }
 }
 

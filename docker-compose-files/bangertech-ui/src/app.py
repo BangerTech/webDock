@@ -366,73 +366,42 @@ def download_compose_files():
     """Lädt alle docker-compose Dateien von GitHub"""
     try:
         logger.info("Starting download of compose files from GitHub...")
-        # Hole Verzeichnisliste von GitHub
         headers = {'Accept': 'application/vnd.github.v3+json'}
         response = requests.get(GITHUB_API_URL, headers=headers)
         if response.status_code != 200:
             logger.error(f"Failed to get directory listing: {response.status_code} - {response.text}")
             return
         
-        # Vollständige API-Antwort loggen
-        try:
-            response_data = response.json()
-            logger.info("Full GitHub API Response:")
-            for item in response_data:
-                logger.info(f"Name: {item.get('name')}, Type: {item.get('type')}")
-        except Exception as e:
-            logger.error(f"Error parsing GitHub response: {e}")
-            return
-        
         directories = [item['name'] for item in response.json() if item['type'] == 'dir']
         logger.info(f"Found {len(directories)} directories: {sorted(directories)}")
         
         compose_dir = '/home/webDock/docker-compose-files'
-        
-        # Erstelle Hauptverzeichnis
         os.makedirs(compose_dir, exist_ok=True)
         
+        success_count = 0
         for dir_name in directories:
-            logger.info(f"Processing directory: {dir_name}")
-            dir_path = os.path.join(compose_dir, dir_name)
-            os.makedirs(dir_path, exist_ok=True)
-            
-            # Lade docker-compose.yml
-            compose_url = f"{GITHUB_RAW_URL}/{dir_name}/docker-compose.yml"
-            logger.info(f"Downloading from: {compose_url}")
-            compose_response = requests.get(compose_url, headers=headers)
-            if compose_response.status_code == 200:
-                with open(os.path.join(dir_path, 'docker-compose.yml'), 'w') as f:
-                    f.write(compose_response.text)
-                logger.info(f"Successfully downloaded docker-compose.yml for {dir_name}")
-            else:
-                logger.error(f"Failed to download docker-compose.yml for {dir_name}: {compose_response.status_code} - {compose_response.text}")
-                # Versuche alternative Dateinamen
-                alternative_names = ['compose.yml', 'docker-compose.yaml', 'compose.yaml']
-                for alt_name in alternative_names:
-                    alt_url = f"{GITHUB_RAW_URL}/{dir_name}/{alt_name}"
-                    logger.info(f"Trying alternative file: {alt_url}")
-                    alt_response = requests.get(alt_url, headers=headers)
-                    if alt_response.status_code == 200:
-                        with open(os.path.join(dir_path, 'docker-compose.yml'), 'w') as f:
-                            f.write(alt_response.text)
-                        logger.info(f"Successfully downloaded {alt_name} for {dir_name}")
-                        break
-            
-            # Prüfe auf config.yml
-            config_url = f"{GITHUB_RAW_URL}/{dir_name}/config.yml"
-            config_response = requests.get(config_url, headers=headers)
-            if config_response.status_code == 200:
-                with open(os.path.join(dir_path, 'config.yml'), 'w') as f:
-                    f.write(config_response.text)
-                logger.info(f"Successfully downloaded config.yml for {dir_name}")
+            try:
+                dir_path = os.path.join(compose_dir, dir_name)
+                os.makedirs(dir_path, exist_ok=True)
+                
+                # Lade docker-compose.yml
+                compose_url = f"{GITHUB_RAW_URL}/{dir_name}/docker-compose.yml"
+                compose_response = requests.get(compose_url, headers=headers)
+                if compose_response.status_code == 200:
+                    compose_path = os.path.join(dir_path, 'docker-compose.yml')
+                    with open(compose_path, 'w') as f:
+                        f.write(compose_response.text)
+                    success_count += 1
+                else:
+                    logger.error(f"Failed to download {compose_url}: {compose_response.status_code}")
+            except Exception as e:
+                logger.error(f"Error processing {dir_name}: {str(e)}")
         
-        logger.info(f"Successfully downloaded {len(directories)} container configurations")
-        # Liste alle heruntergeladenen Dateien auf
-        for root, dirs, files in os.walk(compose_dir):
-            logger.info(f"Contents of {root}: {files}")
+        logger.info(f"Successfully downloaded {success_count} of {len(directories)} compose files")
+        return success_count
     except Exception as e:
         logger.error(f"Error downloading compose files: {str(e)}")
-        logger.exception("Full traceback:")
+        return 0
 
 @app.route('/')
 def index():
@@ -1163,62 +1132,51 @@ def get_container_config(container_name):
         logger.error(f"Error reading config for {container_name}: {str(e)}")
         return None
 
-@app.route('/api/container/<container_name>/config', methods=['GET', 'POST'])
-def container_config(container_name):
+@app.route('/api/container/<container_name>/config', methods=['GET'])
+def get_container_config(container_name):
     try:
-        # Bestimme den Pfad zur docker-compose.yml
-        if container_name == 'bangertech-ui':
-            compose_path = '/home/webDock/docker-compose-data/bangertech-ui/docker-compose.yml'
+        # Unterscheide zwischen Template und installiertem Container
+        if request.args.get('template') == 'true':
+            # Hole Template-Konfiguration aus dem docker-compose-files Verzeichnis
+            compose_paths = [
+                f'/app/docker-compose-files/{container_name}/docker-compose.yml',
+                f'/home/webDock/docker-compose-files/{container_name}/docker-compose.yml'
+            ]
+            
+            # Versuche beide mögliche Pfade
+            for compose_path in compose_paths:
+                if os.path.exists(compose_path):
+                    with open(compose_path, 'r') as f:
+                        yaml_content = f.read()
+                        return jsonify({
+                            'status': 'success',
+                            'yaml': yaml_content
+                        })
+            
+            # Wenn keine Datei gefunden wurde
+            logger.error(f"Configuration file not found at any of these locations: {compose_paths}")
+            return jsonify({
+                'status': 'error',
+                'message': 'Configuration file not found'
+            }), 404
         else:
+            # Hole installierte Konfiguration
             compose_path = f'/home/webDock/docker-compose-data/{container_name}/docker-compose.yml'
-        
-        logger.info(f"Looking for compose file at: {compose_path}")
-        logger.info(f"File exists: {os.path.exists(compose_path)}")
-        
-        if request.method == 'GET':
-            # Lese aktuelle Konfiguration
             if not os.path.exists(compose_path):
-                logger.error(f"Configuration file not found at {compose_path}")
                 return jsonify({
                     'status': 'error',
                     'message': 'Configuration file not found'
                 }), 404
-             
+
             with open(compose_path, 'r') as f:
                 yaml_content = f.read()
-                logger.info(f"Read YAML content length: {len(yaml_content)}")
-                logger.info(f"YAML content preview: {yaml_content[:200]}...")  # Log first 200 chars
-                response_data = {
-                    'status': 'success',
-                    'yaml': yaml_content
-                }
-                logger.info(f"Sending response: {str(response_data)[:200]}...")
-                return jsonify(response_data)
-         
-        elif request.method == 'POST':
-            # Speichere neue Konfiguration
-            data = request.get_json()
-             
-            # Validiere YAML
-            try:
-                yaml.safe_load(data['yaml'])
-            except Exception as e:
-                return jsonify({
-                    'status': 'error',
-                    'message': f'Invalid YAML: {str(e)}'
-                }), 400
-             
-            # Speichere Konfiguration
-            with open(compose_path, 'w') as f:
-                f.write(data['yaml'])
-             
+                
             return jsonify({
                 'status': 'success',
-                'message': 'Configuration saved successfully'
+                'yaml': yaml_content
             })
-             
     except Exception as e:
-        logger.exception(f"Error handling config for {container_name}")
+        logger.exception(f"Error getting config for {container_name}")
         return jsonify({
             'status': 'error',
             'message': str(e)
@@ -1291,7 +1249,7 @@ def container_info(container_name):
         # Extrahiere relevante Informationen
         network_settings = info.get('NetworkSettings', {})
         networks = list(network_settings.get('Networks', {}).keys())
-        
+
         return jsonify({
             'status': info.get('State', {}).get('Status', 'unknown'),
             'network': networks[0] if networks else None,
