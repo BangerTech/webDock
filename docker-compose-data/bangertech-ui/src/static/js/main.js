@@ -9,155 +9,124 @@ let lastContainerStates = new Map();
 function closeModal() { const modal = document.querySelector('.modal'); if (modal) { modal.classList.remove('show'); setTimeout(() => modal.remove(), 300); } }
 
 document.addEventListener('DOMContentLoaded', function() {
-    // Initialisiere loadingOverlay
     loadingOverlay = document.getElementById('loading-overlay');
     
-    // Modifizierte Container-Status-Update Funktion
+    // Container-Status-Updates als globale Funktion
     window.updateContainerStatus = function(preserveScroll = false) {
         if (preserveScroll) {
             lastScrollPosition = window.scrollY;
         }
         
-        // Prüfe erst auf Status-Änderungen
-        fetch('/api/containers/status')
+        if (loadingOverlay) {
+            loadingOverlay.style.display = 'flex';
+        }
+        
+        fetch('/api/containers')
             .then(response => response.json())
-            .then(statusData => {
-                let hasChanges = false;
+            .then(data => {
+                const groups = document.querySelector('.container-groups');
+                if (!groups) return;
                 
-                // Vergleiche mit gespeicherten Status
-                Object.entries(statusData).forEach(([name, status]) => {
-                    if (lastContainerStates.get(name) !== status) {
-                        hasChanges = true;
-                        lastContainerStates.set(name, status);
-                    }
-                });
-
-                // Nur wenn Änderungen vorliegen
-                if (hasChanges) {
-                    if (loadingOverlay) {
-                        loadingOverlay.style.display = 'flex';
-                    }
-                    
-                    // Originaler Update-Code
-                    fetch('/api/containers')
-                        .then(response => response.json())
-                        .then(data => {
-                            const groups = document.querySelector('.container-groups');
-                            if (!groups) return;
-                            
-                            // Erstelle temporäres Element für Vergleich
-                            const tempDiv = document.createElement('div');
-                            tempDiv.className = 'container-groups';
-                            
-                            // Hole zuerst die Kategorien
-                            fetch('/api/categories')
-                                .then(response => response.json())
-                                .then(categoriesData => {
-                                    const categories = categoriesData.categories;
-                                    
-                                    // Gruppiere Container nach Kategorien
-                                    const groupedContainers = {};
-                                    
-                                    // Füge "Other" Kategorie zuerst hinzu
-                                    groupedContainers['Other'] = {
-                                        name: 'Other',
-                                        icon: 'fa-cube',
-                                        containers: []
-                                    };
-                                    
-                                    // Initialisiere alle Kategorien
-                                    Object.entries(categories).forEach(([id, category]) => {
-                                        groupedContainers[category.name] = {
-                                            name: category.name,
-                                            icon: category.icon,
-                                            containers: []
-                                        };
-                                    });
-                                    
-                                    // Sortiere Container in ihre Kategorien
-                                    Object.values(data).forEach(group => {
-                                        group.containers.forEach(container => {
-                                            let categoryName = 'Other';
-                                            
-                                            // Finde die passende Kategorie
-                                            Object.entries(categories).forEach(([id, category]) => {
-                                                if (category.containers.includes(container.name)) {
-                                                    categoryName = category.name;
-                                                }
-                                            });
-                                            
-                                            groupedContainers[categoryName].containers.push(container);
-                                        });
-                                    });
-                                    
-                                    // Zeige nur Kategorien mit Containern
-                                    const sortedGroups = Object.entries(groupedContainers)
-                                        .filter(([name, group]) => group.containers.length > 0)
-                                        .sort(([nameA], [nameB]) => {
-                                            if (nameA === 'Other') return 1;
-                                            if (nameB === 'Other') return -1;
-                                            return nameA.localeCompare(nameB);
-                                        });
-                                    
-                                    // Fülle das temporäre Element
-                                    sortedGroups.forEach(([name, group]) => {
-                                        if (group.containers.length > 0) {
-                                            tempDiv.innerHTML += `
-                                                <div class="group-section">
-                                                    <h2><i class="fa ${group.icon}"></i> ${group.name}</h2>
-                                                    <div class="container-grid">
-                                                        ${group.containers.map(container => createContainerCard(container)).join('')}
-                                                    </div>
-                                                </div>
-                                            `;
-                                        }
-                                    });
-                                    
-                                    // Vergleiche und aktualisiere nur wenn es Änderungen gibt
-                                    if (groups.innerHTML !== tempDiv.innerHTML) {
-                                        groups.innerHTML = tempDiv.innerHTML;
-                                        
-                                        // Füge Event-Listener für die Buttons hinzu
-                                        document.querySelectorAll('.install-btn').forEach(btn => {
-                                            btn.addEventListener('click', (e) => {
-                                                const containerName = e.target.closest('.container-card').querySelector('h3').textContent;
-                                                installContainer(containerName);
-                                            });
-                                        });
-                                        
-                                        document.querySelectorAll('.status-btn').forEach(btn => {
-                                            btn.addEventListener('click', (e) => {
-                                                const containerName = e.target.closest('.container-card').querySelector('h3').textContent;
-                                                toggleContainer(containerName);
-                                            });
-                                        });
+                // Hole zuerst die Kategorien
+                fetch('/api/categories')
+                    .then(response => response.json())
+                    .then(categoriesData => {
+                        const categories = categoriesData.categories;
+                        
+                        // Gruppiere Container nach Kategorien
+                        const groupedContainers = {};
+                        
+                        // Füge "Other" Kategorie zuerst hinzu
+                        groupedContainers['Other'] = {
+                            name: 'Other',
+                            icon: 'fa-cube',
+                            containers: []
+                        };
+                        
+                        // Initialisiere alle Kategorien
+                        Object.entries(categories || {}).forEach(([id, category]) => {
+                            groupedContainers[category.name] = {
+                                name: category.name,
+                                icon: category.icon,
+                                containers: []
+                            };
+                        });
+                        
+                        // Sortiere Container in ihre Kategorien
+                        Object.values(data).forEach(group => {
+                            group.containers.forEach(container => {
+                                let categoryName = 'Other';
+                                
+                                // Finde die passende Kategorie
+                                Object.entries(categories || {}).forEach(([id, category]) => {
+                                    if (category.containers && category.containers.includes(container.name)) {
+                                        categoryName = category.name;
                                     }
                                 });
-                        })
-                        .catch(error => {
-                            console.error('Error:', error);
-                            showNotification('error', 'Failed to load containers');
-                        })
-                        .finally(() => {
-                            if (loadingOverlay) {
-                                loadingOverlay.style.display = 'none';
-                            }
-                            
-                            // Stelle Scroll-Position wieder her
-                            if (preserveScroll) {
-                                window.scrollTo(0, lastScrollPosition);
+                                
+                                groupedContainers[categoryName].containers.push(container);
+                            });
+                        });
+                        
+                        // Zeige nur Kategorien mit Containern
+                        const sortedGroups = Object.entries(groupedContainers)
+                            .filter(([name, group]) => group.containers.length > 0)
+                            .sort(([nameA], [nameB]) => {
+                                if (nameA === 'Other') return 1;
+                                if (nameB === 'Other') return -1;
+                                return nameA.localeCompare(nameB);
+                            });
+                        
+                        groups.innerHTML = '';
+                        
+                        sortedGroups.forEach(([name, group]) => {
+                            if (group.containers.length > 0) {
+                                groups.innerHTML += `
+                                    <div class="group-section">
+                                        <h2><i class="fa ${group.icon}"></i> ${name}</h2>
+                                        <div class="container-grid">
+                                            ${group.containers.map(container => createContainerCard(container)).join('')}
+                                        </div>
+                                    </div>
+                                `;
                             }
                         });
+                        
+                        // Füge Event-Listener für die Buttons hinzu
+                        document.querySelectorAll('.install-btn').forEach(btn => {
+                            btn.addEventListener('click', (e) => {
+                                const containerName = e.target.closest('.container-card').querySelector('h3').textContent;
+                                installContainer(containerName);
+                            });
+                        });
+                        
+                        document.querySelectorAll('.status-btn').forEach(btn => {
+                            btn.addEventListener('click', (e) => {
+                                const containerName = e.target.closest('.container-card').querySelector('h3').textContent;
+                                toggleContainer(containerName);
+                            });
+                        });
+                    });
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showNotification('error', 'Failed to load containers');
+            })
+            .finally(() => {
+                if (loadingOverlay) {
+                    loadingOverlay.style.display = 'none';
+                }
+                if (preserveScroll) {
+                    window.scrollTo(0, lastScrollPosition);
                 }
             });
     }
 
-    // Initialer Update-Aufruf (ohne Scroll-Erhaltung)
+    // Initialer Update-Aufruf
     updateContainerStatus(false);
 
-    // Periodische Updates mit Scroll-Erhaltung
+    // Periodische Updates
     setInterval(() => {
-        // Prüfe ob der Benutzer gerade scrollt oder mit der Seite interagiert
         if (!document.querySelector('.modal.show') && !document.activeElement.tagName.match(/input|select|textarea/i)) {
             updateContainerStatus(true);
         }
@@ -906,40 +875,43 @@ function getEnvDescription(key) {
 // Angepasste executeInstall Funktion
 async function executeInstall(containerName) {
     const form = document.getElementById('install-form');
-    const modalContent = document.querySelector('.modal-content');
-    const installBtn = document.querySelector('.install-btn');
-    const progress = document.querySelector('.install-progress');
+    const modalBody = document.querySelector('.modal-body');
+    const modalFooter = document.querySelector('.modal-footer');
     
     try {
         // Zeige Installations-Animation
-        modalContent.innerHTML = `
+        modalBody.innerHTML = `
             <div class="install-progress">
                 <div class="install-spinner">
-                    <i class="fa fa-cog fa-spin"></i>
+                    <i class="fa fa-docker fa-spin"></i>
                 </div>
                 <span class="install-status">Installing ${containerName}...</span>
             </div>
         `;
+        modalFooter.style.display = 'none';
+
+        // Sammle die Formulardaten
+        const formData = new FormData(form);
+        const ports = {};
+        const envVars = {};
+        
+        // Sammle Ports
+        formData.forEach((value, key) => {
+            if (key.startsWith('port_')) {
+                const index = key.replace('port_', '');
+                ports[index] = value;
+            } else if (key.startsWith('env_')) {
+                const envKey = key.replace('env_', '');
+                if (value) {
+                    envVars[envKey] = value;
+                }
+            }
+        });
 
         // Hole die aktuelle data-location aus den Settings
         const locationResponse = await fetch('/api/settings/data-location');
         const locationData = await locationResponse.json();
         const baseDir = locationData.location;
-        
-        // Sammle Ports
-        const ports = {};
-        form.querySelectorAll('.port-input').forEach((input, index) => {
-            ports[index] = input.value;
-        });
-        
-        // Sammle Environment-Variablen
-        const envVars = {};
-        form.querySelectorAll('.env-input').forEach(input => {
-            const key = input.name.replace('env_', '');
-            if (input.value) {
-                envVars[key] = input.value;
-            }
-        });
         
         const response = await fetch('/api/install', {
             method: 'POST',
@@ -955,12 +927,11 @@ async function executeInstall(containerName) {
         const data = await response.json();
         if (data.status === 'success') {
             // Zeige Erfolgs-Nachricht
-            modalContent.innerHTML = `
+            modalBody.innerHTML = `
                 <div class="install-success">
                     <i class="fa fa-check-circle"></i>
                     <h3>${containerName} installed successfully!</h3>
                     <p>The container has been installed and started.</p>
-                    <button class="btn primary" onclick="closeModal()">Close</button>
                 </div>
             `;
             
@@ -977,14 +948,17 @@ async function executeInstall(containerName) {
     } catch (error) {
         console.error('Error:', error);
         // Zeige Fehler-Nachricht
-        modalContent.innerHTML = `
+        modalBody.innerHTML = `
             <div class="install-success error">
                 <i class="fa fa-times-circle"></i>
                 <h3>Installation Failed</h3>
                 <p>${error.message}</p>
-                <button class="btn" onclick="closeModal()">Close</button>
             </div>
         `;
+        modalFooter.innerHTML = `
+            <button class="btn" onclick="closeModal()">Close</button>
+        `;
+        modalFooter.style.display = 'flex';
     }
 }
 
