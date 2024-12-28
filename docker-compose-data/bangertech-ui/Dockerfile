@@ -14,7 +14,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Erstelle Verzeichnisse
 RUN mkdir -p /app/static/css \
             /app/static/js \
-            /app/static/img \
+            /app/static/img/icons \
             /app/templates \
             /app/docker-compose-files
 
@@ -24,13 +24,12 @@ COPY src/templates/ /app/templates/
 COPY src/static/css/ /app/static/css/
 COPY src/static/js/ /app/static/js/
 
+# Kopiere die Icons
+COPY src/static/img/icons/*.png /app/static/img/icons/
+
 # Debug: Zeige Verzeichnisinhalt
-RUN echo "=== Checking static directory ===" && \
-    ls -la /app/static && \
-    echo "=== Checking img directory ===" && \
-    ls -la /app/static/img && \
-    echo "=== File details ===" && \
-    file /app/static/img/* || true
+RUN echo "=== Checking icons directory ===" && \
+    ls -la /app/static/img/icons/
 
 # Setze Berechtigungen
 RUN chmod -R 755 /app/static

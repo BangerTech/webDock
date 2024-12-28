@@ -41,9 +41,12 @@ sudo cp docker-compose-files/bangertech-ui/src/app.py "$SRC_DIR/" || { echo "Err
 sudo cp docker-compose-files/bangertech-ui/src/templates/index.html "$SRC_DIR/templates/" || { echo "Error copying index.html"; exit 1; }
 sudo cp docker-compose-files/bangertech-ui/src/static/css/style.css "$SRC_DIR/static/css/" || { echo "Error copying style.css"; exit 1; }
 sudo cp docker-compose-files/bangertech-ui/src/static/js/main.js "$SRC_DIR/static/js/" || { echo "Error copying main.js"; exit 1; }
+sudo cp docker-compose-files/bangertech-ui/src/static/img/logo.png "$SRC_DIR/static/img/logo.png" || { echo "Error copying logo.png"; exit 1; }
 
-# Neue Zeile
-sudo cp "docker-compose-files/bangertech-ui/src/static/img/logo.png" "$SRC_DIR/static/img/logo.png" || { echo "Error copying logo.png"; exit 1; }
+# Kopiere Icons
+echo "Copying icons..."
+sudo mkdir -p "$SRC_DIR/static/img/icons"
+sudo cp docker-compose-files/bangertech-ui/src/static/img/icons/*.png "$SRC_DIR/static/img/icons/" || { echo "Error copying icons"; exit 1; }
 
 # Setze Berechtigungen
 sudo chown -R $USER:$USER "$BASE_DIR"

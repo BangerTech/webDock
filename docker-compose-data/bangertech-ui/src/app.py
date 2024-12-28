@@ -787,15 +787,24 @@ def update_container(container_name):
 @app.route('/static/img/<path:filename>')
 def serve_image(filename):
     try:
-        img_path = os.path.join(app.static_folder, 'img')
-        logger.info(f"Serving image {filename} from {img_path}")
-        logger.info(f"Directory contents: {os.listdir(img_path)}")
-        logger.info(f"File exists: {os.path.exists(os.path.join(img_path, filename))}")
+        img_dir = os.path.join(app.static_folder, 'img', 'icons')
+        # Entferne "icons/" vom Dateinamen, falls vorhanden
+        clean_filename = filename.replace('icons/', '')
         
-        return send_from_directory(os.path.join(app.static_folder, 'img'), filename)
+        logger.info(f"Looking for image {clean_filename} in {img_dir}")
+        logger.info(f"Directory exists: {os.path.exists(img_dir)}")
+        logger.info(f"Directory contents: {os.listdir(img_dir) if os.path.exists(img_dir) else 'Directory not found'}")
+        
+        if os.path.exists(os.path.join(img_dir, clean_filename)):
+            logger.info(f"Found image file: {clean_filename}")
+            return send_from_directory(img_dir, clean_filename)
+        else:
+            logger.warning(f"Image not found: {clean_filename}")
+            return send_from_directory(img_dir, 'bangertech.png')
+            
     except Exception as e:
-        logger.exception(f"Error serving image {filename}")
-        return str(e), 404
+        logger.error(f"Error serving image {filename}: {str(e)}")
+        return '', 404
 
 @app.route('/api/system/status')
 def get_system_status():
@@ -1327,6 +1336,17 @@ def get_containers_status():
     except Exception as e:
         logger.exception("Error getting container status")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/debug/icons')
+def debug_icons():
+    img_dir = os.path.join(app.static_folder, 'img', 'icons')
+    return jsonify({
+        'img_dir': img_dir,
+        'exists': os.path.exists(img_dir),
+        'files': os.listdir(img_dir) if os.path.exists(img_dir) else [],
+        'static_folder': app.static_folder,
+        'full_path': os.path.abspath(img_dir)
+    })
 
 if __name__ == '__main__':
     # Initialisiere die Anwendung

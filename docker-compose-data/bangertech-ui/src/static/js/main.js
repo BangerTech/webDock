@@ -1089,19 +1089,55 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 }); 
 
+function getContainerLogo(containerName) {
+    // Debug-Log hinzufügen
+    console.log(`Getting logo for container: ${containerName}`);
+    
+    const logoMapping = {
+        'bangertech-ui': 'bangertech.png',
+        'code-server': 'codeserver.png',
+        'dockge': 'dockge.png',
+        'filebrowser': 'filebrowser.png',
+        'grafana': 'grafana.png',
+        'heimdall': 'heimdall.png',
+        'homeassistant': 'homeassistant.png',
+        'homebridge': 'homebridge.png',
+        'influxdb-arm': 'influxdb.png',
+        'influxdb-x86': 'influxdb.png',
+        'mosquitto-broker': 'mosquitto.png',
+        'zigbee2mqtt': 'mqtt.png',
+        'nodeexporter': 'nodeexporter.png',
+        'openhab': 'openhab.png',
+        'portainer': 'portainer.png',
+        'prometheus': 'prometheus.png',
+        'raspberrymatic': 'raspberrymatic.png',
+        'whatsupdocker': 'whatsupdocker.png'
+    };
+
+    const logoFile = logoMapping[containerName] || 'bangertech.png';
+    console.log(`Mapped to logo file: ${logoFile}`);
+    return `/static/img/icons/${logoFile}`;
+}
+
 function createContainerCard(container) {
+    const logoUrl = getContainerLogo(container.name);
+    console.log(`Creating card for ${container.name} with logo: ${logoUrl}`);
+    
     return `
         <div class="container-card">
             <div class="status-indicator ${container.status}"></div>
-            <div class="container-header">
-                <div class="name-with-settings">
-                    <h3>${container.name}</h3>
-                    ${container.installed ? `
-                        <button class="info-btn" onclick="openInfo('${container.name}')" title="Container Information">
-                            <i class="fa fa-info-circle"></i>
-                        </button>
-                    ` : ''}
-                </div>
+            <div class="container-logo">
+                <img src="${logoUrl}" 
+                     alt="${container.name} logo" 
+                     onerror="console.error('Failed to load logo for ${container.name}'); this.src='/static/img/icons/bangertech.png'">
+            </div>
+            <div class="name-with-settings">
+                <h3>${container.name}</h3>
+                ${container.installed ? `
+                    <button class="info-btn" onclick="openInfo('${container.name}')" title="Container Information">
+                        <i class="fa fa-info-circle"></i>
+                    </button>
+                ` : ''}
             </div>
             <p>Port: ${container.port ? 
                 `<a href="http://${window.location.hostname}:${container.port}" 
@@ -1113,14 +1149,14 @@ function createContainerCard(container) {
             <p>${container.description || ''}</p>
             <div class="actions">
                 ${container.installed ? `
-                    <button class="status-btn" onclick="toggleContainer('${container.name}')">
-                        ${container.status === 'running' ? 'Stop' : 'Start'}
-                    </button>
-                    <button class="update-btn${container.update_available ? ' update-available' : ''}" 
-                            onclick="updateContainer('${container.name}')"
-                            title="${container.update_available ? 'Update available!' : 'Check for updates'}">
-                        Update
-                    </button>
+                    <div class="button-group">
+                        <button class="status-btn" onclick="toggleContainer('${container.name}')">
+                            ${container.status === 'running' ? 'Stop' : 'Start'}
+                        </button>
+                        <button class="update-btn" onclick="updateContainer('${container.name}')" title="Update container">
+                            <i class="fa fa-refresh"></i>
+                        </button>
+                    </div>
                 ` : `
                     <button class="install-btn" onclick="installContainer('${container.name}')">Install</button>
                 `}
