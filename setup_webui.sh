@@ -26,11 +26,12 @@ if [ -d "$BASE_DIR" ]; then
 fi
 
 echo "Creating directory structure..."
-# Erstelle neue Verzeichnisstruktur
+# Erstelle Verzeichnisstruktur
 sudo mkdir -p "$SRC_DIR/static/css"
 sudo mkdir -p "$SRC_DIR/static/js"
 sudo mkdir -p "$SRC_DIR/static/img"
 sudo mkdir -p "$SRC_DIR/templates"
+sudo mkdir -p "$SRC_DIR/config"  # Füge config-Verzeichnis hinzu
 
 echo "Copying files..."
 # Kopiere Dateien
@@ -47,6 +48,10 @@ sudo cp docker-compose-files/bangertech-ui/src/static/img/logo.png "$SRC_DIR/sta
 echo "Copying icons..."
 sudo mkdir -p "$SRC_DIR/static/img/icons"
 sudo cp docker-compose-files/bangertech-ui/src/static/img/icons/*.png "$SRC_DIR/static/img/icons/" || { echo "Error copying icons"; exit 1; }
+
+# Kopiere Konfigurationsdateien
+echo "Copying config files..."
+sudo cp docker-compose-files/bangertech-ui/src/config/categories.yaml "$SRC_DIR/config/" || { echo "Error copying categories.yaml"; exit 1; }
 
 # Setze Berechtigungen
 sudo chown -R $USER:$USER "$BASE_DIR"

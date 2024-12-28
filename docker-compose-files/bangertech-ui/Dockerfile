@@ -16,13 +16,15 @@ RUN mkdir -p /app/static/css \
             /app/static/js \
             /app/static/img/icons \
             /app/templates \
-            /app/docker-compose-files
+            /app/docker-compose-files \
+            /app/config
 
 # Kopiere die Anwendung
 COPY src/app.py /app/
 COPY src/templates/ /app/templates/
 COPY src/static/css/ /app/static/css/
 COPY src/static/js/ /app/static/js/
+COPY src/config/ /app/config/
 
 # Kopiere die Icons
 COPY src/static/img/icons/*.png /app/static/img/icons/
