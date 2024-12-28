@@ -10,6 +10,7 @@ import datetime
 import requests
 import threading
 from functools import lru_cache
+import shutil
 
 # Konfiguriere Logging
 logging.basicConfig(
@@ -245,121 +246,35 @@ def get_container_status(project_name):
         logger.error(f"Error getting container status: {e}", exc_info=True)
         return []
 
-def setup_container_environment(container_name, root_dir):
-    """Bereitet die Umgebung für einen Container vor"""
+def setup_container_environment(container_name, install_path, config_data=None):
+    """Führt container-spezifische Setups durch"""
     try:
-        base_dir = '/home/webDock/docker-compose-data'
-        logger.info(f"Setting up environment for {container_name} in {base_dir}")
+        logger.info(f"Setting up environment for {container_name} in {install_path}")
         
         # Container-spezifische Setups
-        if container_name == 'mosquitto':
-            # Setup für Mosquitto Broker
-            mosquitto_dir = f"{base_dir}/mosquitto"
-            config_dir = f"{mosquitto_dir}/config"
-            data_dir = f"{mosquitto_dir}/data"
-            log_dir = f"{mosquitto_dir}/log"
-            
-            # Erstelle alle benötigten Verzeichnisse
-            for dir_path in [config_dir, data_dir, log_dir]:
-                os.makedirs(dir_path, exist_ok=True, mode=0o755)
-            
-            # Kopiere die Konfigurationsdatei
-            src_config = '/app/docker-compose-files/mosquitto-broker/mosquitto.conf'
-            dst_config = os.path.join(config_dir, 'mosquitto.conf')
-            
-            with open(src_config, 'rb') as src, open(dst_config, 'wb') as dst:
-                dst.write(src.read())
-            
-            # Setze Berechtigungen für die Konfigurationsdatei
-            os.chmod(dst_config, 0o644)
-            
-        elif container_name == 'filestash':
-            # Setup für Filestash
-            os.makedirs(f"{base_dir}/filestash/data", exist_ok=True, mode=0o755)
+        if container_name == 'mosquitto-broker':
+            return setup_mosquitto(container_name, install_path)
             
         elif container_name == 'grafana':
-            # Setup für Grafana
-            grafana_dir = f"{base_dir}/grafana"
-            data_dir = f"{grafana_dir}/data"
+            return setup_grafana(container_name, install_path)
             
-            # Erstelle Verzeichnisse
-            os.makedirs(data_dir, exist_ok=True, mode=0o755)
+        elif container_name == 'influxdb-x86':
+            return setup_influxdb(container_name, install_path, config_data)
             
-            # Kopiere env.grafana
-            src_env = os.path.join(root_dir, 'env.grafana')
-            dst_env = os.path.join(data_dir, 'env.grafana')
-            try:
-                with open(src_env, 'rb') as src, open(dst_env, 'wb') as dst:
-                    dst.write(src.read())
-                os.chmod(dst_env, 0o644)
-            except Exception as e:
-                logger.error(f"Failed to copy env.grafana: {str(e)}")
-                return False
-        
-        elif container_name == 'influxdb':
-            # Setup für InfluxDB
-            os.makedirs(f"{base_dir}/influxdb", exist_ok=True, mode=0o755)
+        elif container_name == 'dockge':
+            return setup_dockge(container_name, install_path, config_data)
             
-        elif container_name == 'prometheus':
-            # Setup für Prometheus
-            os.makedirs(f"{base_dir}/prometheus/prometheus", exist_ok=True, mode=0o755)
-            for file in ['prometheus.yml', 'alert.yml']:
-                src_file = os.path.join(root_dir, file)
-                dst_file = f"{base_dir}/prometheus/prometheus/{file}"
-                with open(src_file, 'rb') as src, open(dst_file, 'wb') as dst:
-                    dst.write(src.read())
-        
-        elif container_name == 'whatsupdocker':
-            # Setup für WUD
-            os.makedirs(f"{base_dir}/whatsupdocker", exist_ok=True, mode=0o755)
-        
-        elif container_name == 'homeassistant':
-            # Setup für Home Assistant
-            os.makedirs(f"{base_dir}/homeassistant", exist_ok=True, mode=0o755)
-        
-        elif container_name == 'openhab':
-            # Setup für openHAB
-            os.makedirs(f"{base_dir}/openhab", exist_ok=True, mode=0o755)
-        
-        elif container_name == 'frontail':
-            # Setup für Frontail
-            os.makedirs(f"{base_dir}/frontail", exist_ok=True, mode=0o755)
-        
-        elif container_name == 'heimdall':
-            # Setup für Heimdall
-            os.makedirs(f"{base_dir}/heimdall", exist_ok=True, mode=0o755)
-        
-        elif container_name == 'portainer':
-            # Setup für Portainer
-            os.makedirs(f"{base_dir}/portainer", exist_ok=True, mode=0o755)
-        
-        elif container_name == 'raspberrymatic':
-            # Setup für RaspberryMatic
-            os.makedirs(f"{base_dir}/raspberrymatic", exist_ok=True, mode=0o755)
-        
-        elif container_name == 'codeserver':
-            # Setup für Code Server
-            os.makedirs(f"{base_dir}/codeserver", exist_ok=True, mode=0o755)
-        
-        elif container_name == 'node_exporter':
-            # Setup für Node Exporter
-            os.makedirs(f"{base_dir}/node_exporter", exist_ok=True, mode=0o755)
-        
+        elif container_name == 'filestash':
+            return setup_filestash(container_name, install_path)
+            
         elif container_name == 'watchyourlan':
-            # Setup für WatchYourLAN
-            os.makedirs(f"{base_dir}/watchyourlan", exist_ok=True, mode=0o755)
-        
-        # Setze Berechtigungen
-        for root, dirs, files in os.walk(base_dir):
-            for d in dirs:
-                os.chmod(os.path.join(root, d), 0o755)
-            for f in files:
-                os.chmod(os.path.join(root, f), 0o644)
-        
-        logger.info(f"Successfully set up environment for {container_name}")
+            return setup_watchyourlan(container_name, install_path, config_data)
+            
+        # Für Container ohne spezielle Setup-Anforderungen
         return True
+        
     except Exception as e:
-        logger.exception(f"Error setting up environment for {container_name}")
+        logger.error(f"Error in setup for {container_name}: {str(e)}")
         return False
 
 def download_compose_files():
@@ -557,46 +472,33 @@ def check_for_updates(container_name):
 @app.route('/api/containers')
 def get_containers():
     try:
-        # Hole Container-Konfigurationen aus dem Cache
         container_configs = get_cached_containers()
-        
         processed_services = set()
         installed_containers = get_installed_containers()
         running_containers = get_running_containers()
         categories = load_categories()
         grouped_containers = {}
-        total_containers = 0
-        
-        # Debug-Log für Kategorien
-        logger.info(f"Loaded categories: {categories}")
         
         for container_name, compose_data in container_configs.items():
-            total_containers += len(compose_data['services'])
-            
-            # Prüfe auf zusätzliche Konfiguration im richtigen Pfad
-            config_file = os.path.join('/home/webDock/docker-compose-files', container_name, 'config.yml')
-            container_config = {}
-            if os.path.exists(config_file):
-                try:
-                    with open(config_file) as cf:
-                        container_config = yaml.safe_load(cf) or {}
-                except Exception as e:
-                    logger.error(f"Error loading config for {container_name}: {e}")
+            # Verwende den korrekten Container-Namen
+            dir_name = get_container_directory_name(container_name)
             
             for service_name, service_data in compose_data['services'].items():
                 if service_name in processed_services:
                     continue
-                    
-                processed_services.add(service_name)
+                
+                # Verwende den korrekten Service-Namen
+                display_name = dir_name if service_name == 'mosquitto' else service_name
+                processed_services.add(display_name)
                 
                 # Bestimme die Kategorie
                 category = 'Other'
                 for cat_id, cat_data in categories.get('categories', {}).items():
-                    logger.info(f"Checking category {cat_id} for container {service_name}")
+                    logger.info(f"Checking category {cat_id} for container {display_name}")
                     logger.info(f"Category containers: {cat_data.get('containers', [])}")
-                    if service_name in cat_data.get('containers', []):
+                    if display_name in cat_data.get('containers', []):
                         category = cat_data['name']
-                        logger.info(f"Found category {category} for container {service_name}")
+                        logger.info(f"Found category {category} for container {display_name}")
                         break
                 
                 # Extrahiere Port aus service_data
@@ -605,14 +507,13 @@ def get_containers():
                     port = _extract_port(service_data['ports'])
                 
                 container = {
-                    'name': service_name,
-                    'status': 'running' if service_name in running_containers else 'stopped',
-                    'installed': service_name in installed_containers,
-                    'description': container_config.get('description', '') or 
-                                 service_data.get('labels', {}).get('description', ''),
+                    'name': display_name,
+                    'status': 'running' if display_name in running_containers else 'stopped',
+                    'installed': display_name in installed_containers,
+                    'description': service_data.get('labels', {}).get('description', ''),  # Vereinfachte Beschreibung
                     'group': category,
                     'icon': categories.get('categories', {}).get(category, {}).get('icon', 'fa-cube'),
-                    'version': container_config.get('version', 'latest'),
+                    'version': service_data.get('image', '').split(':')[-1] or 'latest',  # Version aus Image-Tag
                     'port': port,
                     'volumes': service_data.get('volumes', [])
                 }
@@ -626,22 +527,10 @@ def get_containers():
                     }
                 grouped_containers[category]['containers'].append(container)
         
-        logger.info(f"\n=== Summary ===")
-        logger.info(f"Total containers found: {total_containers}")
-        logger.info(f"Unique services: {len(processed_services)}")
-        logger.info(f"Services: {sorted(list(processed_services))}")
-        
-        if not processed_services:
-            logger.warning("No containers found in docker-compose-files directory")
-        
-        # Debug-Ausgabe der gruppierten Container
-        logger.info("Grouped Containers:")
-        for category, data in grouped_containers.items():
-            logger.info(f"{category}: {len(data['containers'])} containers")
-        
         return jsonify(grouped_containers)
+        
     except Exception as e:
-        logger.exception("Error in get_containers")
+        logger.error("Error in get_containers", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/install', methods=['POST'])
@@ -649,62 +538,41 @@ def install_container():
     try:
         data = request.json
         container_name = data['name']
+        dir_name = get_container_directory_name(container_name)
         install_path = data['path']
-        port = data.get('port')
-        env_vars = data.get('env', {})
+        config_data = data.get('config', {})
         
         # Erstelle Installationsverzeichnis
         os.makedirs(install_path, exist_ok=True)
         
-        # Kopiere docker-compose.yml
-        compose_template = f'/home/webDock/docker-compose-files/{container_name}/docker-compose.yml'
+        # Führe container-spezifisches Setup durch
+        if not setup_container_environment(dir_name, install_path, config_data):
+            raise Exception(f"Setup failed for {container_name}")
+        
+        # Kopiere und aktualisiere docker-compose.yml
+        compose_template = f'/app/docker-compose-files/{dir_name}/docker-compose.yml'
         target_compose = os.path.join(install_path, 'docker-compose.yml')
         
         with open(compose_template, 'r') as src:
             compose_content = src.read()
-            
-        # Ersetze Pfade und Ports
-        compose_content = compose_content.replace(
-            '/home/webDock/docker-compose-data',
-            os.path.dirname(install_path)
-        )
         
-        if port:
-            # Aktualisiere Port-Mapping
-            compose_content = update_port_mapping(compose_content, port)
-        
-        # Aktualisiere Environment-Variablen
-        if env_vars:
-            compose_data = yaml.safe_load(compose_content)
-            service_name = list(compose_data['services'].keys())[0]
-            
-            if 'environment' not in compose_data['services'][service_name]:
-                compose_data['services'][service_name]['environment'] = {}
-            
-            # Füge neue Umgebungsvariablen hinzu oder aktualisiere bestehende
-            if isinstance(compose_data['services'][service_name]['environment'], list):
-                # Konvertiere Liste zu Dictionary
-                env_dict = {}
-                for env in compose_data['services'][service_name]['environment']:
-                    if '=' in env:
-                        key, value = env.split('=', 1)
-                        env_dict[key] = value
-                compose_data['services'][service_name]['environment'] = env_dict
-            
-            compose_data['services'][service_name]['environment'].update(env_vars)
-            compose_content = yaml.dump(compose_data, default_flow_style=False)
+        # Aktualisiere Compose-Datei mit benutzerdefinierten Einstellungen
+        compose_content = update_compose_file(compose_content, data)
         
         # Schreibe aktualisierte docker-compose.yml
         with open(target_compose, 'w') as dst:
             dst.write(compose_content)
         
-        # Führe Container-spezifisches Setup aus
-        setup_container_environment(container_name, install_path)
-        
+        # Starte Container mit vollem Pfad zu docker-compose
+        docker_compose_cmd = '/usr/libexec/docker/cli-plugins/docker-compose'
+        if not os.path.exists(docker_compose_cmd):
+            docker_compose_cmd = 'docker compose'  # Fallback auf neuen Docker Compose Befehl
+            
         # Starte Container
-        subprocess.run(['docker', 'compose', 'up', '-d'], 
-                     cwd=install_path, 
-                     check=True)
+        subprocess.run(f'{docker_compose_cmd} -f {target_compose} up -d', 
+                      shell=True, 
+                      check=True,
+                      cwd=install_path)
         
         return jsonify({
             'status': 'success',
@@ -712,11 +580,18 @@ def install_container():
         })
         
     except Exception as e:
-        logger.exception(f"Error installing container {container_name}")
+        logger.error(f"Installation failed: {str(e)}")
         return jsonify({
             'status': 'error',
             'message': str(e)
         }), 500
+
+def get_docker_compose_cmd():
+    """Gibt den korrekten docker-compose Befehl zurück"""
+    docker_compose_cmd = '/usr/libexec/docker/cli-plugins/docker-compose'
+    if not os.path.exists(docker_compose_cmd):
+        docker_compose_cmd = 'docker compose'  # Fallback auf neuen Docker Compose Befehl
+    return docker_compose_cmd
 
 @app.route('/api/toggle/<container_name>', methods=['POST'])
 def toggle_container(container_name):
@@ -737,14 +612,17 @@ def toggle_container(container_name):
         ]
         
         is_running = any(name in running_containers for name in container_names)
+        docker_compose_cmd = get_docker_compose_cmd()
         
         if is_running:
             # Stoppe Container
-            subprocess.run(['docker', 'compose', '-f', f'/home/webDock/docker-compose-data/{container_name}/docker-compose.yml', 'down'])
+            subprocess.run(f'{docker_compose_cmd} -f /home/webDock/docker-compose-data/{container_name}/docker-compose.yml down',
+                         shell=True, check=True)
             message = f"Container {container_name} stopped"
         else:
             # Starte Container
-            subprocess.run(['docker', 'compose', '-f', f'/home/webDock/docker-compose-data/{container_name}/docker-compose.yml', 'up', '-d'])
+            subprocess.run(f'{docker_compose_cmd} -f /home/webDock/docker-compose-data/{container_name}/docker-compose.yml up -d',
+                         shell=True, check=True)
             message = f"Container {container_name} started"
         
         return jsonify({
@@ -1137,17 +1015,21 @@ def get_container_config(container_name):
 @app.route('/api/container/<container_name>/config', methods=['GET'])
 def get_container_config(container_name):
     try:
+        # Hole den korrekten Verzeichnisnamen
+        dir_name = get_container_directory_name(container_name)
+        
         # Unterscheide zwischen Template und installiertem Container
         if request.args.get('template') == 'true':
             # Hole Template-Konfiguration aus dem docker-compose-files Verzeichnis
             compose_paths = [
-                f'/app/docker-compose-files/{container_name}/docker-compose.yml',
-                f'/home/webDock/docker-compose-files/{container_name}/docker-compose.yml'
+                f'/app/docker-compose-files/{dir_name}/docker-compose.yml',
+                f'/home/webDock/docker-compose-files/{dir_name}/docker-compose.yml'
             ]
             
             # Versuche beide mögliche Pfade
             for compose_path in compose_paths:
                 if os.path.exists(compose_path):
+                    logger.info(f"Found config file at {compose_path}")
                     with open(compose_path, 'r') as f:
                         yaml_content = f.read()
                         return jsonify({
@@ -1163,7 +1045,7 @@ def get_container_config(container_name):
             }), 404
         else:
             # Hole installierte Konfiguration
-            compose_path = f'/home/webDock/docker-compose-data/{container_name}/docker-compose.yml'
+            compose_path = f'/home/webDock/docker-compose-data/{dir_name}/docker-compose.yml'
             if not os.path.exists(compose_path):
                 return jsonify({
                     'status': 'error',
@@ -1340,6 +1222,275 @@ def debug_icons():
         'static_folder': app.static_folder,
         'full_path': os.path.abspath(img_dir)
     })
+
+def setup_mosquitto(container_name, install_path):
+    """Setup für Mosquitto Broker"""
+    try:
+        # Erstelle Verzeichnisse
+        config_dir = os.path.join(install_path, 'config')
+        data_dir = os.path.join(install_path, 'data')
+        log_dir = os.path.join(install_path, 'log')
+        
+        for dir_path in [config_dir, data_dir, log_dir]:
+            os.makedirs(dir_path, exist_ok=True, mode=0o755)
+        
+        # Erstelle Konfigurationsdatei mit korrekten Pfaden
+        config_path = os.path.join(config_dir, 'mosquitto.conf')
+        with open(config_path, 'w') as f:
+            f.write("""
+# Default Mosquitto Configuration
+listener 1883
+allow_anonymous true
+
+# Persistence
+persistence true
+persistence_location /mosquitto/data
+
+# Logging
+log_dest file /mosquitto/log/mosquitto.log
+log_type all
+connection_messages true
+log_timestamp true
+
+# Konfigurationsdateien
+include_dir /mosquitto/config/conf.d
+
+# Berechtigungen
+allow_anonymous false
+password_file /mosquitto/config/passwd
+acl_file /mosquitto/config/acl
+            """.strip())
+        
+        # Erstelle zusätzliche Konfigurationsverzeichnisse
+        conf_d_dir = os.path.join(config_dir, 'conf.d')
+        os.makedirs(conf_d_dir, exist_ok=True)
+        
+        # Erstelle leere Passwort- und ACL-Dateien
+        passwd_file = os.path.join(config_dir, 'passwd')
+        acl_file = os.path.join(config_dir, 'acl')
+        
+        # Erstelle leere Dateien wenn sie nicht existieren
+        for file_path in [passwd_file, acl_file]:
+            if not os.path.exists(file_path):
+                open(file_path, 'a').close()
+                os.chmod(file_path, 0o644)
+        
+        # Setze Berechtigungen für alle Verzeichnisse und Dateien
+        for dir_path in [config_dir, data_dir, log_dir, conf_d_dir]:
+            os.chmod(dir_path, 0o755)
+            for root, dirs, files in os.walk(dir_path):
+                for d in dirs:
+                    os.chmod(os.path.join(root, d), 0o755)
+                for f in files:
+                    os.chmod(os.path.join(root, f), 0o644)
+        
+        return True
+    except Exception as e:
+        logger.error(f"Mosquitto setup failed: {str(e)}")
+        return False
+
+def setup_grafana(container_name, install_path):
+    """Setup für Grafana"""
+    try:
+        data_dir = os.path.join(install_path, 'data')
+        os.makedirs(data_dir, exist_ok=True, mode=0o755)
+        
+        # Kopiere env.grafana
+        env_src = os.path.join(app.root_path, 'docker-compose-files/grafana/env.grafana')
+        env_dst = os.path.join(data_dir, 'env.grafana')
+        
+        shutil.copy2(env_src, env_dst)
+        os.chmod(env_dst, 0o644)
+        
+        return True
+    except Exception as e:
+        logger.error(f"Grafana setup failed: {str(e)}")
+        return False
+
+def setup_influxdb(container_name, install_path, config_data):
+    """Setup für InfluxDB"""
+    try:
+        # Erstelle Verzeichnis
+        os.makedirs(install_path, exist_ok=True, mode=0o755)
+        
+        if config_data.get('create_default_db', False):
+            def create_database():
+                time.sleep(10)  # Warte bis Container läuft
+                try:
+                    cmd = [
+                        'docker', 'exec', container_name,
+                        'influx', '-execute',
+                        "CREATE DATABASE database1; CREATE USER user1 WITH PASSWORD 'pwd12345'; GRANT ALL ON database1 TO user1"
+                    ]
+                    subprocess.run(cmd, check=True)
+                    logger.info("InfluxDB default database created successfully")
+                except Exception as e:
+                    logger.error(f"Failed to create InfluxDB database: {str(e)}")
+            
+            # Starte Datenbanksetup in separatem Thread
+            threading.Thread(target=create_database, daemon=True).start()
+        
+        return True
+    except Exception as e:
+        logger.error(f"InfluxDB setup failed: {str(e)}")
+        return False
+
+def setup_dockge(container_name, install_path, config_data):
+    """Setup für Dockge"""
+    try:
+        stacks_dir = config_data.get('stacks_dir')
+        if not stacks_dir:
+            raise ValueError("No stacks directory specified")
+        
+        # Aktualisiere docker-compose.yml
+        compose_file = os.path.join(install_path, 'docker-compose.yml')
+        with open(compose_file, 'r') as f:
+            compose_data = yaml.safe_load(f)
+        
+        # Füge Volumes hinzu
+        if 'services' in compose_data and 'app' in compose_data['services']:
+            volumes = compose_data['services']['app'].get('volumes', [])
+            volumes.append(f"{stacks_dir}:{stacks_dir}")
+            compose_data['services']['app']['volumes'] = volumes
+            
+            # Füge Umgebungsvariable hinzu
+            environment = compose_data['services']['app'].get('environment', [])
+            environment.append(f"DOCKGE_STACKS_DIR={stacks_dir}")
+            compose_data['services']['app']['environment'] = environment
+        
+        # Speichere aktualisierte Konfiguration
+        with open(compose_file, 'w') as f:
+            yaml.dump(compose_data, f)
+        
+        return True
+    except Exception as e:
+        logger.error(f"Dockge setup failed: {str(e)}")
+        return False
+
+def setup_filestash(container_name, install_path):
+    """Setup für Filestash"""
+    try:
+        # Erstelle Verzeichnis
+        data_dir = os.path.join(install_path, 'data')
+        os.makedirs(data_dir, exist_ok=True, mode=0o755)
+        
+        # Erste Installation mit temporärer Compose-Datei
+        temp_compose = os.path.join(install_path, 'docker-compose-temp.yml')
+        shutil.copy2(
+            os.path.join(app.root_path, 'docker-compose-files/filestash/docker-compose-before.yml'),
+            temp_compose
+        )
+        
+        # Starte Container temporär mit korrektem docker-compose Befehl
+        docker_compose_cmd = get_docker_compose_cmd()
+        subprocess.run(f'{docker_compose_cmd} -f {temp_compose} up -d',
+                      shell=True,
+                      check=True,
+                      cwd=install_path)
+        
+        return True
+    except Exception as e:
+        logger.error(f"Filestash setup failed: {str(e)}")
+        return False
+
+def setup_watchyourlan(container_name, install_path, config_data):
+    """Setup für WatchYourLAN"""
+    try:
+        interface = config_data.get('interface')
+        ip_address = config_data.get('ip_address')
+        
+        if not interface or not ip_address:
+            raise ValueError("Network interface or IP address not specified")
+        
+        # Aktualisiere docker-compose.yml
+        compose_file = os.path.join(install_path, 'docker-compose.yml')
+        with open(compose_file, 'r') as f:
+            compose_data = yaml.safe_load(f)
+        
+        if 'services' in compose_data and 'app' in compose_data['services']:
+            # Füge Command hinzu
+            compose_data['services']['app']['command'] = f'-n http://{ip_address}:8850'
+            
+            # Füge Umgebungsvariablen hinzu
+            environment = compose_data['services']['app'].get('environment', {})
+            environment['IFACE'] = interface
+            environment['GUIIP'] = ip_address
+            compose_data['services']['app']['environment'] = environment
+        
+        # Speichere aktualisierte Konfiguration
+        with open(compose_file, 'w') as f:
+            yaml.dump(compose_data, f)
+        
+        return True
+    except Exception as e:
+        logger.error(f"WatchYourLAN setup failed: {str(e)}")
+        return False
+
+def get_container_directory_name(container_name):
+    """Mappt Container-Namen zu ihren Verzeichnisnamen"""
+    container_mapping = {
+        'mosquitto': 'mosquitto-broker',  # Mapping von mosquitto zu mosquitto-broker
+        'mosquitto-broker': 'mosquitto-broker',  # Direktes Mapping
+        'influxdb': 'influxdb-x86',
+        'node-exporter': 'nodeexporter',
+        'zigbee2mqtt': 'zigbee2mqtt',
+        'code-server': 'codeserver',
+        'whats-up-docker': 'whatsupdocker'
+    }
+    return container_mapping.get(container_name, container_name)
+
+def update_compose_file(compose_content, install_data):
+    """Aktualisiert die docker-compose.yml mit benutzerdefinierten Einstellungen"""
+    try:
+        compose_data = yaml.safe_load(compose_content)
+        
+        # Hole den ersten Service-Namen
+        service_name = list(compose_data['services'].keys())[0]
+        service = compose_data['services'][service_name]
+        
+        # Aktualisiere Ports
+        if 'ports' in install_data:
+            new_ports = []
+            for port_mapping in service.get('ports', []):
+                if isinstance(port_mapping, str) and ':' in port_mapping:
+                    container_port = port_mapping.split(':')[1]
+                    host_port = install_data['ports'].get(container_port, container_port.split('/')[0])
+                    new_ports.append(f"{host_port}:{container_port}")
+                else:
+                    new_ports.append(port_mapping)
+            service['ports'] = new_ports
+        
+        # Aktualisiere Umgebungsvariablen
+        if 'env' in install_data:
+            env_vars = service.get('environment', {})
+            if isinstance(env_vars, list):
+                # Konvertiere Liste zu Dictionary
+                env_dict = {}
+                for env in env_vars:
+                    if '=' in env:
+                        key, value = env.split('=', 1)
+                        env_dict[key] = value
+                env_vars = env_dict
+            
+            # Aktualisiere mit neuen Werten
+            env_vars.update(install_data['env'])
+            
+            # Konvertiere zurück zu Liste wenn nötig
+            if isinstance(service.get('environment', []), list):
+                service['environment'] = [f"{k}={v}" for k, v in env_vars.items()]
+            else:
+                service['environment'] = env_vars
+        
+        # Aktualisiere Volumes
+        if 'volumes' in install_data:
+            service['volumes'] = install_data['volumes']
+        
+        # Konvertiere zurück zu YAML
+        return yaml.dump(compose_data, default_flow_style=False)
+        
+    except Exception as e:
+        logger.error(f"Error updating compose file: {str(e)}")
+        raise ValueError(f"Failed to update compose file: {str(e)}")
 
 if __name__ == '__main__':
     # Initialisiere die Anwendung

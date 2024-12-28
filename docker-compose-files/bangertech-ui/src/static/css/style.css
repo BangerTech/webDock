@@ -1230,43 +1230,35 @@ section h2 i {
 }
 
 .install-progress {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 1rem;
-    padding: 1rem;
-}
-
-.install-spinner {
-    width: 40px;
-    height: 40px;
-    color: var(--color-primary);
-}
-
-.install-status {
-    font-weight: 500;
-    color: var(--color-main-text);
-}
-
-.install-success {
     text-align: center;
     padding: 2rem;
 }
 
-.install-success i {
-    font-size: 3em;
-    color: var(--color-success);
+.install-spinner {
     margin-bottom: 1rem;
 }
 
-.install-success h3 {
-    margin: 1rem 0;
+.install-spinner i {
+    font-size: 3rem;
+    color: var(--color-primary);
+}
+
+.install-status h4 {
+    margin-bottom: 1rem;
     color: var(--color-main-text);
 }
 
-.install-success p {
-    color: var(--color-text-maxcontrast);
-    margin-bottom: 1.5rem;
+.install-steps {
+    text-align: left;
+    margin: 1rem auto;
+    max-width: 300px;
+}
+
+.install-steps p {
+    margin: 0.5rem 0;
+    padding: 0.5rem;
+    border-radius: 4px;
+    background: var(--color-background-dark);
 }
 
 /* System Logs Styling */
@@ -1324,4 +1316,82 @@ section h2 i {
 
 .container-info {
     flex: 1;
+}
+
+/* Installation Steps */
+.install-steps {
+    margin: 2rem 0;
+}
+
+.step-indicator {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 2rem;
+    position: relative;
+}
+
+.step-indicator::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--color-background-dark);
+    z-index: 1;
+}
+
+.step {
+    position: relative;
+    z-index: 2;
+    background: var(--color-main-background);
+    padding: 1rem;
+    border-radius: 50%;
+    width: 50px;
+    height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    transition: all 0.3s ease;
+}
+
+.step i {
+    font-size: 1.2rem;
+    margin-bottom: 0.5rem;
+    color: var(--color-text-maxcontrast);
+}
+
+.step span {
+    position: absolute;
+    bottom: -25px;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    color: var(--color-text-maxcontrast);
+}
+
+.step.active {
+    background: var(--color-primary);
+    color: white;
+}
+
+.step.active i,
+.step.active span {
+    color: white;
+}
+
+.step.done {
+    background: var(--color-success);
+    color: white;
+}
+
+.step.done i,
+.step.done span {
+    color: white;
+}
+
+.step-details {
+    text-align: center;
+    margin-top: 3rem;
+    min-height: 50px;
 }

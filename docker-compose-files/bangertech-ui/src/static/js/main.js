@@ -798,10 +798,36 @@ async function showInstallModal(containerName) {
         modal.innerHTML = `
             <div class="modal-content">
                 <div class="modal-header">
-                    <h2><i class="fa fa-download"></i> Install ${containerName}</h2>
+                    <h2>
+                        <img src="${getContainerLogo(containerName)}" 
+                             alt="${containerName} logo" 
+                             style="width: 24px; height: 24px; margin-right: 8px;">
+                        Install ${containerName}
+                    </h2>
                     <button class="close-modal">&times;</button>
                 </div>
                 <div class="modal-body">
+                    <div class="install-steps" style="display: none;">
+                        <div class="step-indicator">
+                            <div class="step preparing">
+                                <i class="fa fa-cog"></i>
+                                <span>Preparing</span>
+                            </div>
+                            <div class="step installing">
+                                <i class="fa fa-download"></i>
+                                <span>Installing</span>
+                            </div>
+                            <div class="step configuring">
+                                <i class="fa fa-wrench"></i>
+                                <span>Configuring</span>
+                            </div>
+                            <div class="step finishing">
+                                <i class="fa fa-check"></i>
+                                <span>Finishing</span>
+                            </div>
+                        </div>
+                        <div class="step-details"></div>
+                    </div>
                     <form id="install-form">
                         ${ports.length > 0 ? `
                             <div class="config-section">
@@ -842,13 +868,8 @@ async function showInstallModal(containerName) {
                     </form>
                 </div>
                 <div class="modal-footer">
-                    <div class="install-progress" style="display: none;">
-                        <div class="docker-spinner">
-                            <i class="fa fa-docker fa-spin"></i>
-                        </div>
-                        <span class="install-status">Installing...</span>
-                    </div>
-                    <button class="install-btn" onclick="executeInstall('${containerName}')">
+                    <button class="btn cancel" onclick="closeModal()">Cancel</button>
+                    <button class="btn install" onclick="executeInstall('${containerName}')">
                         <i class="fa fa-download"></i> Install
                     </button>
                 </div>
@@ -894,86 +915,98 @@ async function executeInstall(containerName) {
     const form = document.getElementById('install-form');
     const modalBody = document.querySelector('.modal-body');
     const modalFooter = document.querySelector('.modal-footer');
+    const installSteps = modalBody.querySelector('.install-steps');
     
     try {
-        // Zeige Installations-Animation
-        modalBody.innerHTML = `
-            <div class="install-progress">
-                <div class="install-spinner">
-                    <i class="fa fa-docker fa-spin"></i>
-                </div>
-                <span class="install-status">Installing ${containerName}...</span>
-            </div>
-        `;
+        // Zeige Installations-Schritte
+        installSteps.style.display = 'block';
+        form.style.display = 'none';
         modalFooter.style.display = 'none';
 
+        // Aktiviere ersten Schritt
+        const steps = installSteps.querySelectorAll('.step');
+        steps[0].classList.add('active');
+        
         // Sammle die Formulardaten
         const formData = new FormData(form);
-        const ports = {};
-        const envVars = {};
+        const installData = {
+            name: containerName,
+            path: `/home/webDock/docker-compose-data/${containerName}`,
+            ports: {},
+            env: {}
+        };
         
-        // Sammle Ports
+        // Sammle Ports und Environment-Variablen
         formData.forEach((value, key) => {
             if (key.startsWith('port_')) {
                 const index = key.replace('port_', '');
-                ports[index] = value;
+                installData.ports[index] = value;
             } else if (key.startsWith('env_')) {
                 const envKey = key.replace('env_', '');
                 if (value) {
-                    envVars[envKey] = value;
+                    installData.env[envKey] = value;
                 }
             }
         });
 
-        // Hole die aktuelle data-location aus den Settings
-        const locationResponse = await fetch('/api/settings/data-location');
-        const locationData = await locationResponse.json();
-        const baseDir = locationData.location;
+        // Update Status: Preparing -> Installing
+        steps[0].classList.remove('active');
+        steps[0].classList.add('done');
+        steps[1].classList.add('active');
         
+        // Führe Installation durch
         const response = await fetch('/api/install', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: containerName,
-                path: `${baseDir}/${containerName}`,
-                ports: ports,
-                env: envVars
-            })
+            body: JSON.stringify(installData)
         });
         
         const data = await response.json();
+        
         if (data.status === 'success') {
-            // Zeige Erfolgs-Nachricht
-            modalBody.innerHTML = `
-                <div class="install-success">
-                    <i class="fa fa-check-circle"></i>
-                    <h3>${containerName} installed successfully!</h3>
-                    <p>The container has been installed and started.</p>
-                </div>
-            `;
+            // Update Status: Installing -> Configuring -> Finishing
+            steps[1].classList.remove('active');
+            steps[1].classList.add('done');
+            steps[2].classList.add('active');
+            
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            steps[2].classList.remove('active');
+            steps[2].classList.add('done');
+            steps[3].classList.add('active');
+            
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            steps[3].classList.remove('active');
+            steps[3].classList.add('done');
             
             // Aktualisiere Container-Status
             updateContainerStatus(true);
             
-            // Schließe Modal automatisch nach 3 Sekunden
+            // Zeige Erfolgs-Nachricht und schließe Modal
             setTimeout(() => {
                 closeModal();
-            }, 3000);
+                showNotification('success', `${containerName} installed successfully`);
+            }, 1000);
         } else {
             throw new Error(data.message || 'Installation failed');
         }
     } catch (error) {
         console.error('Error:', error);
-        // Zeige Fehler-Nachricht
+        // Zeige Fehler im Modal
         modalBody.innerHTML = `
-            <div class="install-success error">
+            <div class="install-error">
                 <i class="fa fa-times-circle"></i>
                 <h3>Installation Failed</h3>
                 <p>${error.message}</p>
+                <div class="error-details">
+                    <p>Please check the logs for more details.</p>
+                </div>
             </div>
         `;
         modalFooter.innerHTML = `
             <button class="btn" onclick="closeModal()">Close</button>
+            <button class="btn retry" onclick="executeInstall('${containerName}')">Retry</button>
         `;
         modalFooter.style.display = 'flex';
     }
@@ -1094,7 +1127,7 @@ function getContainerLogo(containerName) {
     console.log(`Getting logo for container: ${containerName}`);
     
     const logoMapping = {
-        'bangertech-ui': 'bangertech.png',
+        'mosquitto-broker': 'mosquitto.png',  // Verwende mosquitto.png für mosquitto-broker
         'code-server': 'codeserver.png',
         'dockge': 'dockge.png',
         'filebrowser': 'filebrowser.png',

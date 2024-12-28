@@ -1,12 +1,13 @@
+version: '3'
 services:
-  mosquitto:
+  mosquitto-broker:
     image: eclipse-mosquitto:latest
-    container_name: mosquitto
-    restart: unless-stopped
-    volumes:
-      - /home/The-BangerTECH-Utility-main/docker-compose-data/mosquitto/config:/mosquitto/config
-      - /home/The-BangerTECH-Utility-main/docker-compose-data/mosquitto/data:/mosquitto/data
-      - /home/The-BangerTECH-Utility-main/docker-compose-data/mosquitto/log:/mosquitto/log
+    container_name: mosquitto-broker
     ports:
       - "1883:1883"
       - "9001:9001"
+    volumes:
+      - ./config:/mosquitto/config
+      - ./data:/mosquitto/data
+      - ./log:/mosquitto/log
+    restart: unless-stopped
