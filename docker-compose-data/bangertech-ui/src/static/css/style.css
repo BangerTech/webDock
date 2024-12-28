@@ -98,20 +98,41 @@ nav a:hover, nav a.active {
 }
 
 .status-indicator {
-    position: absolute;
-    top: 1rem;
-    right: 1rem;
     width: 12px;
     height: 12px;
     border-radius: 50%;
+    display: inline-block;
+    margin-right: 8px;
+    position: relative;
 }
 
 .status-indicator.running {
-    background: var(--color-success);
+    background-color: var(--color-success);
+    box-shadow: 0 0 8px var(--color-success);
+    animation: pulse 2s infinite;
 }
 
 .status-indicator.stopped {
-    background: var(--color-error);
+    background-color: var(--color-error);
+    box-shadow: 0 0 8px var(--color-error);
+}
+
+@keyframes pulse {
+    0% {
+        box-shadow: 0 0 4px var(--color-success);
+    }
+    50% {
+        box-shadow: 0 0 12px var(--color-success);
+    }
+    100% {
+        box-shadow: 0 0 4px var(--color-success);
+    }
+}
+
+.status-indicator.good,
+.status-indicator.warning,
+.status-indicator.critical {
+    display: none;
 }
 
 .actions {
@@ -246,57 +267,188 @@ button:disabled {
 /* Status Page Styles */
 .status-page {
     padding: 2rem;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.status-page h2 {
+    font-size: 1.8rem;
+    font-weight: 500;
+    margin-bottom: 1.5rem;
+    color: var(--color-main-text);
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
 }
 
 .status-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 2rem;
-    margin-top: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2.5rem;
 }
 
 .status-card {
-    background: var(--color-background-dark);
-    padding: 1.5rem;
-    border-radius: 10px;
+    background: var(--color-main-background);
+    padding: 1.8rem;
+    border-radius: 12px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+    transition: transform 0.2s, box-shadow 0.2s;
+    border: 1px solid rgba(0, 0, 0, 0.05);
     text-align: center;
 }
 
-.gauge-chart {
-    width: 150px;
-    height: 150px;
-    margin: 1rem auto;
+.status-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+.status-card h3 {
+    font-size: 1.1rem;
+    font-weight: 500;
+    margin: 0 0 1rem 0;
+    color: var(--color-main-text);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.gauge-wrapper {
     position: relative;
+    width: 200px;
+    height: 200px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.gauge-ring {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: conic-gradient(
+        var(--color-primary) var(--percentage),
+        var(--color-background-dark) var(--percentage)
+    );
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.gauge-ring::before {
+    content: '';
+    position: absolute;
+    width: 80%;
+    height: 80%;
+    background: var(--color-main-background);
+    border-radius: 50%;
 }
 
 .gauge-value {
-    font-size: 1.5rem;
-    font-weight: bold;
-    color: var(--color-primary);
+    position: absolute;
+    font-size: 2.5rem;
+    font-weight: 600;
+    color: var(--color-main-text);
 }
 
-/* Container Health Styles */
+.gauge-label {
+    margin-top: 1rem;
+    font-size: 1.1rem;
+    color: var(--color-text-maxcontrast);
+}
+
+/* System Health Section */
+.health-section {
+    margin-top: 3rem;
+}
+
 .health-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
     gap: 1.5rem;
-    margin-top: 1rem;
 }
 
-/* System Logs Styles */
+.health-card {
+    background: var(--color-main-background);
+    padding: 1.5rem;
+    border-radius: 12px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+    border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.health-card h3 {
+    font-size: 1.1rem;
+    margin: 0 0 1rem 0;
+    color: var(--color-main-text);
+}
+
+/* System Logs Section */
+.logs-section {
+    margin-top: 3rem;
+}
+
 .log-viewer {
     background: var(--color-background-dark);
-    padding: 1rem;
-    border-radius: 5px;
-    margin-top: 1rem;
+    padding: 1.5rem;
+    border-radius: 12px;
     max-height: 400px;
     overflow-y: auto;
+    font-family: 'SF Mono', 'Monaco', 'Menlo', 'Courier', monospace;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    border: 1px solid rgba(0, 0, 0, 0.05);
 }
 
 .log-viewer pre {
     margin: 0;
     white-space: pre-wrap;
-    font-family: monospace;
+}
+
+/* Status Indicators */
+.status-indicator {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.3rem 0.8rem;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.status-indicator.good {
+    background-color: rgba(70, 186, 97, 0.1);
+    color: var(--color-success);
+}
+
+.status-indicator.warning {
+    background-color: rgba(240, 173, 78, 0.1);
+    color: var(--color-warning);
+}
+
+.status-indicator.critical {
+    background-color: rgba(233, 50, 45, 0.1);
+    color: var(--color-error);
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+    .status-page {
+        padding: 1rem;
+    }
+    
+    .status-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .gauge-chart {
+        width: 150px;
+        height: 150px;
+    }
+    
+    .gauge-value {
+        font-size: 1.6rem;
+    }
 }
 
 /* Settings Page Styles */
@@ -1071,3 +1223,42 @@ section h2 i {
     color: var(--color-text-maxcontrast);
     margin-bottom: 1.5rem;
 }
+
+/* System Logs Styling */
+.log-viewer {
+    background: var(--color-background-dark);
+    padding: 1.5rem;
+    border-radius: 12px;
+    max-height: 400px;
+    overflow-y: auto;
+    font-family: 'SF Mono', 'Monaco', 'Menlo', 'Courier', monospace;
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+
+.log-entry {
+    padding: 0.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    gap: 1rem;
+}
+
+.log-timestamp {
+    color: var(--color-text-maxcontrast);
+    white-space: nowrap;
+}
+
+.log-message {
+    flex: 1;
+}
+
+.log-level {
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    margin-right: 8px;
+}
+
+.log-level.info { background-color: rgba(0, 130, 201, 0.2); }
+.log-level.warning { background-color: rgba(240, 173, 78, 0.2); }
+.log-level.error { background-color: rgba(233, 50, 45, 0.2); }

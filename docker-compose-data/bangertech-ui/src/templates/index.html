@@ -64,19 +64,31 @@
                     <h2><i class="fa fa-server"></i> System Status</h2>
                     <div class="status-grid">
                         <div class="status-card">
-                            <h3>CPU Usage</h3>
-                            <div class="gauge-chart" id="cpu-gauge"></div>
-                            <div class="gauge-value" id="cpu-value">0%</div>
+                            <h3><i class="fa fa-microchip"></i> CPU Usage</h3>
+                            <div class="gauge-wrapper">
+                                <div id="cpu-gauge" class="gauge-ring">
+                                    <span id="cpu-value" class="gauge-value">0%</span>
+                                </div>
+                            </div>
+                            <div class="gauge-label">Processor Load</div>
                         </div>
                         <div class="status-card">
-                            <h3>Memory Usage</h3>
-                            <div class="gauge-chart" id="memory-gauge"></div>
-                            <div class="gauge-value" id="memory-value">0%</div>
+                            <h3><i class="fa fa-memory"></i> Memory Usage</h3>
+                            <div class="gauge-wrapper">
+                                <div id="memory-gauge" class="gauge-ring">
+                                    <span id="memory-value" class="gauge-value">0%</span>
+                                </div>
+                            </div>
+                            <div class="gauge-label">Memory Load</div>
                         </div>
                         <div class="status-card">
-                            <h3>Disk Usage</h3>
-                            <div class="gauge-chart" id="disk-gauge"></div>
-                            <div class="gauge-value" id="disk-value">0%</div>
+                            <h3><i class="fa fa-hdd"></i> Disk Usage</h3>
+                            <div class="gauge-wrapper">
+                                <div id="disk-gauge" class="gauge-ring">
+                                    <span id="disk-value" class="gauge-value">0%</span>
+                                </div>
+                            </div>
+                            <div class="gauge-label">Storage Load</div>
                         </div>
                     </div>
                 </section>

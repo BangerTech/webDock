@@ -167,14 +167,20 @@ document.addEventListener('DOMContentLoaded', function() {
         fetch('/api/system/status')
             .then(response => response.json())
             .then(data => {
-                document.getElementById('cpu-value').textContent = `${data.cpu}%`;
-                document.getElementById('memory-value').textContent = `${data.memory}%`;
-                document.getElementById('disk-value').textContent = `${data.disk}%`;
-                
-                // Update Gauge Charts
-                updateGaugeChart('cpu-gauge', data.cpu);
-                updateGaugeChart('memory-gauge', data.memory);
-                updateGaugeChart('disk-gauge', data.disk);
+                // CPU Usage
+                const cpuGauge = document.querySelector('#cpu-gauge');
+                cpuGauge.style.setProperty('--percentage', `${data.cpu}%`);
+                document.querySelector('#cpu-value').textContent = `${data.cpu}%`;
+
+                // Memory Usage
+                const memGauge = document.querySelector('#memory-gauge');
+                memGauge.style.setProperty('--percentage', `${data.memory}%`);
+                document.querySelector('#memory-value').textContent = `${data.memory}%`;
+
+                // Disk Usage
+                const diskGauge = document.querySelector('#disk-gauge');
+                diskGauge.style.setProperty('--percentage', `${data.disk}%`);
+                document.querySelector('#disk-value').textContent = `${data.disk}%`;
             })
             .catch(error => console.error('Error updating system status:', error));
     }
@@ -212,11 +218,22 @@ document.addEventListener('DOMContentLoaded', function() {
         fetch('/api/system/logs')
             .then(response => response.json())
             .then(data => {
-                const logsElement = document.getElementById('system-logs');
-                logsElement.textContent = data.logs.join('\n');
-                logsElement.scrollTop = logsElement.scrollHeight;
+                const logsContainer = document.getElementById('system-logs');
+                logsContainer.innerHTML = data.logs.map(log => {
+                    const timestamp = new Date(log.timestamp * 1000); // Konvertiere Unix-Timestamp
+                    return `
+                        <div class="log-entry">
+                            <span class="log-timestamp">${timestamp.toLocaleTimeString()}</span>
+                            <span class="log-level ${log.level || 'info'}">${log.level || 'INFO'}</span>
+                            <span class="log-message">${log.message || ''}</span>
+                        </div>
+                    `;
+                }).join('');
+                
+                // Auto-scroll to bottom
+                logsContainer.scrollTop = logsContainer.scrollHeight;
             })
-            .catch(error => console.error('Error updating system logs:', error));
+            .catch(error => console.error('Error updating logs:', error));
     }
 
     // Settings Management
