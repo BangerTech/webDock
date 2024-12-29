@@ -1825,17 +1825,8 @@ def complete_command():
         session = ssh_connections[session_id]
         channel = session.channel
         
-        # Hole aktuelle Verzeichnisstruktur für Datei-Completion
-        if ' ' in partial_command:  # Wenn Befehl bereits eingegeben wurde
-            cmd_parts = partial_command.split()
-            base_cmd = cmd_parts[0]
-            partial_path = cmd_parts[-1] if len(cmd_parts) > 1 else ''
-            
-            # Führe ls im aktuellen oder angegebenen Verzeichnis aus
-            completion_cmd = f"compgen -f -- '{partial_path}' 2>/dev/null"
-        else:  # Befehl-Completion
-            completion_cmd = f"compgen -c -- '{partial_command}' 2>/dev/null"
-        
+        # Sende Tab-Completion Befehl
+        completion_cmd = f"compgen -c {partial_command} 2>/dev/null"
         channel.send(f"{completion_cmd}\n")
         time.sleep(0.1)
         
@@ -1848,16 +1839,12 @@ def complete_command():
         suggestions = [
             line.strip() 
             for line in output.split('\n') 
-            if line.strip() and line.strip().startswith(partial_command.split()[-1])
+            if line.strip() and line.strip().startswith(partial_command)
         ]
-        
-        # Sortiere Vorschläge
-        suggestions.sort()
         
         return jsonify({
             'status': 'success',
-            'suggestions': suggestions,
-            'partial': partial_command.split()[-1]  # Der zu vervollständigende Teil
+            'suggestions': suggestions
         })
         
     except Exception as e:

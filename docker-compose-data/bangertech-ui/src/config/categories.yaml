@@ -1,0 +1,46 @@
+categories:
+  smart_home:
+    name: "Smart Home"
+    icon: "fa-home"
+    description: "Home automation and IoT containers"
+    containers:
+      - homeassistant
+      - openhab
+      - mosquitto
+      - raspberrymatic
+      - zigbee2mqtt
+      - homebridge
+
+  monitoring:
+    name: "Monitoring"
+    icon: "fa-chart-line"
+    description: "System and network monitoring tools"
+    containers:
+      - grafana
+      - prometheus
+      - node_exporter
+      - whatsupdocker
+
+  network:
+    name: "Network"
+    icon: "fa-network-wired"
+    description: "Network management and monitoring"
+    containers:
+      - watchyourlan
+      - portainer
+
+  development:
+    name: "Development"
+    icon: "fa-code"
+    description: "Development tools and environments"
+    containers:
+      - codeserver
+      - filestash
+
+  dashboard:
+    name: "Dashboard"
+    icon: "fa-th-large"
+    description: "Dashboard and visualization tools"
+    containers:
+      - heimdall
+      - frontail 

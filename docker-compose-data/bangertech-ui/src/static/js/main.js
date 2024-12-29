@@ -1617,26 +1617,13 @@ function initializeTerminal() {
     }
     
     function updateDisplay() {
-        // Entferne alle vorherigen aktiven Zeilen
-        content.querySelectorAll('.terminal-line.active').forEach(line => {
-            line.classList.remove('active');
-        });
-        
-        // Entferne alle vorherigen Cursor
-        content.querySelectorAll('.terminal-cursor').forEach(cursor => {
-            cursor.remove();
-        });
-        
-        // Aktualisiere oder erstelle die aktive Zeile
         const activeLine = content.querySelector('.terminal-line:last-child');
-        const newLine = renderActiveLine();
-        
         if (activeLine) {
+            const newLine = renderActiveLine();
             content.replaceChild(newLine, activeLine);
         } else {
-            content.appendChild(newLine);
+            content.appendChild(renderActiveLine());
         }
-        
         terminal.scrollTop = terminal.scrollHeight;
     }
     
@@ -1721,67 +1708,51 @@ function initializeTerminal() {
                 
             case 'Tab':
                 e.preventDefault();
-                await handleTabCompletion();
+                if (currentCommand) {
+                    try {
+                        const response = await fetch('/api/complete', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ 
+                                command: currentCommand,
+                                connection: sshConnection 
+                            })
+                        });
+                        
+                        const data = await response.json();
+                        if (data.status === 'success' && data.suggestions.length > 0) {
+                            if (data.suggestions.length === 1) {
+                                // Direkte Vervollständigung
+                                currentCommand = data.suggestions[0];
+                                hiddenInput.value = currentCommand;
+                            } else {
+                                // Zeige Vorschläge
+                                const output = document.createElement('div');
+                                output.className = 'terminal-output suggestions';
+                                output.textContent = data.suggestions.join('  ');
+                                content.appendChild(output);
+                                
+                                // Finde gemeinsamen Präfix
+                                const commonPrefix = data.suggestions.reduce((a, b) => {
+                                    let i = 0;
+                                    while (i < a.length && i < b.length && a[i] === b[i]) i++;
+                                    return a.substring(0, i);
+                                });
+                                if (commonPrefix.length > currentCommand.length) {
+                                    currentCommand = commonPrefix;
+                                    hiddenInput.value = currentCommand;
+                                }
+                            }
+                            updateDisplay();
+                        }
+                    } catch (error) {
+                        console.error('Tab completion error:', error);
+                    }
+                }
                 break;
         }
     });
     
     hiddenInput.focus();
     updateDisplay();
-} 
-
-async function handleTabCompletion() {
-    if (!currentCommand) return;
-    
-    try {
-        const response = await fetch('/api/complete', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                command: currentCommand,
-                connection: sshConnection 
-            })
-        });
-        
-        const data = await response.json();
-        if (data.status === 'success' && data.suggestions.length > 0) {
-            const partial = data.partial;
-            
-            if (data.suggestions.length === 1) {
-                // Direkte Vervollständigung
-                const parts = currentCommand.split(' ');
-                parts[parts.length - 1] = data.suggestions[0];
-                currentCommand = parts.join(' ');
-                if (currentCommand.endsWith('/')) {
-                    currentCommand += ' ';  // Füge Leerzeichen nach Verzeichnissen hinzu
-                }
-                hiddenInput.value = currentCommand;
-                updateDisplay();
-            } else {
-                // Zeige Vorschläge
-                const output = document.createElement('div');
-                output.className = 'terminal-output suggestions';
-                output.textContent = data.suggestions.join('  ');
-                content.appendChild(output);
-                
-                // Finde gemeinsamen Präfix
-                const commonPrefix = data.suggestions.reduce((a, b) => {
-                    let i = 0;
-                    while (i < a.length && i < b.length && a[i] === b[i]) i++;
-                    return a.substring(0, i);
-                });
-                
-                if (commonPrefix.length > partial.length) {
-                    const parts = currentCommand.split(' ');
-                    parts[parts.length - 1] = commonPrefix;
-                    currentCommand = parts.join(' ');
-                    hiddenInput.value = currentCommand;
-                    updateDisplay();
-                }
-            }
-            terminal.scrollTop = terminal.scrollHeight;
-        }
-    } catch (error) {
-        console.error('Tab completion error:', error);
-    }
 } 

@@ -1507,11 +1507,6 @@ section h2 i {
     opacity: 0;
 }
 
-/* Verstecke Cursor in inaktiven Zeilen */
-.terminal-line:not(.active) .terminal-cursor {
-    display: none;
-}
-
 /* Entfernen Sie diese alten Styles */
 .terminal-block,
 .terminal-info,
