@@ -16,6 +16,7 @@ import croniter
 import uuid
 import tempfile
 import socket
+import stat
 
 # Konfiguriere Logging
 logging.basicConfig(
@@ -1966,6 +1967,153 @@ def save_file():
             'status': 'success',
             'message': 'File saved successfully'
         })
+            
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/files', methods=['POST'])
+def list_files():
+    try:
+        data = request.json
+        session_id = data.get('connection')
+        path = data.get('path', '/')
+        
+        if not session_id in ssh_connections:
+            return jsonify({
+                'status': 'error',
+                'message': 'Not connected'
+            }), 400
+            
+        session = ssh_connections[session_id]
+        sftp = session.client.open_sftp()
+        
+        files = []
+        for entry in sftp.listdir_attr(path):
+            file_path = os.path.join(path, entry.filename)
+            files.append({
+                'name': entry.filename,
+                'type': 'directory' if stat.S_ISDIR(entry.st_mode) else 'file',
+                'size': entry.st_size,
+                'modified': entry.st_mtime,
+                'path': file_path
+            })
+            
+        sftp.close()
+        return jsonify({
+            'status': 'success',
+            'files': sorted(files, key=lambda x: (x['type'] == 'file', x['name']))
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/upload', methods=['POST'])
+def upload_file():
+    try:
+        session_id = request.form.get('connection')
+        path = request.form.get('path')
+        file = request.files.get('file')
+        
+        if not all([session_id, path, file]):
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing required parameters'
+            }), 400
+            
+        if session_id not in ssh_connections:
+            return jsonify({
+                'status': 'error',
+                'message': 'Not connected'
+            }), 400
+            
+        session = ssh_connections[session_id]
+        sftp = session.client.open_sftp()
+        
+        # Erstelle temporäre Datei
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            file.save(tmp.name)
+            # Upload via SFTP
+            remote_path = os.path.join(path, file.filename)
+            sftp.put(tmp.name, remote_path)
+            os.unlink(tmp.name)
+        
+        sftp.close()
+        return jsonify({
+            'status': 'success',
+            'message': f'File {file.filename} uploaded successfully'
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/delete', methods=['POST'])
+def delete_file():
+    try:
+        data = request.json
+        session_id = data.get('connection')
+        filepath = data.get('path')
+        
+        if not all([session_id, filepath]):
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing required parameters'
+            }), 400
+            
+        if session_id not in ssh_connections:
+            return jsonify({
+                'status': 'error',
+                'message': 'Not connected'
+            }), 400
+            
+        session = ssh_connections[session_id]
+        sftp = session.client.open_sftp()
+        
+        try:
+            # Prüfe ob es ein Verzeichnis ist
+            try:
+                sftp.stat(filepath)
+                is_dir = stat.S_ISDIR(sftp.stat(filepath).st_mode)
+            except:
+                is_dir = False
+            
+            if is_dir:
+                # Lösche Verzeichnis rekursiv
+                def rm_recursive(path):
+                    try:
+                        files = sftp.listdir_attr(path)
+                        for f in files:
+                            filepath = os.path.join(path, f.filename)
+                            if stat.S_ISDIR(f.st_mode):
+                                rm_recursive(filepath)
+                            else:
+                                sftp.remove(filepath)
+                        sftp.rmdir(path)
+                    except:
+                        pass
+                
+                rm_recursive(filepath)
+            else:
+                # Lösche einzelne Datei
+                sftp.remove(filepath)
+            
+            sftp.close()
+            return jsonify({
+                'status': 'success',
+                'message': f'{"Directory" if is_dir else "File"} deleted successfully'
+            })
+            
+        except Exception as e:
+            sftp.close()
+            raise e
             
     except Exception as e:
         return jsonify({

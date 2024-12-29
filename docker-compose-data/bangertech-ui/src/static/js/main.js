@@ -12,8 +12,7 @@ function closeModal() { const modal = document.querySelector('.modal'); if (moda
 let sshConnection = null;
 let currentPath = '/';
 let currentCommand = '';
-let terminalContent = null;
-let updateDisplay = null;  // Wird später definiert
+let terminalContent = null;  // Wird später definiert
 let commandHistory = [];  // Neu: Global definiert
 let historyIndex = -1;   // Neu: Global definiert
 let currentInput = '';   // Neu: Global definiert
@@ -1945,4 +1944,197 @@ function showHistoryDropdown() {
     
     // Füge das Dropdown zum Terminal hinzu
     terminalContent.appendChild(dropdown);
+} 
+
+async function loadFileList(path = '/') {
+    try {
+        const response = await fetch('/api/files', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                connection: sshConnection,
+                path: path 
+            })
+        });
+        
+        const data = await response.json();
+        if (data.status === 'success') {
+            currentPath = path;
+            updateFileExplorer(data.files);
+            updatePathBreadcrumbs(path);
+        } else {
+            throw new Error(data.message);
+        }
+    } catch (error) {
+        showNotification('error', `Failed to load files: ${error.message}`);
+    }
+}
+
+function updateFileExplorer(files) {
+    const fileList = document.querySelector('.file-list');
+    fileList.innerHTML = '';
+    
+    files.forEach(file => {
+        const item = document.createElement('div');
+        item.className = 'file-item';
+        item.innerHTML = `
+            <i class="fa fa-${file.type === 'directory' ? 'folder' : 'file'}"></i>
+            <span>${file.name}</span>
+            <div class="file-actions">
+                ${file.type === 'file' ? `
+                    <button onclick="downloadFile('${file.path}')" title="Download">
+                        <i class="fa fa-download"></i>
+                    </button>
+                    <button onclick="deleteFile('${file.path}')" title="Delete">
+                        <i class="fa fa-trash"></i>
+                    </button>
+                ` : ''}
+            </div>
+        `;
+        
+        if (file.type === 'directory') {
+            item.addEventListener('click', () => loadFileList(file.path));
+        }
+        
+        fileList.appendChild(item);
+    });
+}
+
+function updatePathBreadcrumbs(path) {
+    const pathNav = document.querySelector('.path-navigation');
+    pathNav.innerHTML = '';
+    
+    const parts = path.split('/').filter(Boolean);
+    let currentPath = '';
+    
+    // Root-Verzeichnis
+    const root = document.createElement('span');
+    root.textContent = '/';
+    root.className = 'path-item';
+    root.onclick = () => loadFileList('/');
+    pathNav.appendChild(root);
+    
+    // Baue den Pfad Stück für Stück auf
+    parts.forEach((part, index) => {
+        currentPath += '/' + part;
+        
+        // Füge Separator hinzu
+        if (index > 0 || parts.length > 0) {
+            const separator = document.createElement('span');
+            separator.textContent = '>';
+            separator.className = 'path-separator';
+            pathNav.appendChild(separator);
+        }
+        
+        // Füge Pfad-Element hinzu
+        const item = document.createElement('span');
+        item.textContent = part;
+        item.className = 'path-item';
+        const pathToNavigate = currentPath;  // Wichtig: Erstelle Kopie für Closure
+        item.onclick = (e) => {
+            e.stopPropagation();  // Verhindere Bubble-Up
+            loadFileList(pathToNavigate);
+        };
+        pathNav.appendChild(item);
+    });
+}
+
+function navigateUp() {
+    const parentPath = currentPath.split('/').slice(0, -1).join('/') || '/';
+    loadFileList(parentPath);
+}
+
+async function uploadFile() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    
+    input.onchange = async function() {
+        for (const file of this.files) {
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('path', currentPath);
+                formData.append('connection', sshConnection);
+                
+                const response = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                if (data.status === 'success') {
+                    showNotification('success', `Uploaded ${file.name}`);
+                } else {
+                    throw new Error(data.message);
+                }
+            } catch (error) {
+                console.error('Upload error:', error);
+                showNotification('error', `Failed to upload ${file.name}: ${error.message}`);
+            }
+        }
+        
+        // Aktualisiere die Dateiliste
+        await loadFileList(currentPath);
+    };
+    
+    input.click();
+}
+
+async function downloadFile(path) {
+    try {
+        const response = await fetch('/api/download', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                connection: sshConnection,
+                path: path 
+            })
+        });
+        
+        if (response.ok) {
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = path.split('/').pop();
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        } else {
+            throw new Error('Download failed');
+        }
+    } catch (error) {
+        showNotification('error', `Failed to download file: ${error.message}`);
+    }
+}
+
+async function deleteFile(path) {
+    if (!confirm(`Are you sure you want to delete ${path}?`)) return;
+    
+    try {
+        const response = await fetch('/api/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                connection: sshConnection,
+                path: path 
+            })
+        });
+        
+        const data = await response.json();
+        if (data.status === 'success') {
+            showNotification('success', 'File deleted');
+            loadFileList(currentPath);
+        } else {
+            throw new Error(data.message);
+        }
+    } catch (error) {
+        showNotification('error', `Failed to delete file: ${error.message}`);
+    }
 } 
