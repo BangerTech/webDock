@@ -1409,31 +1409,97 @@ section h2 i {
 /* Terminal & File Explorer */
 .terminal-section {
     margin-bottom: 3rem;
+    background: var(--color-background-dark);
+    border-radius: 10px;
+    padding: 1.5rem;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
 }
 
 .connection-form {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 1rem;
-    background: var(--color-background-dark);
-    padding: 1.5rem;
-    border-radius: 10px;
     margin-bottom: 1.5rem;
 }
 
+.connection-form .form-group {
+    margin-bottom: 1rem;
+}
+
+.connection-form label {
+    display: block;
+    margin-bottom: 0.5rem;
+    color: var(--color-main-text);
+    font-weight: 600;
+}
+
+.connection-form input,
+.connection-form select {
+    width: 100%;
+    padding: 0.8rem;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: var(--color-main-background);
+    color: var(--color-main-text);
+    font-size: 0.9em;
+    transition: all 0.2s ease;
+}
+
+.connection-form input:focus,
+.connection-form select:focus {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 2px rgba(0, 130, 201, 0.2);
+    outline: none;
+}
+
+.connect-btn {
+    background: var(--color-primary);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 0.8rem 1.5rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.connect-btn:hover {
+    background: var(--color-primary-dark);
+    transform: translateY(-1px);
+}
+
+.connect-btn i {
+    font-size: 1.1em;
+}
+
 .terminal-container {
-    background: var(--color-background-dark);
+    background: #1a1a1a;
     border-radius: 10px;
     overflow: hidden;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
 .terminal-header {
     background: var(--color-primary);
     color: white;
-    padding: 0.5rem 1rem;
+    padding: 0.8rem 1.2rem;
     display: flex;
     justify-content: space-between;
     align-items: center;
+    font-weight: 600;
+}
+
+.terminal-header .connection-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.terminal-header .connection-info i {
+    color: #4CAF50;
 }
 
 .terminal-window {
@@ -1456,6 +1522,14 @@ section h2 i {
     display: flex;
     min-height: 24px;
     margin: 2px 0;
+}
+
+.terminal-line.static {
+    opacity: 0.9;
+}
+
+.terminal-line.static .terminal-cursor {
+    display: none;
 }
 
 .terminal-prompt {
@@ -1484,7 +1558,8 @@ section h2 i {
     color: #ff5555;
 }
 
-.terminal-cursor {
+/* Cursor nur in der letzten (aktiven) Zeile anzeigen */
+.terminal-line:last-child .terminal-cursor {
     display: inline-block;
     width: 8px;
     height: 16px;
@@ -1512,154 +1587,51 @@ section h2 i {
     display: none;
 }
 
-/* Entfernen Sie diese alten Styles */
-.terminal-block,
-.terminal-info,
-.terminal-input-wrapper,
-.command-input,
-.terminal-user,
-.terminal-at,
-.terminal-host,
-.terminal-colon,
-.terminal-pwd,
-.terminal-dollar {
-    display: none;
-}
-
-.file-explorer {
-    background: var(--color-background-dark);
-    border-radius: 10px;
-    overflow: hidden;
-}
-
-.file-explorer-header {
-    padding: 1rem;
-    border-bottom: 1px solid rgba(0,0,0,0.1);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.path-navigation {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-    flex: 1;
-}
-
-.file-actions {
-    display: flex;
-    gap: 0.5rem;
-}
-
-.file-list {
-    height: 300px;
-    overflow-y: auto;
-    padding: 1rem;
-}
-
-/* Cron Job Editor */
-.cronjob-section {
+/* Editor Modal Styling */
+.editor-modal .modal-content {
+    width: 90%;
+    height: 90%;
+    max-width: 1200px;
     background: var(--color-main-background);
     border-radius: 10px;
-    padding: 2rem;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
 }
 
-.time-picker {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 1rem;
-    margin-bottom: 1.5rem;
-}
-
-.schedule-preview {
-    background: var(--color-background-dark);
-    padding: 1rem;
-    border-radius: 5px;
-    margin-bottom: 1.5rem;
-}
-
-.schedule-btn {
-    width: 100%;
-    padding: 1rem;
+.editor-modal .modal-header {
     background: var(--color-primary);
     color: white;
-    border: none;
-    border-radius: 5px;
-    cursor: pointer;
-    font-weight: bold;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
+    padding: 1rem 1.5rem;
+    border-radius: 10px 10px 0 0;
 }
 
-.schedule-list {
-    margin-top: 1rem;
+.editor-modal .modal-body {
+    padding: 1.5rem;
 }
 
-.schedule-item {
-    background: var(--color-background-dark);
+.file-editor {
+    width: 100%;
+    height: calc(100vh - 250px);
+    min-height: 400px;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 14px;
+    line-height: 1.5;
     padding: 1rem;
-    border-radius: 5px;
-    margin-bottom: 0.5rem;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.terminal-input {
-    display: flex;
-    align-items: center;
-    margin: 0.5rem 0;
-}
-
-.prompt {
-    color: var(--color-primary);
-    margin-right: 0.5rem;
-}
-
-.command-input {
-    background: none;
-    border: none;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: var(--color-background-dark);
     color: var(--color-main-text);
-    font-family: inherit;
-    font-size: inherit;
-    flex: 1;
+    resize: none;
+}
+
+.file-editor:focus {
     outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 2px rgba(0, 130, 201, 0.2);
 }
 
-.command-line {
-    white-space: pre-wrap;
-    margin: 0.25rem 0;
-}
-
-.command-output {
-    white-space: pre-wrap;
-    margin: 0.25rem 0;
-    color: var(--color-success);
-}
-
-.command-error {
-    white-space: pre-wrap;
-    margin: 0.25rem 0;
-    color: var(--color-error);
-}
-
-.terminal-output.suggestions {
-    color: #888;
-    padding: 4px 0;
-    column-count: 3;
-    column-gap: 2rem;
-}
-
-.terminal-line.active .terminal-cursor {
-    display: inline-block;
-    width: 8px;
-    height: 16px;
-    background: #f0f0f0;
-    animation: blink 1s step-end infinite;
-    vertical-align: middle;
-    margin-left: 1px;
+.editor-modal .modal-footer {
+    padding: 1rem 1.5rem;
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    border-top: 1px solid var(--color-border);
 }

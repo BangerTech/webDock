@@ -1663,6 +1663,14 @@ def execute_command():
                 'message': 'Not connected'
             }), 400
         
+        # Prüfe auf Editor-Befehle
+        if command.startswith(('nano ', 'vi ', 'vim ')):
+            filepath = command.split(' ', 1)[1].strip()
+            return jsonify({
+                'status': 'editor',
+                'path': filepath
+            })
+            
         session = ssh_connections[session_id]
         channel = session.channel
         
@@ -1860,6 +1868,60 @@ def complete_command():
             'partial': partial_command.split()[-1]  # Der zu vervollständigende Teil
         })
         
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/file', methods=['GET', 'POST'])
+def handle_file():
+    try:
+        if request.method == 'GET':
+            # Hole Parameter aus URL
+            session_id = request.args.get('connection')
+            filepath = request.args.get('path')
+        else:
+            # POST-Methode verwendet weiterhin JSON-Body
+            data = request.json
+            session_id = data.get('connection')
+            filepath = data.get('path')
+        
+        if not session_id in ssh_connections:
+            return jsonify({
+                'status': 'error',
+                'message': 'Not connected'
+            }), 400
+            
+        session = ssh_connections[session_id]
+        
+        if request.method == 'GET':
+            # Lese Datei
+            _, stdout, _ = session.client.exec_command(f'cat "{filepath}"')
+            content = stdout.read().decode()
+            return jsonify({
+                'status': 'success',
+                'content': content
+            })
+        else:
+            # Schreibe Datei
+            content = data.get('content', '')
+            stdin, stdout, stderr = session.client.exec_command(f'cat > "{filepath}"')
+            stdin.write(content)
+            stdin.close()
+            
+            error = stderr.read().decode()
+            if error:
+                return jsonify({
+                    'status': 'error',
+                    'message': error
+                })
+                
+            return jsonify({
+                'status': 'success',
+                'message': 'File saved successfully'
+            })
+            
     except Exception as e:
         return jsonify({
             'status': 'error',

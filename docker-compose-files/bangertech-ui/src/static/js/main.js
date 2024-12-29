@@ -11,6 +11,9 @@ function closeModal() { const modal = document.querySelector('.modal'); if (moda
 // Globale Variablen am Anfang der Datei
 let sshConnection = null;
 let currentPath = '/';
+let currentCommand = '';
+let terminalContent = null;
+let updateDisplay = null;  // Wird später definiert
 
 document.addEventListener('DOMContentLoaded', function() {
     loadingOverlay = document.getElementById('loading-overlay');
@@ -1579,11 +1582,11 @@ function showCategoryModal(mode, categoryId = null) {
 function initializeTerminal() {
     const terminal = document.getElementById('terminal');
     terminal.innerHTML = '<div class="terminal-content"></div>';
-    const content = terminal.querySelector('.terminal-content');
+    terminalContent = terminal.querySelector('.terminal-content');
     
     let commandHistory = [];
     let historyIndex = -1;
-    let currentCommand = '';
+    currentCommand = '';
     
     const hiddenInput = document.createElement('textarea');
     hiddenInput.className = 'terminal-input-hidden';
@@ -1606,7 +1609,6 @@ function initializeTerminal() {
         command.className = 'terminal-command';
         command.textContent = currentCommand;
         
-        // Cursor immer in der aktiven Zeile anzeigen
         const cursor = document.createElement('span');
         cursor.className = 'terminal-cursor';
         command.appendChild(cursor);
@@ -1616,32 +1618,44 @@ function initializeTerminal() {
         return line;
     }
     
-    function updateDisplay() {
+    // Definiere updateDisplay global
+    updateDisplay = function() {
+        if (!terminalContent) return;
+        
         // Entferne alle vorherigen aktiven Zeilen
-        content.querySelectorAll('.terminal-line.active').forEach(line => {
+        terminalContent.querySelectorAll('.terminal-line.active').forEach(line => {
             line.classList.remove('active');
         });
         
         // Entferne alle vorherigen Cursor
-        content.querySelectorAll('.terminal-cursor').forEach(cursor => {
+        terminalContent.querySelectorAll('.terminal-cursor').forEach(cursor => {
             cursor.remove();
         });
         
         // Aktualisiere oder erstelle die aktive Zeile
-        const activeLine = content.querySelector('.terminal-line:last-child');
+        const activeLine = terminalContent.querySelector('.terminal-line:last-child');
         const newLine = renderActiveLine();
         
         if (activeLine) {
-            content.replaceChild(newLine, activeLine);
+            terminalContent.replaceChild(newLine, activeLine);
         } else {
-            content.appendChild(newLine);
+            terminalContent.appendChild(newLine);
         }
         
-        terminal.scrollTop = terminal.scrollHeight;
-    }
+        document.getElementById('terminal').scrollTop = document.getElementById('terminal').scrollHeight;
+    };
     
     async function executeCommand(command) {
         if (!command.trim()) return;
+        
+        // Zeige den Befehl als statische Zeile
+        const commandLine = document.createElement('div');
+        commandLine.className = 'terminal-line static';
+        commandLine.innerHTML = `
+            <span class="terminal-prompt">${createPrompt()}</span>
+            <span class="terminal-command">${command}</span>
+        `;
+        terminalContent.appendChild(commandLine);
         
         try {
             const response = await fetch('/api/execute', {
@@ -1651,20 +1665,25 @@ function initializeTerminal() {
             });
             
             const data = await response.json();
-            if (data.status === 'success') {
-                if (data.output) {
+            if (data.status === 'editor') {
+                showFileEditor(data.path);
+            } else if (data.status === 'success') {
+                // Nur die Ausgabe anzeigen, wenn es welche gibt
+                if (data.output && data.output.trim()) {
                     const output = document.createElement('div');
                     output.className = 'terminal-output';
                     output.textContent = data.output;
-                    content.appendChild(output);
+                    terminalContent.appendChild(output);
                 }
                 
                 // Aktualisiere Terminal-Info
-                window.terminalInfo = {
-                    username: data.username,
-                    hostname: data.hostname,
-                    pwd: data.pwd
-                };
+                if (data.username && data.hostname && data.pwd) {
+                    window.terminalInfo = {
+                        username: data.username,
+                        hostname: data.hostname,
+                        pwd: data.pwd
+                    };
+                }
             } else {
                 throw new Error(data.message);
             }
@@ -1672,12 +1691,14 @@ function initializeTerminal() {
             const errorOutput = document.createElement('div');
             errorOutput.className = 'terminal-output error';
             errorOutput.textContent = error.message;
-            content.appendChild(errorOutput);
+            terminalContent.appendChild(errorOutput);
         }
         
+        // Erstelle neue aktive Zeile
         currentCommand = '';
-        content.appendChild(renderActiveLine());
-        terminal.scrollTop = terminal.scrollHeight;
+        const newLine = renderActiveLine();
+        terminalContent.appendChild(newLine);
+        document.getElementById('terminal').scrollTop = document.getElementById('terminal').scrollHeight;
     }
     
     terminal.addEventListener('click', () => hiddenInput.focus());
@@ -1692,8 +1713,19 @@ function initializeTerminal() {
             case 'Enter':
                 e.preventDefault();
                 if (currentCommand) {
+                    // Speichere Befehl in History
                     commandHistory.push(currentCommand);
                     historyIndex = commandHistory.length;
+                    
+                    // Zeige ausgeführten Befehl als statische Zeile
+                    const executedLine = document.createElement('div');
+                    executedLine.className = 'terminal-line';
+                    executedLine.innerHTML = `
+                        <span class="terminal-prompt">${createPrompt()}</span>
+                        <span class="terminal-command">${currentCommand}</span>
+                    `;
+                    terminalContent.appendChild(executedLine);
+                    
                     await executeCommand(currentCommand);
                     hiddenInput.value = '';
                 }
@@ -1702,19 +1734,41 @@ function initializeTerminal() {
             case 'ArrowUp':
                 e.preventDefault();
                 if (historyIndex > 0) {
+                    // Speichere aktuellen Befehl für ArrowDown
+                    if (historyIndex === commandHistory.length) {
+                        currentInput = currentCommand;
+                    }
                     historyIndex--;
                     currentCommand = commandHistory[historyIndex];
                     hiddenInput.value = currentCommand;
+                    
+                    // Zeige History-Navigation-Hinweis
+                    const hint = document.createElement('div');
+                    hint.className = 'terminal-hint';
+                    hint.textContent = `(History: ${historyIndex + 1}/${commandHistory.length})`;
+                    terminalContent.appendChild(hint);
+                    
                     updateDisplay();
                 }
                 break;
                 
             case 'ArrowDown':
                 e.preventDefault();
-                if (historyIndex < commandHistory.length - 1) {
+                if (historyIndex < commandHistory.length) {
                     historyIndex++;
-                    currentCommand = commandHistory[historyIndex];
+                    currentCommand = historyIndex === commandHistory.length 
+                        ? currentInput 
+                        : commandHistory[historyIndex];
                     hiddenInput.value = currentCommand;
+                    
+                    // Zeige History-Navigation-Hinweis
+                    if (historyIndex < commandHistory.length) {
+                        const hint = document.createElement('div');
+                        hint.className = 'terminal-hint';
+                        hint.textContent = `(History: ${historyIndex + 1}/${commandHistory.length})`;
+                        terminalContent.appendChild(hint);
+                    }
+                    
                     updateDisplay();
                 }
                 break;
@@ -1731,7 +1785,7 @@ function initializeTerminal() {
 } 
 
 async function handleTabCompletion() {
-    if (!currentCommand) return;
+    if (!currentCommand || !terminalContent) return;
     
     try {
         const response = await fetch('/api/complete', {
@@ -1753,16 +1807,16 @@ async function handleTabCompletion() {
                 parts[parts.length - 1] = data.suggestions[0];
                 currentCommand = parts.join(' ');
                 if (currentCommand.endsWith('/')) {
-                    currentCommand += ' ';  // Füge Leerzeichen nach Verzeichnissen hinzu
+                    currentCommand += ' ';
                 }
-                hiddenInput.value = currentCommand;
+                document.querySelector('.terminal-input-hidden').value = currentCommand;
                 updateDisplay();
             } else {
                 // Zeige Vorschläge
                 const output = document.createElement('div');
                 output.className = 'terminal-output suggestions';
                 output.textContent = data.suggestions.join('  ');
-                content.appendChild(output);
+                terminalContent.appendChild(output);
                 
                 // Finde gemeinsamen Präfix
                 const commonPrefix = data.suggestions.reduce((a, b) => {
@@ -1775,13 +1829,97 @@ async function handleTabCompletion() {
                     const parts = currentCommand.split(' ');
                     parts[parts.length - 1] = commonPrefix;
                     currentCommand = parts.join(' ');
-                    hiddenInput.value = currentCommand;
+                    document.querySelector('.terminal-input-hidden').value = currentCommand;
                     updateDisplay();
                 }
             }
-            terminal.scrollTop = terminal.scrollHeight;
+            document.getElementById('terminal').scrollTop = document.getElementById('terminal').scrollHeight;
         }
     } catch (error) {
         console.error('Tab completion error:', error);
+    }
+} 
+
+async function showFileEditor(filepath) {
+    try {
+        // Sende Parameter als URL-Parameter statt Body
+        const params = new URLSearchParams({
+            connection: sshConnection,
+            path: filepath
+        });
+        
+        const response = await fetch(`/api/file?${params}`, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        const data = await response.json();
+        if (data.status === 'success') {
+            const modal = document.createElement('div');
+            modal.className = 'modal editor-modal show';
+            modal.innerHTML = `
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2>Edit: ${filepath}</h2>
+                        <button class="close-modal" onclick="closeModal()">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <textarea id="file-editor" class="file-editor">${data.content || ''}</textarea>
+                    </div>
+                    <div class="modal-footer">
+                        <button onclick="saveFile('${filepath}')" class="save-btn">
+                            <i class="fa fa-save"></i> Save
+                        </button>
+                        <button onclick="closeModal()" class="cancel-btn">Cancel</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            
+            // Fokussiere Editor
+            const editor = document.getElementById('file-editor');
+            editor.focus();
+            
+            // Aktiviere Tab im Textarea
+            editor.addEventListener('keydown', function(e) {
+                if (e.key === 'Tab') {
+                    e.preventDefault();
+                    const start = this.selectionStart;
+                    const end = this.selectionEnd;
+                    this.value = this.value.substring(0, start) + '    ' + this.value.substring(end);
+                    this.selectionStart = this.selectionEnd = start + 4;
+                }
+            });
+        } else {
+            throw new Error(data.message || 'Failed to load file content');
+        }
+    } catch (error) {
+        console.error('Editor error:', error);
+        showNotification('error', `Failed to load file: ${error.message}`);
+    }
+}
+
+async function saveFile(filepath) {
+    try {
+        const content = document.getElementById('file-editor').value;
+        const response = await fetch('/api/file', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                connection: sshConnection,
+                path: filepath,
+                content: content
+            })
+        });
+        
+        const data = await response.json();
+        if (data.status === 'success') {
+            showNotification('success', 'File saved successfully');
+            closeModal();
+        } else {
+            throw new Error(data.message);
+        }
+    } catch (error) {
+        showNotification('error', `Failed to save file: ${error.message}`);
     }
 } 
