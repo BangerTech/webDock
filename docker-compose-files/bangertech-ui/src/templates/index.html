@@ -193,99 +193,144 @@
         <div id="special" class="tab-content">
             <div class="special-functions-page">
                 <!-- Terminal Section -->
-                <section class="terminal-section">
-                    <h2><i class="fa fa-terminal"></i> Terminal & File Explorer</h2>
-                    <div class="connection-form">
-                        <form id="connection-form">
-                            <div class="form-group">
-                                <label>Connection Type</label>
-                                <select id="connection-type">
-                                    <option value="ssh">SSH</option>
-                                    <option value="sftp">SFTP</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label>Host</label>
-                                <input type="text" id="host" placeholder="hostname or IP">
-                            </div>
-                            <div class="form-group">
-                                <label>Port</label>
-                                <input type="number" id="port" value="22">
-                            </div>
-                            <div class="form-group">
-                                <label>Username</label>
-                                <input type="text" 
-                                       id="username" 
-                                       autocomplete="username">
-                            </div>
-                            <div class="form-group">
-                                <label>Password/Key</label>
-                                <input type="password" 
-                                       id="password" 
-                                       autocomplete="current-password">
-                            </div>
-                            <button type="button" class="connect-btn" onclick="connectToServer()">
-                                <i class="fa fa-plug"></i> Connect
-                            </button>
-                        </form>
+                <section class="collapsible-section">
+                    <div class="section-header" onclick="toggleSection(this)">
+                        <h2><i class="fa fa-terminal"></i> Terminal & File Explorer</h2>
+                        <i class="fa fa-chevron-down"></i>
                     </div>
-                    
-                    <div class="terminal-container" style="display: none;">
-                        <div class="terminal-header">
-                            <span class="connection-info"></span>
-                            <button class="disconnect-btn" onclick="disconnectFromServer()">
-                                <i class="fa fa-times"></i>
-                            </button>
-                        </div>
-                        <div class="terminal-window" id="terminal"></div>
-                    </div>
-                    
-                    <div class="file-explorer" style="display: none;">
-                        <div class="file-explorer-header">
-                            <button class="close-explorer" onclick="closeFileExplorer()">&times;</button>
-                            <div class="path-navigation"></div>
-                            <div class="file-actions">
-                                <button onclick="uploadFile()">
-                                    <i class="fa fa-upload"></i> Upload
+                    <div class="section-content" style="display: none;">
+                        <div class="connection-form">
+                            <form id="connection-form">
+                                <div class="form-group">
+                                    <label>Connection Type</label>
+                                    <select id="connection-type">
+                                        <option value="ssh">SSH</option>
+                                        <option value="sftp">SFTP</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Host</label>
+                                    <input type="text" id="host" placeholder="hostname or IP">
+                                </div>
+                                <div class="form-group">
+                                    <label>Port</label>
+                                    <input type="number" id="port" value="22">
+                                </div>
+                                <div class="form-group">
+                                    <label>Username</label>
+                                    <input type="text" 
+                                           id="username" 
+                                           autocomplete="username">
+                                </div>
+                                <div class="form-group">
+                                    <label>Password/Key</label>
+                                    <input type="password" 
+                                           id="password" 
+                                           autocomplete="current-password">
+                                </div>
+                                <button type="button" class="connect-btn" onclick="connectToServer()">
+                                    <i class="fa fa-plug"></i> Connect
                                 </button>
-                                <button onclick="navigateUp()">
-                                    <i class="fa fa-level-up"></i> Up
+                            </form>
+                        </div>
+                        
+                        <div class="terminal-container" style="display: none;">
+                            <div class="terminal-header">
+                                <span class="connection-info"></span>
+                                <button class="disconnect-btn" onclick="disconnectFromServer()">
+                                    <i class="fa fa-times"></i>
                                 </button>
                             </div>
+                            <div class="terminal-window" id="terminal"></div>
                         </div>
-                        <div class="file-list"></div>
+                        
+                        <div class="file-explorer" style="display: none;">
+                            <div class="file-explorer-header">
+                                <button class="close-explorer" onclick="closeFileExplorer()">&times;</button>
+                                <div class="path-navigation"></div>
+                                <div class="file-actions">
+                                    <button onclick="uploadFile()">
+                                        <i class="fa fa-upload"></i> Upload
+                                    </button>
+                                    <button onclick="navigateUp()">
+                                        <i class="fa fa-level-up"></i> Up
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="file-list"></div>
+                        </div>
                     </div>
                 </section>
 
                 <!-- Cron Job Editor -->
-                <section class="cronjob-section">
-                    <h2><i class="fa fa-clock-o"></i> Cron Job Editor</h2>
-                    <div class="cron-editor">
-                        <div class="shutdown-schedule">
-                            <h3>Server Shutdown Schedule</h3>
-                            <div class="time-picker">
-                                <div class="form-group">
-                                    <label>Shutdown Time</label>
-                                    <input type="time" id="shutdown-time">
+                <section class="collapsible-section">
+                    <div class="section-header" onclick="toggleSection(this)">
+                        <h2><i class="fa fa-clock-o"></i> Cron Job Editor</h2>
+                        <i class="fa fa-chevron-down"></i>
+                    </div>
+                    <div class="section-content" style="display: none;">
+                        <div class="cron-editor">
+                            <div class="shutdown-schedule">
+                                <h3>Server Shutdown Schedule</h3>
+                                
+                                <!-- Host Credentials -->
+                                <form class="host-credentials" id="shutdown-form">
+                                    <div class="form-group">
+                                        <label>Host IP</label>
+                                        <input type="text" id="host-ip" value="192.168.2.86">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Username</label>
+                                        <input type="text" id="host-user" value="root">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Password</label>
+                                        <input type="password" 
+                                               id="host-password" 
+                                               autocomplete="current-password">
+                                    </div>
+                                    <div class="time-picker">
+                                        <div class="form-group">
+                                            <label>Shutdown Time</label>
+                                            <input type="time" id="shutdown-time">
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Wake-up Time</label>
+                                            <input type="time" id="wakeup-time">
+                                        </div>
+                                    </div>
+                                    <button type="submit" class="schedule-btn">
+                                        <i class="fa fa-power-off"></i> Schedule Shutdown
+                                    </button>
+                                </form>
+
+                                <div class="schedule-preview">
+                                    <p>Server will shutdown at <span id="shutdown-preview">--:--</span> and wake up at <span id="wakeup-preview">--:--</span></p>
+                                    <p>Total downtime: <span id="downtime-preview">0 hours</span></p>
                                 </div>
-                                <div class="form-group">
-                                    <label>Wake-up Time</label>
-                                    <input type="time" id="wakeup-time">
+
+                                <!-- Status Anzeige -->
+                                <div class="schedule-status">
+                                    <div class="status-item">
+                                        <i class="fa fa-clock-o"></i>
+                                        <span>Next Shutdown: <span id="next-shutdown">Not scheduled</span></span>
+                                    </div>
+                                    <div class="status-item">
+                                        <i class="fa fa-power-off"></i>
+                                        <span>Next Wake-up: <span id="next-wakeup">Not scheduled</span></span>
+                                    </div>
+                                    <div class="status-item">
+                                        <i class="fa fa-calendar"></i>
+                                        <span>Active Schedules: <span id="schedule-count">0</span></span>
+                                    </div>
                                 </div>
                             </div>
-                            <div class="schedule-preview">
-                                <p>Server will shutdown at <span id="shutdown-preview">--:--</span> and wake up at <span id="wakeup-preview">--:--</span></p>
-                                <p>Total downtime: <span id="downtime-preview">0 hours</span></p>
-                            </div>
-                            <button class="schedule-btn" onclick="scheduleShutdown()">
-                                <i class="fa fa-power-off"></i> Schedule Shutdown
-                            </button>
-                        </div>
-                        
-                        <div class="current-schedules">
-                            <h3>Active Schedules</h3>
-                            <div class="schedule-list" id="schedule-list">
-                                <!-- Wird dynamisch gefüllt -->
+                            
+                            <div class="current-schedules">
+                                <h3>Active Schedules</h3>
+                                <div class="schedule-list" id="schedule-list">
+                                    <!-- Wird dynamisch gefüllt -->
+                                </div>
                             </div>
                         </div>
                     </div>

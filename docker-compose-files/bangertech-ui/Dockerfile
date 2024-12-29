@@ -29,25 +29,9 @@ COPY src/config/ /app/config/
 # Kopiere die Icons
 COPY src/static/img/icons/*.png /app/static/img/icons/
 
-# Debug: Zeige Verzeichnisinhalt
-RUN echo "=== Checking icons directory ===" && \
-    ls -la /app/static/img/icons/
-
 # Setze Berechtigungen
 RUN chmod -R 755 /app/static
 RUN chown -R root:root /app/static
-
-# Debug-Ausgabe
-RUN echo "=== Directory Structure ===" && \
-    ls -la /app && \
-    echo "\n=== Static Files ===" && \
-    ls -la /app/static && \
-    echo "\n=== Static Image Files ===" && \
-    ls -la /app/static/img && \
-    echo "\n=== Image Files Contents ===" && \
-    find /app/static/img -type f -exec file {} \; && \
-    echo "\n=== Templates ===" && \
-    ls -la /app/templates
 
 # Setze Umgebungsvariablen
 ENV FLASK_APP=app.py
@@ -61,5 +45,5 @@ EXPOSE 80
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
     CMD curl -f http://localhost/test || exit 1
 
-# Starte mit Shell-Wrapper für besseres Debugging
-CMD ["sh", "-c", "ls -la /app && echo 'Starting Flask...' && python -u app.py"] 
+# Starte die Flask-App direkt
+CMD ["python3", "/app/app.py"] 

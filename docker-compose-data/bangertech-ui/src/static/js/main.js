@@ -17,6 +17,9 @@ let commandHistory = [];  // Neu: Global definiert
 let historyIndex = -1;   // Neu: Global definiert
 let currentInput = '';   // Neu: Global definiert
 
+// Am Anfang der Datei bei den anderen globalen Variablen
+let updateScheduleStatus;  // Deklariere die Variable global
+
 window.disconnectFromServer = function() {
     fetch('/api/disconnect', {
         method: 'POST',
@@ -851,26 +854,31 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    async function scheduleShutdown() {
+    async function scheduleShutdown(e) {
+        e.preventDefault();
+        
         const shutdownTime = document.getElementById('shutdown-time').value;
         const wakeupTime = document.getElementById('wakeup-time').value;
-        
+
         if (!shutdownTime || !wakeupTime) {
             showNotification('error', 'Please select both shutdown and wake-up times');
             return;
         }
-        
+
         try {
             const response = await fetch('/api/schedule-shutdown', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ shutdownTime, wakeupTime })
+                body: JSON.stringify({ 
+                    shutdownTime, 
+                    wakeupTime 
+                })
             });
             
             const data = await response.json();
             if (data.status === 'success') {
                 showNotification('success', 'Shutdown schedule created');
-                loadActiveSchedules();
+                await updateScheduleStatus();
             } else {
                 throw new Error(data.message);
             }
@@ -879,12 +887,26 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    function loadActiveSchedules() {
-        fetch('/api/schedules')
-            .then(response => response.json())
-            .then(data => {
+    async function updateScheduleStatus() {
+        try {
+            const response = await fetch('/api/schedules');
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                const schedules = data.schedules || [];
+                document.getElementById('schedule-count').textContent = schedules.length;
+                
+                if (schedules.length > 0) {
+                    const nextSchedule = schedules[0];
+                    document.getElementById('next-shutdown').textContent = nextSchedule.shutdown;
+                    document.getElementById('next-wakeup').textContent = nextSchedule.wakeup;
+                } else {
+                    document.getElementById('next-shutdown').textContent = 'No schedules';
+                    document.getElementById('next-wakeup').textContent = 'No schedules';
+                }
+                
                 const scheduleList = document.getElementById('schedule-list');
-                scheduleList.innerHTML = data.schedules.map(schedule => `
+                scheduleList.innerHTML = schedules.map(schedule => `
                     <div class="schedule-item">
                         <div class="schedule-info">
                             <p>Shutdown: ${schedule.shutdown}</p>
@@ -895,14 +917,78 @@ document.addEventListener('DOMContentLoaded', function() {
                         </button>
                     </div>
                 `).join('');
-            });
+            } else {
+                throw new Error(data.message);
+            }
+        } catch (error) {
+            console.error('Error updating schedule status:', error);
+            document.getElementById('schedule-count').textContent = '!';
+            document.getElementById('next-shutdown').textContent = 'Error';
+            document.getElementById('next-wakeup').textContent = 'Error';
+            document.getElementById('schedule-list').innerHTML = 
+                '<div class="error-message">Failed to load schedules</div>';
+        }
     }
+
+    // Aktualisiere Status beim Laden
+    document.addEventListener('DOMContentLoaded', () => {
+        updateScheduleStatus();
+    });
 
     // Event Listener für Zeit-Inputs
     document.getElementById('shutdown-time')?.addEventListener('change', updateSchedulePreview);
     document.getElementById('wakeup-time')?.addEventListener('change', updateSchedulePreview);
 
     initializeCategoryEditor();
+
+    document.getElementById('shutdown-form')?.addEventListener('submit', scheduleShutdown);
+
+    // Optional: Aktualisiere auch bei Änderungen der Credentials
+    document.getElementById('host-password')?.addEventListener('change', updateScheduleStatus);
+
+    // Definiere updateScheduleStatus als globale Funktion
+    updateScheduleStatus = async function() {
+        try {
+            const response = await fetch('/api/schedules');
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                const schedules = data.schedules || [];
+                document.getElementById('schedule-count').textContent = schedules.length;
+                
+                if (schedules.length > 0) {
+                    const nextSchedule = schedules[0];
+                    document.getElementById('next-shutdown').textContent = nextSchedule.shutdown;
+                    document.getElementById('next-wakeup').textContent = nextSchedule.wakeup;
+                } else {
+                    document.getElementById('next-shutdown').textContent = 'No schedules';
+                    document.getElementById('next-wakeup').textContent = 'No schedules';
+                }
+                
+                const scheduleList = document.getElementById('schedule-list');
+                scheduleList.innerHTML = schedules.map(schedule => `
+                    <div class="schedule-item">
+                        <div class="schedule-info">
+                            <p>Shutdown: ${schedule.shutdown}</p>
+                            <p>Wake-up: ${schedule.wakeup}</p>
+                        </div>
+                        <button onclick="deleteSchedule('${schedule.id}')" class="delete-btn">
+                            <i class="fa fa-trash"></i>
+                        </button>
+                    </div>
+                `).join('');
+            } else {
+                throw new Error(data.message);
+            }
+        } catch (error) {
+            console.error('Error updating schedule status:', error);
+            document.getElementById('schedule-count').textContent = '!';
+            document.getElementById('next-shutdown').textContent = 'Error';
+            document.getElementById('next-wakeup').textContent = 'Error';
+            document.getElementById('schedule-list').innerHTML = 
+                '<div class="error-message">Failed to load schedules</div>';
+        }
+    };
 });
 
 // Container control functions
@@ -2172,3 +2258,133 @@ function closeFileExplorer() {
 document.querySelector('.file-explorer')?.addEventListener('click', (e) => {
     e.stopPropagation();
 }); 
+
+function toggleSection(header) {
+    const section = header.parentElement;
+    const content = section.querySelector('.section-content');
+    const icon = header.querySelector('.fa-chevron-down');
+    
+    header.classList.toggle('active');
+    
+    if (content.style.display === 'none') {
+        content.style.display = 'block';
+        icon.style.transform = 'rotate(180deg)';
+    } else {
+        content.style.display = 'none';
+        icon.style.transform = 'rotate(0)';
+    }
+}
+
+// Cron Job Funktionen
+async function scheduleShutdown(e) {
+    e.preventDefault();
+    
+    const shutdownTime = document.getElementById('shutdown-time').value;
+    const wakeupTime = document.getElementById('wakeup-time').value;
+
+    if (!shutdownTime || !wakeupTime) {
+        showNotification('error', 'Please select both shutdown and wake-up times');
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/schedule-shutdown', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                shutdownTime, 
+                wakeupTime 
+            })
+        });
+        
+        const data = await response.json();
+        if (data.status === 'success') {
+            showNotification('success', 'Shutdown schedule created');
+            await updateScheduleStatus();
+        } else {
+            throw new Error(data.message);
+        }
+    } catch (error) {
+        showNotification('error', `Failed to create schedule: ${error.message}`);
+    }
+}
+
+async function deleteSchedule(id) {
+    if (!confirm('Are you sure you want to delete this schedule?')) return;
+    
+    try {
+        const response = await fetch('/api/schedule/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id })
+        });
+        
+        const data = await response.json();
+        if (data.status === 'success') {
+            showNotification('success', 'Schedule deleted successfully');
+            updateScheduleStatus();
+        } else {
+            throw new Error(data.message);
+        }
+    } catch (error) {
+        showNotification('error', `Failed to delete schedule: ${error.message}`);
+    }
+}
+
+async function connectToHost() {
+    const hostIp = document.getElementById('host-ip').value;
+    const hostUser = document.getElementById('host-user').value;
+    const hostPassword = document.getElementById('host-password').value;
+
+    if (!hostIp || !hostUser || !hostPassword) {
+        showNotification('error', 'Please enter all credentials');
+        return;
+    }
+
+    try {
+        // Speichere Host-Konfiguration
+        const response = await fetch('/api/host/connect', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                hostIp,
+                hostUser,
+                hostPassword
+            })
+        });
+
+        const data = await response.json();
+        if (data.status === 'success') {
+            // Zeige Schedule-Sektion
+            const scheduleSection = document.querySelector('.schedule-section');
+            scheduleSection.style.display = 'block';
+            
+            // Warte kurz, damit die Konfiguration sicher gespeichert ist
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            // Versuche die Konfiguration zu laden
+            const configCheck = await fetch('/api/host/config');
+            const configData = await configCheck.json();
+            
+            if (configData.status === 'success') {
+                scheduleSection.classList.add('active');
+                // Warte noch einen Moment vor dem ersten Status-Update
+                await new Promise(resolve => setTimeout(resolve, 500));
+                await updateScheduleStatus();
+                showNotification('success', 'Connected to host');
+            } else {
+                throw new Error('Failed to verify host configuration');
+            }
+        } else {
+            throw new Error(data.message);
+        }
+    } catch (error) {
+        showNotification('error', `Failed to connect: ${error.message}`);
+        // Bei Fehler Schedule-Sektion wieder ausblenden
+        const scheduleSection = document.querySelector('.schedule-section');
+        scheduleSection.style.display = 'none';
+    }
+}
+
+// Event Listener für das Formular
+document.getElementById('shutdown-form')?.addEventListener('submit', scheduleShutdown);

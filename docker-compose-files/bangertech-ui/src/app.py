@@ -5,8 +5,8 @@ import yaml
 import subprocess
 import json
 import time
+from datetime import datetime, timezone  # timezone hinzugefügt
 import psutil
-import datetime
 import requests
 import threading
 from functools import lru_cache
@@ -17,6 +17,8 @@ import uuid
 import tempfile
 import socket
 import stat
+import re
+from datetime import timedelta
 
 # Konfiguriere Logging
 logging.basicConfig(
@@ -45,6 +47,38 @@ CATEGORIES_FILE = os.path.join(CONFIG_DIR, 'categories.yaml')
 
 # SSH Verbindungen speichern
 ssh_connections = {}
+
+# Am Anfang der Datei bei den anderen globalen Variablen
+host_credentials = {
+    'ip': None,
+    'username': None,
+    'password': None
+}
+
+# Am Anfang der Datei
+import json
+import os
+
+CONFIG_FILE = '/app/config/host_config.json'
+
+# Funktion zum Laden der Host-Konfiguration
+def load_host_config():
+    try:
+        if os.path.exists(CONFIG_FILE):
+            with open(CONFIG_FILE, 'r') as f:
+                return json.load(f)
+    except Exception as e:
+        app.logger.error(f"Error loading host config: {e}")
+    return None
+
+# Funktion zum Speichern der Host-Konfiguration
+def save_host_config(config):
+    try:
+        os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(config, f)
+    except Exception as e:
+        app.logger.error(f"Error saving host config: {e}")
 
 class SSHSession:
     def __init__(self, client):
@@ -746,8 +780,8 @@ def get_containers_health():
                     # Bereinige das Zeitformat
                     timestamp = inspect_result.stdout.strip()
                     timestamp = timestamp.split('.')[0]  # Entferne Nanosekunden
-                    started_at = datetime.datetime.strptime(timestamp, '%Y-%m-%dT%H:%M:%S').replace(tzinfo=datetime.timezone.utc)
-                    uptime = datetime.datetime.now(datetime.timezone.utc) - started_at
+                    started_at = datetime.strptime(timestamp, '%Y-%m-%dT%H:%M:%S').replace(tzinfo=timezone.utc)
+                    uptime = datetime.now(timezone.utc) - started_at
                     
                     containers.append({
                         'name': name,
@@ -1569,77 +1603,155 @@ def disconnect_from_server():
 def schedule_shutdown():
     try:
         data = request.json
+        # Speichere Host-Konfiguration
+        save_host_config({
+            'ip': data['hostIp'],
+            'username': data['hostUser'],
+            'password': data['hostPassword']
+        })
+
         shutdown_time = datetime.strptime(data['shutdownTime'], '%H:%M').time()
         wakeup_time = datetime.strptime(data['wakeupTime'], '%H:%M').time()
         
-        # Berechne Zeiten wie im Original-Skript
-        hour = shutdown_time.hour
-        minute = shutdown_time.minute
-        wakeuphour = wakeup_time.hour
-        wakeupminute = wakeup_time.minute
+        # Berechne die Sekunden bis zum Aufwachen
+        shutdown_seconds = shutdown_time.hour * 3600 + shutdown_time.minute * 60
+        wakeup_seconds = wakeup_time.hour * 3600 + wakeup_time.minute * 60
         
-        sh = hour * 3600
-        sm = minute * 60
-        shutseconds = sh + sm
+        # Wenn die Aufwachzeit am nächsten Tag ist
+        if wakeup_seconds <= shutdown_seconds:
+            wakeup_seconds += 24 * 3600  # Füge 24 Stunden hinzu
         
-        wh = wakeuphour * 3600
-        wm = wakeupminute * 60
-        wakeupseconds = wh + wm
+        sleep_duration = wakeup_seconds - shutdown_seconds
         
-        downtime = shutseconds - wakeupseconds
-        downtimeseconds = abs(downtime)
-        
-        # Erstelle Shutdown-Skript
+        # Erstelle SSH-Verbindung
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh.connect(
+            data['hostIp'],
+            username=data['hostUser'],
+            password=data['hostPassword']
+        )
+
+        # Erstelle Skript auf dem Host
         script_content = f"""#!/bin/bash
-sudo rtcwake -m no -s {downtimeseconds}
-sudo /sbin/shutdown -h now"""
+# Shutdown schedule created by BangerTech UI
+# Shutdown at: {data['shutdownTime']}
+# Wake up at: {data['wakeupTime']}
+rtcwake -m no -s {sleep_duration}
+shutdown -h now"""
+
+        # Hole aktuelle Crontab
+        stdin, stdout, stderr = ssh.exec_command('crontab -l')
+        current_crontab = stdout.read().decode()
         
-        with open('/usr/local/bin/shutwake.sh', 'w') as f:
-            f.write(script_content)
+        # Entferne alte Einträge für die gleiche Zeit
+        new_crontab = '\n'.join(
+            line for line in current_crontab.splitlines()
+            if not (f"{shutdown_time.minute} {shutdown_time.hour}" in line and 'shutwake.sh' in line)
+        )
         
-        os.chmod('/usr/local/bin/shutwake.sh', 0o755)
-        
-        # Füge Cron-Job hinzu
-        current_crontab = subprocess.check_output(['crontab', '-l']).decode()
-        new_job = f"{minute} {hour} * * * /usr/local/bin/shutwake.sh"
-        
-        if new_job not in current_crontab:
-            with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp:
-                temp.write(current_crontab + new_job + '\n')
-            
-            subprocess.run(['crontab', temp.name])
-            os.unlink(temp.name)
-        
+        # Füge neuen Job hinzu
+        new_job = f"{shutdown_time.minute} {shutdown_time.hour} * * * /usr/local/bin/shutwake.sh"
+        if new_crontab:
+            new_crontab += '\n' + new_job
+        else:
+            new_crontab = new_job
+
+        # Sende Befehle zum Host
+        commands = [
+            f'echo "{script_content}" > /usr/local/bin/shutwake.sh',
+            'chmod +x /usr/local/bin/shutwake.sh',
+            f'echo "{new_crontab}" | crontab -'
+        ]
+
+        for cmd in commands:
+            stdin, stdout, stderr = ssh.exec_command(cmd)
+            error = stderr.read().decode()
+            if error:
+                raise Exception(f"Command failed: {error}")
+
+        ssh.close()
+
         return jsonify({
             'status': 'success',
-            'message': 'Shutdown schedule created'
+            'message': 'Shutdown schedule created successfully',
+            'details': {
+                'shutdown': data['shutdownTime'],
+                'wakeup': data['wakeupTime'],
+                'sleep_duration': sleep_duration
+            }
         })
         
     except Exception as e:
+        app.logger.error(f"Shutdown scheduling error: {str(e)}")
         return jsonify({
             'status': 'error',
-            'message': str(e)
+            'message': f'Failed to schedule shutdown: {str(e)}'
         }), 500
 
 @app.route('/api/schedules', methods=['GET'])
 def get_schedules():
     try:
-        crontab = subprocess.check_output(['crontab', '-l']).decode()
-        schedules = []
+        app.logger.info("Checking host configuration...")
+        config = load_host_config()
+        app.logger.info(f"Loaded config: {config}")
         
+        if not config:
+            app.logger.error("No host configuration found")
+            return jsonify({
+                'status': 'error',
+                'message': 'No host configuration found'
+            }), 400
+
+        app.logger.info("Attempting SSH connection...")
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh.connect(
+            config['ip'],
+            username=config['username'],
+            password=config['password']
+        )
+        
+        app.logger.info("Reading crontab...")
+        stdin, stdout, stderr = ssh.exec_command('crontab -l')
+        crontab = stdout.read().decode()
+        app.logger.info(f"Current crontab:\n{crontab}")
+        
+        schedules = []
         for line in crontab.splitlines():
             if '/usr/local/bin/shutwake.sh' in line:
-                minute, hour, *_ = line.split()
-                shutdown_time = f"{hour.zfill(2)}:{minute.zfill(2)}"
-                
-                schedules.append({
-                    'id': f"{hour}:{minute}",
-                    'shutdown': shutdown_time,
-                    'wakeup': 'calculated from script'  # Könnte aus dem Skript extrahiert werden
-                })
+                try:
+                    minute, hour, *_ = line.split()
+                    # Extrahiere Wake-up Zeit aus dem Skript
+                    _, stdout, _ = ssh.exec_command('cat /usr/local/bin/shutwake.sh')
+                    script_content = stdout.read().decode()
+                    
+                    # Parse die rtcwake Sekunden
+                    if match := re.search(r'-s (\d+)', script_content):
+                        seconds = int(match.group(1))
+                        shutdown_time = f"{hour.zfill(2)}:{minute.zfill(2)}"
+                        shutdown_dt = datetime.strptime(shutdown_time, '%H:%M')
+                        wakeup_dt = shutdown_dt + timedelta(seconds=seconds)
+                        wakeup_time = wakeup_dt.strftime('%H:%M')
+                        
+                        # Erstelle eine eindeutige ID basierend auf der Zeit
+                        schedule_id = f"{hour}:{minute}"
+                        
+                        schedules.append({
+                            'id': schedule_id,
+                            'shutdown': shutdown_time,
+                            'wakeup': wakeup_time
+                        })
+                        app.logger.info(f"Found schedule: {schedule_id} (Shutdown: {shutdown_time}, Wake: {wakeup_time})")
+                except Exception as e:
+                    app.logger.error(f"Error parsing schedule: {e}")
+                    continue
         
+        ssh.close()
         return jsonify({'schedules': schedules})
+        
     except Exception as e:
+        app.logger.error(f"Error getting schedules: {e}")
         return jsonify({
             'status': 'error',
             'message': str(e)
@@ -2115,6 +2227,53 @@ def delete_file():
             sftp.close()
             raise e
             
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/schedule/delete', methods=['POST'])
+def delete_schedule():
+    try:
+        data = request.json
+        schedule_id = data.get('id')
+        
+        if not schedule_id or not all(host_credentials.values()):
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing schedule ID or host credentials'
+            }), 400
+            
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh.connect(
+            host_credentials['ip'],
+            username=host_credentials['username'],
+            password=host_credentials['password']
+        )
+        
+        # Hole aktuelle Crontab
+        stdin, stdout, stderr = ssh.exec_command('crontab -l')
+        current_crontab = stdout.read().decode()
+        
+        # Filtere den zu löschenden Job
+        new_crontab = '\n'.join(
+            line for line in current_crontab.splitlines()
+            if not (schedule_id in line and 'shutwake.sh' in line)
+        )
+        
+        # Schreibe neue Crontab
+        stdin, stdout, stderr = ssh.exec_command('crontab -')
+        stdin.write(new_crontab)
+        stdin.close()
+        
+        ssh.close()
+        return jsonify({
+            'status': 'success',
+            'message': 'Schedule deleted successfully'
+        })
+        
     except Exception as e:
         return jsonify({
             'status': 'error',

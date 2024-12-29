@@ -1916,3 +1916,205 @@ section h2 i {
     position: relative;
     z-index: 999;
 }
+
+.collapsible-section {
+    background: var(--color-background-dark);
+    border-radius: 10px;
+    margin-bottom: 1.5rem;
+    overflow: hidden;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.section-header:hover {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+.section-header h2 {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 1.2em;
+    color: var(--color-primary);
+}
+
+.section-header i.fa-chevron-down {
+    transition: transform 0.3s;
+}
+
+.section-header.active i.fa-chevron-down {
+    transform: rotate(180deg);
+}
+
+.section-content {
+    padding: 1.5rem;
+    border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+/* Cron Job Editor Styling */
+.cron-editor {
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.shutdown-schedule {
+    background: var(--color-background-dark);
+    border-radius: 10px;
+    padding: 2rem;
+    margin-bottom: 2rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.time-picker {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.5rem;
+    margin: 1.5rem 0;
+}
+
+.schedule-preview {
+    background: var(--color-main-background);
+    padding: 1.5rem;
+    border-radius: 8px;
+    margin: 1.5rem 0;
+    text-align: center;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+}
+
+.schedule-btn {
+    width: 100%;
+    padding: 1rem;
+    background: var(--color-primary);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    transition: background-color 0.2s;
+}
+
+.schedule-btn:hover {
+    background: var(--color-primary-dark);
+}
+
+.schedule-list {
+    margin-top: 2rem;
+}
+
+.schedule-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    background: var(--color-main-background);
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+}
+
+.schedule-item .schedule-info {
+    display: flex;
+    gap: 2rem;
+}
+
+.schedule-item .delete-btn {
+    background: none;
+    border: none;
+    color: var(--color-error);
+    padding: 0.5rem;
+    border-radius: 4px;
+    cursor: pointer;
+    opacity: 0.7;
+    transition: all 0.2s;
+}
+
+.schedule-item .delete-btn:hover {
+    opacity: 1;
+    background: rgba(255, 0, 0, 0.1);
+}
+
+.host-credentials {
+    background: var(--color-main-background);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+}
+
+.schedule-status {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.5rem;
+    margin: 2rem 0;
+    padding: 1.5rem;
+    background: var(--color-main-background);
+    border-radius: 8px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+}
+
+.status-item {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+    background: var(--color-background-dark);
+    border-radius: 6px;
+}
+
+.status-item i {
+    font-size: 1.5em;
+    color: var(--color-primary);
+}
+
+.status-item span {
+    font-size: 0.9em;
+}
+
+.credentials-section {
+    margin-bottom: 2rem;
+    padding-bottom: 2rem;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.connect-btn {
+    width: 100%;
+    padding: 1rem;
+    background: var(--color-primary);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    margin-top: 1rem;
+    transition: background-color 0.2s;
+}
+
+.connect-btn:hover {
+    background: var(--color-primary-dark);
+}
+
+.schedule-section {
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+.schedule-section.active {
+    opacity: 1;
+}
