@@ -1,6 +1,5 @@
-# The BangerTECH Utility
+# The webDock
 
-<img width="1338" alt="Screenshot 2023-08-03 at 12 12 52" src="https://github.com/BangerTech/The-BangerTECH-Utility/assets/73241309/a4d8ccc9-6e75-458b-9d06-37c95b1353c8">
 
 ![alt text](webDock.png)
 
