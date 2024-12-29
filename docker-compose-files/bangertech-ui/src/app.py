@@ -1928,6 +1928,51 @@ def handle_file():
             'message': str(e)
         }), 500
 
+@app.route('/api/file', methods=['POST'])
+def save_file():
+    try:
+        data = request.json
+        session_id = data.get('connection')
+        filepath = data.get('path')
+        content = data.get('content', '')
+        create = data.get('create', False)
+        
+        if not session_id in ssh_connections:
+            return jsonify({
+                'status': 'error',
+                'message': 'Not connected'
+            }), 400
+            
+        session = ssh_connections[session_id]
+        
+        # Prüfe ob Datei existiert
+        if create:
+            # Erstelle Verzeichnis falls nötig
+            session.client.exec_command(f'mkdir -p "$(dirname "{filepath}")"')
+        
+        # Schreibe Datei
+        stdin, stdout, stderr = session.client.exec_command(f'cat > "{filepath}"')
+        stdin.write(content)
+        stdin.close()
+        
+        error = stderr.read().decode()
+        if error:
+            return jsonify({
+                'status': 'error',
+                'message': error
+            })
+            
+        return jsonify({
+            'status': 'success',
+            'message': 'File saved successfully'
+        })
+            
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
 if __name__ == '__main__':
     # Initialisiere die Anwendung
     init_app()

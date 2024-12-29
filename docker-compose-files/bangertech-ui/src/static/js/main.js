@@ -14,6 +14,9 @@ let currentPath = '/';
 let currentCommand = '';
 let terminalContent = null;
 let updateDisplay = null;  // Wird später definiert
+let commandHistory = [];  // Neu: Global definiert
+let historyIndex = -1;   // Neu: Global definiert
+let currentInput = '';   // Neu: Global definiert
 
 document.addEventListener('DOMContentLoaded', function() {
     loadingOverlay = document.getElementById('loading-overlay');
@@ -1584,8 +1587,6 @@ function initializeTerminal() {
     terminal.innerHTML = '<div class="terminal-content"></div>';
     terminalContent = terminal.querySelector('.terminal-content');
     
-    let commandHistory = [];
-    let historyIndex = -1;
     currentCommand = '';
     
     const hiddenInput = document.createElement('textarea');
@@ -1648,15 +1649,6 @@ function initializeTerminal() {
     async function executeCommand(command) {
         if (!command.trim()) return;
         
-        // Zeige den Befehl als statische Zeile
-        const commandLine = document.createElement('div');
-        commandLine.className = 'terminal-line static';
-        commandLine.innerHTML = `
-            <span class="terminal-prompt">${createPrompt()}</span>
-            <span class="terminal-command">${command}</span>
-        `;
-        terminalContent.appendChild(commandLine);
-        
         try {
             const response = await fetch('/api/execute', {
                 method: 'POST',
@@ -1668,7 +1660,7 @@ function initializeTerminal() {
             if (data.status === 'editor') {
                 showFileEditor(data.path);
             } else if (data.status === 'success') {
-                // Nur die Ausgabe anzeigen, wenn es welche gibt
+                // Nur die Ausgabe anzeigen
                 if (data.output && data.output.trim()) {
                     const output = document.createElement('div');
                     output.className = 'terminal-output';
@@ -1717,15 +1709,7 @@ function initializeTerminal() {
                     commandHistory.push(currentCommand);
                     historyIndex = commandHistory.length;
                     
-                    // Zeige ausgeführten Befehl als statische Zeile
-                    const executedLine = document.createElement('div');
-                    executedLine.className = 'terminal-line';
-                    executedLine.innerHTML = `
-                        <span class="terminal-prompt">${createPrompt()}</span>
-                        <span class="terminal-command">${currentCommand}</span>
-                    `;
-                    terminalContent.appendChild(executedLine);
-                    
+                    // Führe Befehl aus
                     await executeCommand(currentCommand);
                     hiddenInput.value = '';
                 }
@@ -1733,23 +1717,7 @@ function initializeTerminal() {
                 
             case 'ArrowUp':
                 e.preventDefault();
-                if (historyIndex > 0) {
-                    // Speichere aktuellen Befehl für ArrowDown
-                    if (historyIndex === commandHistory.length) {
-                        currentInput = currentCommand;
-                    }
-                    historyIndex--;
-                    currentCommand = commandHistory[historyIndex];
-                    hiddenInput.value = currentCommand;
-                    
-                    // Zeige History-Navigation-Hinweis
-                    const hint = document.createElement('div');
-                    hint.className = 'terminal-hint';
-                    hint.textContent = `(History: ${historyIndex + 1}/${commandHistory.length})`;
-                    terminalContent.appendChild(hint);
-                    
-                    updateDisplay();
-                }
+                showHistoryDropdown();
                 break;
                 
             case 'ArrowDown':
@@ -1908,7 +1876,8 @@ async function saveFile(filepath) {
             body: JSON.stringify({ 
                 connection: sshConnection,
                 path: filepath,
-                content: content
+                content: content,
+                create: true  // Flag für neue Dateien
             })
         });
         
@@ -1922,4 +1891,35 @@ async function saveFile(filepath) {
     } catch (error) {
         showNotification('error', `Failed to save file: ${error.message}`);
     }
+} 
+
+function showHistoryDropdown() {
+    // Entferne existierendes Dropdown
+    const existingDropdown = document.querySelector('.history-dropdown');
+    if (existingDropdown) {
+        existingDropdown.remove();
+        return;
+    }
+    
+    if (!commandHistory || commandHistory.length === 0) return;  // Zusätzliche Prüfung
+    
+    const dropdown = document.createElement('div');
+    dropdown.className = 'history-dropdown';
+    
+    // Zeige die letzten 10 Befehle in umgekehrter Reihenfolge
+    const recentCommands = commandHistory.slice(-10).reverse();
+    recentCommands.forEach((cmd, index) => {
+        const item = document.createElement('div');
+        item.className = 'history-item';
+        item.textContent = cmd;
+        item.addEventListener('click', () => {
+            currentCommand = cmd;
+            document.querySelector('.terminal-input-hidden').value = cmd;  // Geändert
+            updateDisplay();
+            dropdown.remove();
+        });
+        dropdown.appendChild(item);
+    });
+    
+    terminalContent.appendChild(dropdown);
 } 
