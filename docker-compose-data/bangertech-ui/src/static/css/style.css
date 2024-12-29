@@ -1516,6 +1516,7 @@ section h2 i {
 
 .terminal-content {
     padding: 12px;
+    position: relative;
 }
 
 .terminal-line {
@@ -1662,13 +1663,13 @@ section h2 i {
 
 .history-dropdown {
     position: absolute;
-    bottom: 100%;
-    left: 0;
-    right: 0;
+    bottom: 40px;
+    left: 12px;
+    right: 12px;
     background: #2d2d2d;
     border: 1px solid #3d3d3d;
     border-radius: 4px;
-    max-height: 300px;
+    max-height: 200px;
     overflow-y: auto;
     z-index: 1000;
 }

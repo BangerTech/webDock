@@ -18,6 +18,20 @@ let commandHistory = [];  // Neu: Global definiert
 let historyIndex = -1;   // Neu: Global definiert
 let currentInput = '';   // Neu: Global definiert
 
+window.disconnectFromServer = function() {
+    fetch('/api/disconnect', {
+        method: 'POST',
+        body: JSON.stringify({ connection: sshConnection }),
+        headers: { 'Content-Type': 'application/json' }
+    })
+    .then(() => {
+        sshConnection = null;
+        document.querySelector('.terminal-container').style.display = 'none';
+        document.querySelector('.file-explorer').style.display = 'none';
+        showNotification('success', 'Disconnected from server');
+    });
+};
+
 document.addEventListener('DOMContentLoaded', function() {
     loadingOverlay = document.getElementById('loading-overlay');
     
@@ -1901,25 +1915,34 @@ function showHistoryDropdown() {
         return;
     }
     
-    if (!commandHistory || commandHistory.length === 0) return;  // Zusätzliche Prüfung
+    if (!commandHistory || commandHistory.length === 0) return;
     
     const dropdown = document.createElement('div');
     dropdown.className = 'history-dropdown';
     
     // Zeige die letzten 10 Befehle in umgekehrter Reihenfolge
-    const recentCommands = commandHistory.slice(-10).reverse();
-    recentCommands.forEach((cmd, index) => {
+    const recentCommands = [...new Set(commandHistory)].slice(-10).reverse();
+    recentCommands.forEach((cmd) => {
         const item = document.createElement('div');
         item.className = 'history-item';
         item.textContent = cmd;
         item.addEventListener('click', () => {
             currentCommand = cmd;
-            document.querySelector('.terminal-input-hidden').value = cmd;  // Geändert
+            document.querySelector('.terminal-input-hidden').value = cmd;
             updateDisplay();
             dropdown.remove();
         });
         dropdown.appendChild(item);
     });
     
+    // Füge Event-Listener zum Schließen hinzu
+    document.addEventListener('click', function closeDropdown(e) {
+        if (!dropdown.contains(e.target) && e.target !== document.querySelector('.terminal-input-hidden')) {
+            dropdown.remove();
+            document.removeEventListener('click', closeDropdown);
+        }
+    });
+    
+    // Füge das Dropdown zum Terminal hinzu
     terminalContent.appendChild(dropdown);
 } 
