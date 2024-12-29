@@ -242,22 +242,18 @@
                     
                     <div class="file-explorer" style="display: none;">
                         <div class="file-explorer-header">
-                            <div class="path-navigation">
-                                <button onclick="navigateUp()">
-                                    <i class="fa fa-level-up"></i>
-                                </button>
-                                <input type="text" id="current-path" readonly>
-                            </div>
+                            <button class="close-explorer" onclick="closeFileExplorer()">&times;</button>
+                            <div class="path-navigation"></div>
                             <div class="file-actions">
                                 <button onclick="uploadFile()">
                                     <i class="fa fa-upload"></i> Upload
                                 </button>
-                                <button onclick="createFolder()">
-                                    <i class="fa fa-folder"></i> New Folder
+                                <button onclick="navigateUp()">
+                                    <i class="fa fa-level-up"></i> Up
                                 </button>
                             </div>
                         </div>
-                        <div class="file-list" id="file-list"></div>
+                        <div class="file-list"></div>
                     </div>
                 </section>
 

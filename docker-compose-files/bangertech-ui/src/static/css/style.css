@@ -1884,3 +1884,35 @@ section h2 i {
     font-size: 3em;
     margin-bottom: 1rem;
 }
+
+.close-explorer {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 24px;
+    cursor: pointer;
+    padding: 0.5rem;
+    line-height: 1;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.close-explorer:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+/* Overlay für Klick außerhalb */
+.explorer-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 998;
+}
+
+.file-explorer {
+    position: relative;
+    z-index: 999;
+}

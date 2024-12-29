@@ -799,6 +799,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     document.querySelector('.file-explorer').style.display = 'none';
                     initializeTerminal();
                 } else {
+                    // Füge Overlay hinzu und zeige Explorer
+                    const overlay = document.createElement('div');
+                    overlay.className = 'explorer-overlay';
+                    overlay.onclick = closeFileExplorer;
+                    document.body.appendChild(overlay);
+                    
                     document.querySelector('.terminal-container').style.display = 'none';
                     document.querySelector('.file-explorer').style.display = 'block';
                     loadFileList(currentPath);
@@ -2138,3 +2144,31 @@ async function deleteFile(path) {
         showNotification('error', `Failed to delete file: ${error.message}`);
     }
 } 
+
+function closeFileExplorer() {
+    // Entferne Overlay
+    const overlay = document.querySelector('.explorer-overlay');
+    if (overlay) {
+        overlay.remove();
+    }
+    
+    // Verstecke Explorer
+    document.querySelector('.file-explorer').style.display = 'none';
+    
+    // Optional: Trenne SFTP-Verbindung
+    if (sshConnection) {
+        fetch('/api/disconnect', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ connection: sshConnection })
+        }).then(() => {
+            sshConnection = null;
+            showNotification('success', 'Disconnected from server');
+        });
+    }
+}
+
+// Verhindere Klick-Propagation vom Explorer zum Overlay
+document.querySelector('.file-explorer')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+}); 
