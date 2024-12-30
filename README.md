@@ -4,12 +4,9 @@
 
 ## Screenshots
 
-<div style="overflow-x: auto; white-space: nowrap; padding: 20px 0;">
-  <img src="images/screenshots/dashboard-light.png" width="90%" style="margin-right: 20px; display: inline-block;" alt="Dashboard - Light Theme" />
-  <img src="images/screenshots/dashboard-dark.png" width="90%" style="margin-right: 20px; display: inline-block;" alt="Dashboard - Dark Theme" />
-  <img src="images/screenshots/status.png" width="90%" style="margin-right: 20px; display: inline-block;" alt="System Status und Monitoring" />
-  <img src="images/screenshots/special.png" width="90%" style="margin-right: 20px; display: inline-block;" alt="Spezielle Funktionen" />
-</div>
+<img src="images/screenshots/dashboard-light.png" width="49%" /> <img src="images/screenshots/dashboard-dark.png" width="49%" />
+
+<img src="images/screenshots/status.png" width="49%" /> <img src="images/screenshots/special.png" width="49%" />
 
 # 1. Table of content
 - [1. Table of content](#1-table-of-content)
