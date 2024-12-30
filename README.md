@@ -1,9 +1,20 @@
 # webDock
 
-![alt text](webdock-logo.png)
+![weDock Logo](src/static/img/logo1.png)
 
-![alt text](webDock.png)
+## Screenshots
 
+### Light Theme
+<p align="center">
+  <img src="screenshots/dashboard-light.png" width="48%" alt="Dashboard - Light Theme" />
+  <img src="screenshots/status.png" width="48%" alt="System Status und Monitoring" />
+</p>
+
+### Dark Theme
+<p align="center">
+  <img src="screenshots/dashboard-dark.png" width="48%" alt="Dashboard - Dark Theme" />
+  <img src="screenshots/special.png" width="48%" alt="Spezielle Funktionen" />
+</p>
 
 # 1. Table of content
 - [1. Table of content](#1-table-of-content)
