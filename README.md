@@ -1,5 +1,6 @@
-# The webDock
+# webDock
 
+![alt text](webdock-logo.png)
 
 ![alt text](webDock.png)
 
@@ -15,8 +16,7 @@
 
 # 2. What is this Tool?
 This Tool is usefull to install Programs & Software on your Debian based Server, Desktop, Mini-PC...  
-After you´ve choosen a Program the Tool will install and setup everything for you.   
-There are two versions, one for ARM based Systems like a Raspberry Pi and one for X86 Systems like a Server, Desktop...  
+  
 
 1. openHABian
 2. Docker + Docker-Compose
@@ -24,21 +24,22 @@ There are two versions, one for ARM based Systems like a Raspberry Pi and one fo
 4. Frontail
 5. Mosquitto Broker
 6. Zigbee2MQTT
-7. Homebridge
-8. Grafana
-9. influxDB
-10. Portainer
-11. Filestash (linux) / Filebrowser (arm)
-12. Heimdall
-13. HomeAssistant
-14. RaspberryMatic
-15. CodeServer
-16. Prometheus
-17. node-exporter
-18. Whats up Docker
-19. WatchYourLAN
-20. Backup (linux & arm)
-21. shut-wake Script (linux)
+7. Dockge
+8. Homebridge
+9. Grafana
+10. influxDB
+11. Portainer
+12. Filestash (linux)
+13. Heimdall
+14. HomeAssistant
+15. RaspberryMatic
+16. CodeServer
+17. Prometheus
+18. node-exporter
+19. Whats up Docker
+20. WatchYourLAN
+21. Backup (linux & arm)
+22. shut-wake Script (linux)
 
 
 # 3. Setup & Requirements
@@ -51,33 +52,11 @@ There are two versions, one for ARM based Systems like a Raspberry Pi and one fo
 
 For X86 Systems:
 1. cd $HOME
-2. sudo wget https://raw.githubusercontent.com/BangerTech/The-BangerTECH-Utility/main/bangertech_utility_x86.sh
-3. sudo chmod +x bangertech_utility_x86.sh
-4. sh bangertech_utility_x86.sh
+2. sudo wget https://raw.githubusercontent.com/BangerTech/weDock/development/setup_webui.sh
+3. sudo chmod +x setup_webui.sh
+4. sh setup_webui.sh
 5. pick a Program and follow the Steps presented by the Tool
 
-For ARM Systems:
-1. cd $HOME
-2. sudo wget https://raw.githubusercontent.com/BangerTech/The-BangerTECH-Utility/main/bangertech_utility_arm.sh
-3. sudo chmod +x bangertech_utility_arm.sh
-4. sh bangertech_utility_arm.sh
-5. pick a Program and follow the Steps presented by the Tool
-
-For Windows Systems:
-1. install wsl --install -d Debian
-2. Download Docker Desktop and install. https://docs.docker.com/desktop/install/windows-install/
-3. open PowerShell and login as User
-4. proceed with 3. Setup & Requirements
-5. cd $HOME
-6. sudo wget https://raw.githubusercontent.com/BangerTech/The-BangerTECH-Utility/main/bangertech_utility_windows.sh
-7. sudo chmod +x bangertech_utility_windows.sh
-8. sh bangertech_utility_windows.sh
-9. pick a Program and follow the Steps presented by the Tool
-
-check out the development Branch for the latest Changes: https://github.com/BangerTech/The-BangerTECH-Utility/tree/development
-
-
-written Article how to use it: https://bangertech.de/the-bangertech-utility-smarthome-server-schnell-einfach-installiert/
 
 
 # 5. Support / Feedback
