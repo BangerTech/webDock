@@ -1,4 +1,3 @@
-version: '3'
 services:
   bangertech-ui:
     container_name: bangertech-ui
@@ -12,10 +11,9 @@ services:
       - /home/webDock/docker-compose-data:/home/webDock/docker-compose-data
       - /home/webDock/docker-compose-files:/app/docker-compose-files
       - /home/webDock/docker-compose-data/config:/app/config
-      - ./src/static/img:/app/static/img
-      - ./src/static/img/icons:/app/static/img/icons:ro
       - ./config:/app/config
       - host-config:/app/config/host
+      - /home/webDock/docker-compose-files/bangertech-ui/src/static/img:/app/static/img
     environment:
       - DOCKER_HOST=unix:///var/run/docker.sock
       - FLASK_DEBUG=1
