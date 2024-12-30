@@ -727,17 +727,11 @@ def update_container(container_name):
 @app.route('/static/img/<path:filename>')
 def serve_image(filename):
     try:
-        img_dir = os.path.join(app.static_folder, 'img', 'icons')
-        clean_filename = filename.replace('icons/', '')
-        
-        if os.path.exists(os.path.join(img_dir, clean_filename)):
-            return send_from_directory(img_dir, clean_filename)
-        else:
-            return send_from_directory(img_dir, 'bangertech.png')
-            
-    except Exception as e:
-        logger.error(f"Error serving image {filename}: {str(e)}")
-        return '', 404
+        # Hier könnte die Fallback-Logik sein
+        return send_from_directory(app.static_folder + '/img', filename)
+    except:
+        # Hier ist wahrscheinlich der Fallback zum bangertech.png
+        return send_from_directory(app.static_folder + '/img/icons', 'bangertech.png')
 
 @app.route('/api/system/status')
 def get_system_status():
@@ -2279,6 +2273,14 @@ def delete_schedule():
             'status': 'error',
             'message': str(e)
         }), 500
+
+def get_container_icon(container_name):
+    # Suche nach einer spezifischen Icon-Datei
+    icon_path = os.path.join(app.static_folder, 'img', f'{container_name}.png')
+    if not os.path.exists(icon_path):
+        # Fallback zum bangertech.png
+        return 'bangertech.png'
+    return f'{container_name}.png'
 
 if __name__ == '__main__':
     # Initialisiere die Anwendung

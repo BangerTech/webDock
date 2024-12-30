@@ -30,11 +30,12 @@ echo "Creating directory structure..."
 sudo mkdir -p "$SRC_DIR/static/css"
 sudo mkdir -p "$SRC_DIR/static/js"
 sudo mkdir -p "$SRC_DIR/static/img"
+sudo mkdir -p "$SRC_DIR/static/img/icons"  # Erstelle icons Verzeichnis
 sudo mkdir -p "$SRC_DIR/templates"
 sudo mkdir -p "$SRC_DIR/config"
 
 echo "Copying files..."
-# Kopiere Dateien
+# Kopiere Basis-Dateien
 sudo cp docker-compose-files/bangertech-ui/docker-compose.yml "$BASE_DIR/" || { echo "Error copying docker-compose.yml"; exit 1; }
 sudo cp docker-compose-files/bangertech-ui/Dockerfile "$BASE_DIR/" || { echo "Error copying Dockerfile"; exit 1; }
 sudo cp docker-compose-files/bangertech-ui/requirements.txt "$BASE_DIR/" || { echo "Error copying requirements.txt"; exit 1; }
@@ -43,23 +44,16 @@ sudo cp docker-compose-files/bangertech-ui/src/templates/index.html "$SRC_DIR/te
 sudo cp docker-compose-files/bangertech-ui/src/static/css/style.css "$SRC_DIR/static/css/" || { echo "Error copying style.css"; exit 1; }
 sudo cp docker-compose-files/bangertech-ui/src/static/js/main.js "$SRC_DIR/static/js/" || { echo "Error copying main.js"; exit 1; }
 
-# Kopiere Logo wenn vorhanden, sonst überspringe
-if [ -f "docker-compose-files/bangertech-ui/src/static/img/logo1.png" ]; then
-    sudo cp docker-compose-files/bangertech-ui/src/static/img/logo1.png "$SRC_DIR/static/img/" || { echo "Warning: Could not copy logo1.png"; }
-else
-    echo "Note: logo1.png not found, skipping..."
-fi
+# Kopiere Logo und Icons
+echo "Copying logo and icons..."
+echo "Checking source logo: $(ls -l docker-compose-files/bangertech-ui/src/static/img/logo1.png)"
+sudo cp docker-compose-files/bangertech-ui/src/static/img/logo1.png "$SRC_DIR/static/img/" || { echo "Warning: Could not copy logo1.png"; }
+echo "Checking copied logo: $(ls -l $SRC_DIR/static/img/logo1.png)"
 
-# Kopiere Icons
-echo "Copying icons..."
-sudo mkdir -p "$SRC_DIR/static/img/icons"
-
-# Kopiere stattdessen nur das neue Logo
-if [ -f "docker-compose-files/bangertech-ui/src/static/img/logo1.png" ]; then
-    sudo cp docker-compose-files/bangertech-ui/src/static/img/logo1.png "$SRC_DIR/static/img/" || { echo "Warning: Could not copy logo1.png"; }
-else
-    echo "Note: logo1.png not found, skipping..."
-fi
+# Kopiere die Container-Icons
+echo "Checking source icons: $(ls -l docker-compose-files/bangertech-ui/src/static/img/icons/)"
+sudo cp docker-compose-files/bangertech-ui/src/static/img/icons/* "$SRC_DIR/static/img/icons/" || { echo "Warning: Could not copy icons"; }
+echo "Checking copied icons: $(ls -l $SRC_DIR/static/img/icons/)"
 
 # Kopiere Konfigurationsdateien
 echo "Copying config files..."

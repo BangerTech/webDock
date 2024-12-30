@@ -43,11 +43,12 @@ header {
 .logo {
     display: flex;
     justify-content: center;
-    margin-bottom: 1rem;
+    margin-bottom: 2rem;
+    padding-top: 1rem;
 }
 
 .logo-img {
-    height: 60px;  /* Noch etwas größer */
+    height: 80px;  /* Größer für bessere Qualität */
     width: auto;
     object-fit: contain;
 }
@@ -62,6 +63,7 @@ header {
 
 nav {
     width: 100%;
+    padding-bottom: 0.5rem;
 }
 
 nav ul {
@@ -69,9 +71,9 @@ nav ul {
     padding: 0;
     margin: 0;
     display: flex;
-    gap: 2rem;
+    gap: 2.5rem;
     align-items: center;
-    justify-content: center;  /* Zentriert die Navigation */
+    justify-content: center;
 }
 
 nav ul li:last-child {
