@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Definiere Verzeichnisse
-BASE_DIR="/home/webDock/docker-compose-data/bangertech-ui"
+BASE_DIR="/home/webDock/docker-compose-data/webdock-ui"
 SRC_DIR="$BASE_DIR/src"
 
 echo "=== Starting Web UI Setup ==="
@@ -36,28 +36,28 @@ sudo mkdir -p "$SRC_DIR/config"
 
 echo "Copying files..."
 # Kopiere Basis-Dateien
-sudo cp docker-compose-files/bangertech-ui/docker-compose.yml "$BASE_DIR/" || { echo "Error copying docker-compose.yml"; exit 1; }
-sudo cp docker-compose-files/bangertech-ui/Dockerfile "$BASE_DIR/" || { echo "Error copying Dockerfile"; exit 1; }
-sudo cp docker-compose-files/bangertech-ui/requirements.txt "$BASE_DIR/" || { echo "Error copying requirements.txt"; exit 1; }
-sudo cp docker-compose-files/bangertech-ui/src/app.py "$SRC_DIR/" || { echo "Error copying app.py"; exit 1; }
-sudo cp docker-compose-files/bangertech-ui/src/templates/index.html "$SRC_DIR/templates/" || { echo "Error copying index.html"; exit 1; }
-sudo cp docker-compose-files/bangertech-ui/src/static/css/style.css "$SRC_DIR/static/css/" || { echo "Error copying style.css"; exit 1; }
-sudo cp docker-compose-files/bangertech-ui/src/static/js/main.js "$SRC_DIR/static/js/" || { echo "Error copying main.js"; exit 1; }
+sudo cp docker-compose-files/webdock-ui/docker-compose.yml "$BASE_DIR/" || { echo "Error copying docker-compose.yml"; exit 1; }
+sudo cp docker-compose-files/webdock-ui/Dockerfile "$BASE_DIR/" || { echo "Error copying Dockerfile"; exit 1; }
+sudo cp docker-compose-files/webdock-ui/requirements.txt "$BASE_DIR/" || { echo "Error copying requirements.txt"; exit 1; }
+sudo cp docker-compose-files/webdock-ui/src/app.py "$SRC_DIR/" || { echo "Error copying app.py"; exit 1; }
+sudo cp docker-compose-files/webdock-ui/src/templates/index.html "$SRC_DIR/templates/" || { echo "Error copying index.html"; exit 1; }
+sudo cp docker-compose-files/webdock-ui/src/static/css/style.css "$SRC_DIR/static/css/" || { echo "Error copying style.css"; exit 1; }
+sudo cp docker-compose-files/webdock-ui/src/static/js/main.js "$SRC_DIR/static/js/" || { echo "Error copying main.js"; exit 1; }
 
 # Kopiere Logo und Icons
 echo "Copying logo and icons..."
-echo "Checking source logo: $(ls -l docker-compose-files/bangertech-ui/src/static/img/logo1.png)"
-sudo cp docker-compose-files/bangertech-ui/src/static/img/logo1.png "$SRC_DIR/static/img/" || { echo "Warning: Could not copy logo1.png"; }
+echo "Checking source logo: $(ls -l docker-compose-files/webdock-ui/src/static/img/logo1.png)"
+sudo cp docker-compose-files/webdock-ui/src/static/img/logo1.png "$SRC_DIR/static/img/" || { echo "Warning: Could not copy logo1.png"; }
 echo "Checking copied logo: $(ls -l $SRC_DIR/static/img/logo1.png)"
 
 # Kopiere die Container-Icons
-echo "Checking source icons: $(ls -l docker-compose-files/bangertech-ui/src/static/img/icons/)"
-sudo cp docker-compose-files/bangertech-ui/src/static/img/icons/* "$SRC_DIR/static/img/icons/" || { echo "Warning: Could not copy icons"; }
+echo "Checking source icons: $(ls -l docker-compose-files/webdock-ui/src/static/img/icons/)"
+sudo cp docker-compose-files/webdock-ui/src/static/img/icons/* "$SRC_DIR/static/img/icons/" || { echo "Warning: Could not copy icons"; }
 echo "Checking copied icons: $(ls -l $SRC_DIR/static/img/icons/)"
 
 # Kopiere Konfigurationsdateien
 echo "Copying config files..."
-sudo cp docker-compose-files/bangertech-ui/src/config/categories.yaml "$SRC_DIR/config/" || { echo "Error copying categories.yaml"; exit 1; }
+sudo cp docker-compose-files/webdock-ui/src/config/categories.yaml "$SRC_DIR/config/" || { echo "Error copying categories.yaml"; exit 1; }
 
 # Setze Berechtigungen
 sudo chown -R $USER:$USER "$BASE_DIR"

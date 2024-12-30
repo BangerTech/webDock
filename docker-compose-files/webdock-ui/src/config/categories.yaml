@@ -44,3 +44,9 @@ categories:
     containers:
       - heimdall
       - frontail 
+
+  system:
+    name: "System"
+    icon: "fa-cogs"
+    containers:
+      - "webdock-ui" 

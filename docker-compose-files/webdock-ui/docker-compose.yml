@@ -1,6 +1,6 @@
 services:
-  bangertech-ui:
-    container_name: bangertech-ui
+  webdock-ui:
+    container_name: webdock-ui
     build: .
     ports:
       - "8585:80"
@@ -13,7 +13,7 @@ services:
       - /home/webDock/docker-compose-data/config:/app/config
       - ./config:/app/config
       - host-config:/app/config/host
-      - /home/webDock/docker-compose-files/bangertech-ui/src/static/img:/app/static/img
+      - /home/webDock/docker-compose-files/webdock-ui/src/static/img:/app/static/img
     environment:
       - DOCKER_HOST=unix:///var/run/docker.sock
       - FLASK_DEBUG=1
