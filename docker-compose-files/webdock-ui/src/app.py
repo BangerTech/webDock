@@ -550,7 +550,11 @@ def get_containers():
                     continue
                 
                 # Verwende den korrekten Service-Namen
-                display_name = dir_name if service_name == 'mosquitto' else service_name
+                # Spezielle Behandlung für den UI Container
+                if service_name == 'bangertech-ui':
+                    display_name = 'webdock-ui'
+                else:
+                    display_name = dir_name if service_name == 'mosquitto' else service_name
                 processed_services.add(display_name)
                 
                 # Bestimme die Kategorie
