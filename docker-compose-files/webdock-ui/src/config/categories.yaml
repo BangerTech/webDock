@@ -37,16 +37,9 @@ categories:
       - codeserver
       - filestash
 
-  dashboard:
-    name: "Dashboard"
-    icon: "fa-th-large"
-    description: "Dashboard and visualization tools"
-    containers:
-      - heimdall
-      - frontail 
-
   system:
     name: "System"
     icon: "fa-cogs"
     containers:
-      - "webdock-ui" 
+      - "webdock-ui"
+      - "portainer" 

@@ -11,9 +11,7 @@ services:
       - /home/webDock/docker-compose-data:/home/webDock/docker-compose-data
       - /home/webDock/docker-compose-files:/app/docker-compose-files
       - /home/webDock/docker-compose-data/config:/app/config
-      - ./config:/app/config
-      - host-config:/app/config/host
-      - /home/webDock/docker-compose-files/webdock-ui/src/static/img:/app/static/img
+      - ./src/static/img:/app/static/img
     environment:
       - DOCKER_HOST=unix:///var/run/docker.sock
       - FLASK_DEBUG=1
