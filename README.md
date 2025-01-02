@@ -33,28 +33,28 @@ webDock is a powerful tool for managing and installing software on Debian-based 
 - 🌙 Dark/Light theme support
 - 🔧 Easy configuration management
 - 📱 Responsive design
+- 🖥️ SSH Terminal access
+- 📁 SFTP File Explorer
+- ⏰ Cron Job Editor for automated system shutdown/wakeup
 
 ### Supported Containers
-1. **openHABian** - Smart Home Automation
-2. **Docker + Docker-Compose** - Container Orchestration
-3. **openHAB-Docker** - openHAB in a Docker container
-4. **Frontail** - Log viewer for openHAB
-5. **Mosquitto Broker** - MQTT broker for IoT devices
-6. **Zigbee2MQTT** - Zigbee to MQTT bridge
-7. **Grafana** - Visualization and monitoring
-8. **influxDB** - Time series database
-9. **Portainer** - Docker management UI
-10. **Filestash** - Web-based file manager
-11. **Heimdall** - Application dashboard
-12. **HomeAssistant** - Open-source home automation
-13. **RaspberryMatic** - Homematic central unit
-14. **CodeServer** - VS Code in the browser
-15. **Prometheus** - Monitoring and alerting
-16. **node-exporter** - System metrics for Prometheus
-17. **Whats up Docker** - Docker container monitoring
-18. **WatchYourLAN** - Network monitoring
-19. **Backup** - Backup solutions for Linux and ARM
-20. **shut-wake Script** - Automatic shutdown and wake-up of systems
+1. **openHAB** - Open Home Automation Bus
+2. **Home Assistant** - Open-source home automation platform
+3. **HomeBridge** - HomeKit support for non-native devices
+4. **RaspberryMatic** - Homematic central control unit
+5. **Zigbee2MQTT** - Zigbee devices to MQTT bridge
+6. **MQTT Broker** - Message broker for IoT communication
+7. **Dockge** - Docker compose stack manager
+8. **Portainer** - Container management UI
+9. **Grafana** - Analytics and monitoring platform
+10. **InfluxDB** - Time series database
+11. **Code Server** - VS Code in the browser
+12. **File Browser** - Web-based file manager
+13. **WatchYourLAN** - Network device monitoring
+14. **WhatsUpDocker** - Docker container monitoring
+15. **Frontail** - Web-based log viewer
+16. **Node Exporter** - Hardware and OS metrics exporter
+17. **Prometheus** - Monitoring and alerting toolkit
 
 ## Technologies
 - Python 3.9+
