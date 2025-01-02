@@ -1,6 +1,13 @@
 # webDock
 
+![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white)
+![Flask](https://img.shields.io/badge/flask-%23000.svg?style=for-the-badge&logo=flask&logoColor=white)
+![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)
+[![License](https://img.shields.io/github/license/BangerTech/webDock?style=for-the-badge)](LICENSE)
+
 ![weDock Logo](images/webdock-logo.png)
+
+> 🐳 A modern web interface for managing Docker containers and services on Debian-based systems
 
 ## Screenshots
 
@@ -18,6 +25,14 @@
 
 ## What is webDock?
 webDock is a powerful tool for managing and installing software on Debian-based systems. It provides a user-friendly interface for managing Docker containers and other software solutions.
+
+### Features
+- 🚀 One-click container deployment
+- 🔄 Automatic container updates
+- 📊 System monitoring and statistics
+- 🌙 Dark/Light theme support
+- 🔧 Easy configuration management
+- 📱 Responsive design
 
 ### Supported Containers
 1. **openHABian** - Smart Home Automation
@@ -40,6 +55,13 @@ webDock is a powerful tool for managing and installing software on Debian-based 
 18. **WatchYourLAN** - Network monitoring
 19. **Backup** - Backup solutions for Linux and ARM
 20. **shut-wake Script** - Automatic shutdown and wake-up of systems
+
+## Technologies
+- Python 3.9+
+- Flask web framework
+- Docker & Docker Compose
+- JavaScript (ES6+)
+- YAML for configuration
 
 ## Setup & Requirements
 - **sudo** should be installed
@@ -77,3 +99,8 @@ Fork the repository and create pull requests.
 ## Sponsorship
 
 <a href="https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=FD26FHKRWS3US" target="_blank"><img src="https://pics.paypal.com/00/s/N2EwMzk4NzUtOTQ4Yy00Yjc4LWIwYmUtMTA3MWExNWIzYzMz/file.PNG" alt="SUPPORT" height="51"></a>
+
+## Keywords
+`docker-management` `container-management` `web-ui` `docker-compose` `system-monitoring` 
+`home-automation` `iot` `smart-home` `monitoring` `dashboard` `debian` `raspberry-pi` 
+`docker-gui` `container-deployment` `devops` `self-hosted` `open-source`
