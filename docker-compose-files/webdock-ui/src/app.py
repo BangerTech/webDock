@@ -162,35 +162,57 @@ def _extract_port(ports):
         return None
 
 def load_categories():
+    """Lädt die Kategorien aus der YAML-Datei oder erstellt Standardkategorien"""
     try:
-        # Stelle sicher, dass das Verzeichnis existiert
-        os.makedirs(CONFIG_DIR, exist_ok=True)
+        if os.path.exists(CATEGORIES_FILE):
+            with open(CATEGORIES_FILE, 'r') as f:
+                return yaml.safe_load(f)
         
-        if not os.path.exists(CATEGORIES_FILE):
-            # Erstelle Standard-Kategorien wenn die Datei nicht existiert
-            default_categories = {
-                'categories': {
-                    'smart_home': {
-                        'name': 'Smart Home',
-                        'icon': 'fa-home',
-                        'description': 'Home automation and IoT containers',
-                        'containers': []
-                    },
-                    'monitoring': {
-                        'name': 'Monitoring',
-                        'icon': 'fa-chart-line',
-                        'description': 'System and network monitoring tools',
-                        'containers': []
-                    }
+        # Wenn keine Datei existiert, erstelle Standardkategorien
+        default_categories = {
+            'categories': {
+                'smarthome': {
+                    'name': 'Smart Home',
+                    'icon': 'fa-home',
+                    'description': 'Home automation systems',
+                    'containers': ['openhab', 'homeassistant', 'raspberrymatic']
+                },
+                'bridge': {
+                    'name': 'Bridge',
+                    'icon': 'fa-exchange',
+                    'description': 'IoT bridges and communication',
+                    'containers': ['homebridge', 'mosquitto-broker', 'zigbee2mqtt']
+                },
+                'dashboard': {
+                    'name': 'Dashboard',
+                    'icon': 'fa-th-large',
+                    'description': 'Visualization and monitoring dashboards',
+                    'containers': ['heimdall', 'grafana']
+                },
+                'service': {
+                    'name': 'Service',
+                    'icon': 'fa-cogs',
+                    'description': 'System services and tools',
+                    'containers': ['filebrowser', 'codeserver', 'frontail', 
+                                 'nodeexporter', 'portainer', 'dockge', 'prometheus']
+                },
+                'other': {
+                    'name': 'Other',
+                    'icon': 'fa-ellipsis-h',
+                    'description': 'Additional containers and tools',
+                    'containers': ['whatsupdocker', 'watchyourlan', 'webdock-ui', 'filestash']
                 }
             }
-            with open(CATEGORIES_FILE, 'w') as f:
-                yaml.dump(default_categories, f)
+        }
         
-        with open(CATEGORIES_FILE, 'r') as f:
-            return yaml.safe_load(f)
+        # Speichere die Standardkategorien
+        os.makedirs(os.path.dirname(CATEGORIES_FILE), exist_ok=True)
+        with open(CATEGORIES_FILE, 'w') as f:
+            yaml.dump(default_categories, f, default_flow_style=False)
+        
+        return default_categories
     except Exception as e:
-        logger.error(f"Error loading categories: {str(e)}")
+        logger.exception("Error loading categories")
         return {'categories': {}}
 
 @app.route('/api/categories', methods=['POST'])
@@ -1019,13 +1041,20 @@ def update_category_order():
 def init_app():
     """Initialisiere die Anwendung"""
     try:
-        # Stelle sicher, dass die categories.yaml existiert
-        if not os.path.exists('/app/categories.yaml'):
-            load_categories()  # Dies erstellt die Standard-Kategorien
+        # Erstelle Konfigurationsverzeichnis falls nicht vorhanden
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        
+        # Lösche alte categories.yaml wenn vorhanden
+        if os.path.exists(CATEGORIES_FILE):
+            os.remove(CATEGORIES_FILE)
+        
+        # Lade oder erstelle Kategorien
+        categories = load_categories()
+        logger.info(f"Loaded categories: {categories}")
         
         logger.info("Application initialized successfully")
     except Exception as e:
-        logger.error(f"Error initializing application: {str(e)}")
+        logger.exception("Error in init_app")
 
 def get_container_config(container_name):
     """Liest die Konfiguration eines Containers aus seiner docker-compose.yml"""

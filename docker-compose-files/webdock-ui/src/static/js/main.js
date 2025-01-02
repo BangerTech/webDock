@@ -1386,32 +1386,27 @@ document.addEventListener('DOMContentLoaded', () => {
 }); 
 
 function getContainerLogo(containerName) {
-    // Debug-Log hinzufügen
-    console.log(`Getting logo for container: ${containerName}`);
-    
+    // Mapping von Container-Namen zu Logo-Dateien
     const logoMapping = {
-        'mosquitto-broker': 'mosquitto.png',  // Verwende mosquitto.png für mosquitto-broker
-        'code-server': 'codeserver.png',
-        'dockge': 'dockge.png',
-        'filebrowser': 'filebrowser.png',
-        'grafana': 'grafana.png',
-        'heimdall': 'heimdall.png',
         'homeassistant': 'homeassistant.png',
-        'homebridge': 'homebridge.png',
-        'influxdb-arm': 'influxdb.png',
-        'influxdb-x86': 'influxdb.png',
+        'whatsupdocker': 'whatsupdocker.png',
+        'code-server': 'codeserver.png',
+        'grafana': 'grafana.png',
+        'filebrowser': 'filebrowser.png',
         'mosquitto-broker': 'mosquitto.png',
-        'zigbee2mqtt': 'mqtt.png',
-        'nodeexporter': 'nodeexporter.png',
-        'openhab': 'openhab.png',
-        'portainer': 'portainer.png',
-        'prometheus': 'prometheus.png',
         'raspberrymatic': 'raspberrymatic.png',
-        'whatsupdocker': 'whatsupdocker.png'
+        'dockge': 'dockge.png',
+        'portainer': 'portainer.png',
+        'openhab': 'openhab.png',
+        'zigbee2mqtt': 'mqtt.png',
+        'heimdall': 'heimdall.png',
+        'prometheus': 'prometheus.png',
+        'homebridge': 'homebridge.png'
     };
-
+    
+    // Bestimme den Dateinamen des Logos
     const logoFile = logoMapping[containerName] || 'bangertech.png';
-    console.log(`Mapped to logo file: ${logoFile}`);
+    
     return `/static/img/icons/${logoFile}`;
 }
 
