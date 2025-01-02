@@ -893,62 +893,78 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    async function updateScheduleStatus() {
-        // Prüfe ob Host-Credentials vorhanden sind
-        const hostIp = document.getElementById('host-ip')?.value;
-        const hostUser = document.getElementById('host-user')?.value;
-        const hostPassword = document.getElementById('host-password')?.value;
-
-        if (!hostIp || !hostUser || !hostPassword) {
-            // Zeige "Not connected" Status
-            document.getElementById('schedule-count').textContent = '0';
-            document.getElementById('next-shutdown').textContent = 'Not connected';
-            document.getElementById('next-wakeup').textContent = 'Not connected';
-            document.getElementById('schedule-list').innerHTML = '';
-            return;
-        }
-
+    window.updateScheduleStatus = async function() {
         try {
-            const response = await fetch('/api/schedules');
-            const data = await response.json();
-            const schedules = data.schedules || [];
+            // Hole DOM-Elemente
+            const scheduleList = document.getElementById('schedule-list');
+            const scheduleCount = document.getElementById('schedule-count');
+            const nextShutdown = document.getElementById('next-shutdown');
+            const nextWakeup = document.getElementById('next-wakeup');
             
-            // Update Status
-            document.getElementById('schedule-count').textContent = schedules.length;
-            
-            if (schedules.length > 0) {
-                const nextSchedule = schedules[0];
-                document.getElementById('next-shutdown').textContent = nextSchedule.shutdown;
-                document.getElementById('next-wakeup').textContent = nextSchedule.wakeup;
-            } else {
-                document.getElementById('next-shutdown').textContent = 'No schedules';
-                document.getElementById('next-wakeup').textContent = 'No schedules';
+            // Prüfe ob die Elemente existieren
+            if (!scheduleList || !scheduleCount || !nextShutdown || !nextWakeup) {
+                console.error('Required schedule elements not found');
+                return;
             }
             
-            // Update Schedule List
-            const scheduleList = document.getElementById('schedule-list');
-            scheduleList.innerHTML = schedules.map(schedule => `
+            const response = await fetch('/api/crontabs');
+            const data = await response.json();
+            
+            if (data.error) {
+                scheduleList.innerHTML = '<p class="empty-message">Please configure and test your host connection first</p>';
+                scheduleCount.textContent = '0';
+                nextShutdown.textContent = 'Not scheduled';
+                nextWakeup.textContent = 'Not scheduled';
+                return;
+            }
+            
+            // Aktualisiere die Anzahl der aktiven Schedules
+            scheduleCount.textContent = data.jobs.length;
+            
+            // Sortiere Jobs nach Shutdown-Zeit
+            const sortedJobs = data.jobs.sort((a, b) => 
+                a.shutdown_time.localeCompare(b.shutdown_time)
+            );
+            
+            // Aktualisiere nächste Shutdown/Wakeup Zeit
+            if (sortedJobs.length > 0) {
+                nextShutdown.textContent = sortedJobs[0].shutdown_time;
+                nextWakeup.textContent = sortedJobs[0].wakeup_time;
+            } else {
+                nextShutdown.textContent = 'Not scheduled';
+                nextWakeup.textContent = 'Not scheduled';
+            }
+            
+            // Aktualisiere die Liste der aktiven Schedules
+            scheduleList.innerHTML = sortedJobs.map(job => `
                 <div class="schedule-item">
                     <div class="schedule-info">
-                        <p>Shutdown: ${schedule.shutdown}</p>
-                        <p>Wake-up: ${schedule.wakeup}</p>
+                        <span>
+                            <i class="fa fa-power-off"></i>
+                            Shutdown: ${job.shutdown_time}
+                        </span>
+                        <span>
+                            <i class="fa fa-clock-o"></i>
+                            Wake up: ${job.wakeup_time}
+                        </span>
+                        <span>
+                            <i class="fa fa-hourglass-half"></i>
+                            Duration: ${job.duration}h
+                        </span>
                     </div>
-                    <button onclick="deleteSchedule('${schedule.id}')" class="delete-btn">
+                    <button class="delete-btn" onclick="deleteSchedule('${job.id}')">
                         <i class="fa fa-trash"></i>
                     </button>
                 </div>
-            `).join('');
+            `).join('') || '<p class="empty-message">No active schedules</p>';
+            
         } catch (error) {
-            console.error('Error updating schedules:', error);
-            document.getElementById('schedule-count').textContent = '!';
-            document.getElementById('next-shutdown').textContent = 'Error';
-            document.getElementById('next-wakeup').textContent = 'Error';
-            document.getElementById('schedule-list').innerHTML = 
-                '<div class="error-message">Failed to load schedules</div>';
+            console.error('Error updating schedule status:', error);
+            showNotification('error', `Failed to update schedule status: ${error.message}`);
         }
     }
 
-    // Aktualisiere Status beim Laden
+    // Entferne die zusätzliche Zuweisung, da die Funktion bereits global ist
     document.addEventListener('DOMContentLoaded', () => {
         updateScheduleStatus();
     });
@@ -967,6 +983,36 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Optional: Aktualisiere auch bei Änderungen der Credentials
     document.getElementById('host-password')?.addEventListener('change', updateScheduleStatus);
+
+    // Event-Listener für Test Connection Button
+    document.getElementById('test-connection')?.addEventListener('click', async () => {
+        const hostIp = document.getElementById('host-ip').value;
+        const hostUser = document.getElementById('host-user').value;
+        const hostPassword = document.getElementById('host-password').value;
+        
+        if (!hostIp || !hostUser || !hostPassword) {
+            showNotification('error', 'Please enter all credentials');
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/host-config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ hostIp, hostUser, hostPassword })
+            });
+            
+            const data = await response.json();
+            if (data.status === 'success') {
+                showNotification('success', 'Connection successful');
+                updateScheduleStatus();  // Aktualisiere die Schedule-Anzeige
+            } else {
+                throw new Error(data.message);
+            }
+        } catch (error) {
+            showNotification('error', `Connection failed: ${error.message}`);
+        }
+    });
 });
 
 // Container control functions
@@ -2300,16 +2346,29 @@ async function deleteSchedule(id) {
     if (!confirm('Are you sure you want to delete this schedule?')) return;
     
     try {
-        const response = await fetch('/api/schedule/delete', {
+        // Hole die gespeicherte Host-Konfiguration
+        const configResponse = await fetch('/api/host-config');
+        const hostConfig = await configResponse.json();
+        
+        if (!hostConfig || hostConfig.error) {
+            throw new Error('No host configuration found. Please test connection first.');
+        }
+        
+        const deleteResponse = await fetch('/api/schedule/delete', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id })
+            body: JSON.stringify({ 
+                id,
+                hostIp: hostConfig.ip,
+                hostUser: hostConfig.username,
+                hostPassword: hostConfig.password
+            })
         });
         
-        const data = await response.json();
+        const data = await deleteResponse.json();
         if (data.status === 'success') {
             showNotification('success', 'Schedule deleted successfully');
-            updateScheduleStatus();
+            window.updateScheduleStatus();
         } else {
             throw new Error(data.message);
         }

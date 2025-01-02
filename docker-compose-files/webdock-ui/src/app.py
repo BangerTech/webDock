@@ -42,8 +42,11 @@ CACHE_TIMEOUT = 300  # 5 Minuten
 last_update = 0
 config_cache = {}
 
-CONFIG_DIR = '/app/config'
+# Konstanten und Konfiguration
+CONFIG_DIR = os.getenv('CONFIG_DIR', '/home/webDock/webdock-data')
 CATEGORIES_FILE = os.path.join(CONFIG_DIR, 'categories.yaml')
+COMPOSE_DIR = os.path.join(CONFIG_DIR, 'compose-files')
+HOST_CONFIG_FILE = os.path.join(CONFIG_DIR, 'host_config.json')
 
 # SSH Verbindungen speichern
 ssh_connections = {}
@@ -55,17 +58,11 @@ host_credentials = {
     'password': None
 }
 
-# Am Anfang der Datei
-import json
-import os
-
-CONFIG_FILE = '/app/config/host_config.json'
-
 # Funktion zum Laden der Host-Konfiguration
 def load_host_config():
     try:
-        if os.path.exists(CONFIG_FILE):
-            with open(CONFIG_FILE, 'r') as f:
+        if os.path.exists(HOST_CONFIG_FILE):
+            with open(HOST_CONFIG_FILE, 'r') as f:
                 return json.load(f)
     except Exception as e:
         app.logger.error(f"Error loading host config: {e}")
@@ -74,11 +71,15 @@ def load_host_config():
 # Funktion zum Speichern der Host-Konfiguration
 def save_host_config(config):
     try:
-        os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
-        with open(CONFIG_FILE, 'w') as f:
+        # Stelle sicher, dass das Verzeichnis existiert
+        os.makedirs(os.path.dirname(HOST_CONFIG_FILE), exist_ok=True)
+        
+        with open(HOST_CONFIG_FILE, 'w') as f:
             json.dump(config, f)
+        return True
     except Exception as e:
         app.logger.error(f"Error saving host config: {e}")
+        return False
 
 class SSHSession:
     def __init__(self, client):
@@ -229,8 +230,8 @@ def update_category(category_id):
         categories['categories'][category_id].update({
             'name': data['name'],
             'icon': data['icon'],
-            'description': data.get('description', ''),
-            'containers': data.get('containers', [])
+            'description': data['description'],
+            'containers': data['containers']
         })
         
         # Speichere aktualisierte Kategorien
@@ -2234,8 +2235,11 @@ def delete_schedule():
     try:
         data = request.json
         schedule_id = data.get('id')
+        host_ip = data.get('hostIp')
+        host_user = data.get('hostUser')
+        host_password = data.get('hostPassword')
         
-        if not schedule_id or not all(host_credentials.values()):
+        if not schedule_id or not all([host_ip, host_user, host_password]):
             return jsonify({
                 'status': 'error',
                 'message': 'Missing schedule ID or host credentials'
@@ -2244,33 +2248,70 @@ def delete_schedule():
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         ssh.connect(
-            host_credentials['ip'],
-            username=host_credentials['username'],
-            password=host_credentials['password']
+            host_ip,
+            username=host_user,
+            password=host_password
         )
         
         # Hole aktuelle Crontab
         stdin, stdout, stderr = ssh.exec_command('crontab -l')
         current_crontab = stdout.read().decode()
+        logger.info(f"Current crontab before deletion:\n{current_crontab}")
+        
+        # Extrahiere die Zeit aus der Schedule-ID (Format: HHMM_shutwake)
+        time_str = schedule_id.split('_')[0]
+        hour = time_str[:2]
+        minute = str(int(time_str[2:]))  # Konvertiere zu int und zurück zu str um führende Nullen zu entfernen
+        
+        logger.info(f"Trying to delete schedule with hour={hour}, minute={minute}")
         
         # Filtere den zu löschenden Job
-        new_crontab = '\n'.join(
-            line for line in current_crontab.splitlines()
-            if not (schedule_id in line and 'shutwake.sh' in line)
-        )
+        new_crontab_lines = []
+        for line in current_crontab.splitlines():
+            # Prüfe ob die Zeile ein shutwake.sh Eintrag mit der gesuchten Zeit ist
+            if 'shutwake.sh' in line:
+                parts = line.split()
+                logger.info(f"Found shutwake.sh line: {line}")
+                logger.info(f"Parts: {parts}")
+                if len(parts) >= 2:
+                    cron_minute = str(int(parts[0]))  # Entferne führende Nullen
+                    cron_hour = str(int(parts[1]))    # Entferne führende Nullen
+                    logger.info(f"Comparing cron_minute={cron_minute}, cron_hour={cron_hour} with minute={minute}, hour={hour}")
+                    if cron_minute == minute and cron_hour == hour:
+                        logger.info("Match found, skipping line")
+                        continue
+            new_crontab_lines.append(line)
         
-        # Schreibe neue Crontab
+        # Stelle sicher, dass die Crontab mit einer Leerzeile endet
+        new_crontab = '\n'.join(new_crontab_lines) + '\n'
+        logger.info(f"New crontab content:\n{new_crontab}")
+        
+        # Schreibe neue Crontab direkt
         stdin, stdout, stderr = ssh.exec_command('crontab -')
         stdin.write(new_crontab)
-        stdin.close()
+        stdin.channel.shutdown_write()
+        
+        # Warte auf Beendigung des Befehls
+        exit_status = stdout.channel.recv_exit_status()
+        if exit_status != 0:
+            error_msg = stderr.read().decode()
+            logger.error(f"Error updating crontab: {error_msg}")
+            raise Exception(f"Failed to update crontab: {error_msg}")
+        
+        # Überprüfe die Crontab nach dem Update
+        stdin, stdout, stderr = ssh.exec_command('crontab -l')
+        updated_crontab = stdout.read().decode()
+        logger.info(f"Updated crontab after deletion:\n{updated_crontab}")
         
         ssh.close()
+        
         return jsonify({
             'status': 'success',
             'message': 'Schedule deleted successfully'
         })
         
     except Exception as e:
+        logger.exception("Error deleting schedule")
         return jsonify({
             'status': 'error',
             'message': str(e)
@@ -2281,6 +2322,129 @@ def get_container_icon(container_name):
     if not os.path.exists(icon_path):
         return 'webdock.png'
     return f'{container_name}.png'
+
+@app.route('/api/crontabs', methods=['GET'])
+def get_crontabs():
+    try:
+        # Lade die Host-Konfiguration
+        host_config = load_host_config()
+        if not host_config:
+            return jsonify({'error': 'No host configuration found'}), 404
+        
+        # Erstelle SSH-Verbindung
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh.connect(
+            host_config['ip'],
+            username=host_config['username'],
+            password=host_config['password']
+        )
+        
+        # Hole aktuelle Crontab
+        stdin, stdout, stderr = ssh.exec_command('crontab -l')
+        crontab_content = stdout.read().decode()
+        
+        # Parse die Crontab-Einträge
+        active_jobs = []
+        for line in crontab_content.splitlines():
+            if 'shutwake.sh' in line:
+                # Extrahiere Zeit aus Crontab-Eintrag (Format: Minute Stunde * * *)
+                parts = line.split()
+                if len(parts) >= 2:
+                    minute, hour = parts[0], parts[1]
+                    time_str = f"{hour.zfill(2)}:{minute.zfill(2)}"
+                    
+                    # Lese die entsprechende shutwake.sh Datei
+                    stdin, stdout, stderr = ssh.exec_command(f'cat /usr/local/bin/shutwake.sh')
+                    script_content = stdout.read().decode()
+                    
+                    # Extrahiere Wake-up Zeit aus dem Skript
+                    sleep_duration = None
+                    for script_line in script_content.splitlines():
+                        if 'rtcwake -m no -s' in script_line:
+                            sleep_duration = int(script_line.split('-s')[1].strip().split()[0])
+                            break
+                    
+                    if sleep_duration:
+                        # Berechne Wake-up Zeit
+                        shutdown_time = datetime.strptime(time_str, '%H:%M')
+                        wakeup_time = (shutdown_time + timedelta(seconds=sleep_duration))
+                        
+                        active_jobs.append({
+                            'id': f"{time_str.replace(':', '')}_shutwake",
+                            'shutdown_time': time_str,
+                            'wakeup_time': wakeup_time.strftime('%H:%M'),
+                            'duration': sleep_duration // 3600  # Konvertiere zu Stunden
+                        })
+        
+        ssh.close()
+        return jsonify({'jobs': active_jobs})
+        
+    except Exception as e:
+        logger.exception("Error getting crontabs")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/host-config', methods=['POST'])
+def save_host_config_endpoint():
+    try:
+        data = request.json
+        config = {
+            'ip': data.get('hostIp'),
+            'username': data.get('hostUser'),
+            'password': data.get('hostPassword')
+        }
+        
+        if not all(config.values()):
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing required credentials'
+            }), 400
+        
+        # Teste die Verbindung
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        try:
+            ssh.connect(
+                config['ip'],
+                username=config['username'],
+                password=config['password']
+            )
+            ssh.close()
+        except Exception as e:
+            return jsonify({
+                'status': 'error',
+                'message': f'Connection failed: {str(e)}'
+            }), 400
+        
+        # Speichere die Konfiguration
+        if not save_host_config(config):
+            return jsonify({
+                'status': 'error',
+                'message': 'Failed to save configuration'
+            }), 500
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Host configuration saved'
+        })
+        
+    except Exception as e:
+        logger.exception("Error saving host config")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/host-config', methods=['GET'])
+def get_host_config():
+    try:
+        config = load_host_config()
+        if not config:
+            return jsonify({'error': 'No host configuration found'}), 404
+        return jsonify(config)
+    except Exception as e:
+        logger.exception("Error getting host config")
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     # Initialisiere die Anwendung

@@ -273,35 +273,39 @@
                                 <h3>Server Shutdown Schedule</h3>
                                 
                                 <!-- Host Credentials -->
-                                <form class="host-credentials" id="shutdown-form">
-                                    <div class="form-group">
-                                        <label>Host IP</label>
-                                        <input type="text" id="host-ip" value="192.168.2.86">
-                                    </div>
-                                    <div class="form-group">
-                                        <label>Username</label>
-                                        <input type="text" id="host-user" value="root">
-                                    </div>
-                                    <div class="form-group">
-                                        <label>Password</label>
-                                        <input type="password" 
-                                               id="host-password" 
-                                               autocomplete="current-password">
-                                    </div>
-                                    <div class="time-picker">
+                                <div class="host-credentials">
+                                    <h3>Host Credentials</h3>
+                                    <form id="shutdown-form">
                                         <div class="form-group">
-                                            <label>Shutdown Time</label>
-                                            <input type="time" id="shutdown-time">
+                                            <label>Host IP</label>
+                                            <input type="text" id="host-ip" value="192.168.2.86">
                                         </div>
                                         <div class="form-group">
-                                            <label>Wake-up Time</label>
-                                            <input type="time" id="wakeup-time">
+                                            <label>Username</label>
+                                            <input type="text" id="host-user" value="root">
                                         </div>
-                                    </div>
-                                    <button type="submit" class="schedule-btn">
-                                        <i class="fa fa-power-off"></i> Schedule Shutdown
-                                    </button>
-                                </form>
+                                        <div class="form-group">
+                                            <label>Password</label>
+                                            <input type="password" id="host-password">
+                                        </div>
+                                        <button type="button" id="test-connection" class="btn btn-secondary">
+                                            <i class="fa fa-plug"></i> Test Connection
+                                        </button>
+                                        <div class="time-picker">
+                                            <div class="form-group">
+                                                <label>Shutdown Time</label>
+                                                <input type="time" id="shutdown-time">
+                                            </div>
+                                            <div class="form-group">
+                                                <label>Wake-up Time</label>
+                                                <input type="time" id="wakeup-time">
+                                            </div>
+                                        </div>
+                                        <button type="submit" class="schedule-btn">
+                                            <i class="fa fa-power-off"></i> Schedule Shutdown
+                                        </button>
+                                    </form>
+                                </div>
 
                                 <div class="schedule-preview">
                                     <p>Server will shutdown at <span id="shutdown-preview">--:--</span> and wake up at <span id="wakeup-preview">--:--</span></p>
@@ -363,8 +367,18 @@
                             <div class="container-grid">
                                 ${group.containers.map(container => `
                                     <div class="container-card">
+                                        <div class="container-logo">
+                                            <img src="/static/img/icons/${container.name}.png" 
+                                                 onerror="this.src='/static/img/icons/default.png'" 
+                                                 alt="${container.name}">
+                                        </div>
                                         <div class="status-indicator ${container.status}"></div>
-                                        <h3>${container.name}</h3>
+                                        <div class="name-with-settings">
+                                            <h3>${container.name}</h3>
+                                            <button class="info-btn" onclick="showContainerInfo('${container.name}')">
+                                                <i class="fa fa-info-circle"></i>
+                                            </button>
+                                        </div>
                                         <p>Port: ${container.port ? `<a href="http://${window.location.hostname}:${container.port}" target="_blank">${container.port}</a>` : 'N/A'}</p>
                                         <p>${container.description || ''}</p>
                                         <div class="actions">
@@ -376,9 +390,6 @@
                                                     </button>
                                                     <button class="update-btn" onclick="updateContainer('${container.name}')">
                                                         <i class="fa fa-refresh"></i>
-                                                    </button>
-                                                    <button class="info-btn" onclick="showContainerInfo('${container.name}')">
-                                                        <i class="fa fa-info-circle"></i>
                                                     </button>
                                                 </div>
                                             ` : `
