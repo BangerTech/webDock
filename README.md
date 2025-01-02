@@ -78,7 +78,7 @@ webDock is a powerful tool for managing and installing software on Debian-based 
    ```
 2. Download the setup script:
    ```bash
-   sudo wget https://raw.githubusercontent.com/BangerTech/weDock/development/setup_webui.sh
+   sudo wget https://raw.githubusercontent.com/BangerTech/webDock/main/setup_webui.sh
    ```
 3. Make the script executable:
    ```bash
