@@ -1,0 +1,1 @@
+- ![webDock Screenshot](https://raw.githubusercontent.com/BangerTech/webDock/main/images/screenshots/dashboard-light.png) 
