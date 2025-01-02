@@ -8,68 +8,72 @@
 
 <img src="images/screenshots/status.png" width="49%" /> <img src="images/screenshots/special.png" width="49%" />
 
-# 1. Table of content
-- [1. Table of content](#1-table-of-content)
-- [2. What is this Tool?](#2-what-is-this-plugin)
-- [3. Setup & Requirements](#3-setup)
-- [4. How to use it?](#5-how-to-use-it)
-- [5. Support / Feedback](#4-support--feedback)
-- [6. How to contribute?](#6-how-to-contribute)
-- [7. Sponsor me!](#7-how-to-sponsor)
+## Inhaltsverzeichnis
+- [Was ist webDock?](#was-ist-webdock)
+- [Setup & Anforderungen](#setup--anforderungen)
+- [Verwendung](#verwendung)
+- [Unterstützung / Feedback](#unterstützung--feedback)
+- [Mitwirken](#mitwirken)
+- [Sponsoring](#sponsoring)
 
-# 2. What is this Tool?
-This Tool is usefull to install Programs & Software on your Debian based Server, Desktop, Mini-PC...  
-  
+## Was ist webDock?
+webDock ist ein leistungsstarkes Tool zur Verwaltung und Installation von Software auf Debian-basierten Systemen. Es bietet eine benutzerfreundliche Oberfläche zur Verwaltung von Docker-Containern und anderen Softwarelösungen.
 
-1. openHABian
-2. Docker + Docker-Compose
-3. openHAB-Docker
-4. Frontail
-5. Mosquitto Broker
-6. Zigbee2MQTT
-7. Dockge
-8. Homebridge
-9. Grafana
-10. influxDB
-11. Portainer
-12. Filestash (linux)
-13. Heimdall
-14. HomeAssistant
-15. RaspberryMatic
-16. CodeServer
-17. Prometheus
-18. node-exporter
-19. Whats up Docker
-20. WatchYourLAN
-21. Backup (linux & arm)
-22. shut-wake Script (linux)
+### Unterstützte Container
+1. **openHABian** - Smart Home Automatisierung
+2. **Docker + Docker-Compose** - Container-Orchestrierung
+3. **openHAB-Docker** - openHAB in einem Docker-Container
+4. **Frontail** - Log-Viewer für openHAB
+5. **Mosquitto Broker** - MQTT Broker für IoT-Geräte
+6. **Zigbee2MQTT** - Zigbee zu MQTT Bridge
+7. **Grafana** - Visualisierung und Monitoring
+8. **influxDB** - Zeitreihen-Datenbank
+9. **Portainer** - Docker Management UI
+10. **Filestash** - Web-basierter Dateimanager
+11. **Heimdall** - Anwendungs-Dashboard
+12. **HomeAssistant** - Open-Source Heimautomatisierung
+13. **RaspberryMatic** - Homematic Zentrale
+14. **CodeServer** - VS Code im Browser
+15. **Prometheus** - Monitoring und Alerting
+16. **node-exporter** - Systemmetriken für Prometheus
+17. **Whats up Docker** - Docker Container Monitoring
+18. **WatchYourLAN** - Netzwerküberwachung
+19. **Backup** - Backup-Lösungen für Linux und ARM
+20. **shut-wake Script** - Automatisches Herunterfahren und Aufwachen von Systemen
 
+## Setup & Anforderungen
+- **sudo** sollte installiert sein
+- **$USER** muss Mitglied der Gruppe _sudo_ sein
+- Fügen Sie **%sudo  ALL=(ALL) NOPASSWD:ALL** mit _visudo_ hinzu
+- Docker + Docker-Compose sind **erforderlich** für alle containerbasierten Programme
 
-# 3. Setup & Requirements
-- _sudo_ should be installed
-- **$USER** needs to be a Member of Group _sudo_
-- ad **%sudo  ALL=(ALL) NOPASSWD:ALL** with _visudo_
-- Docker + Docker-Compose is **required** for all Container based Programs
+## Verwendung
 
-# 4. How to use it?
+### Für X86-Systeme:
+1. Wechseln Sie in Ihr Home-Verzeichnis:
+   ```bash
+   cd $HOME
+   ```
+2. Laden Sie das Setup-Skript herunter:
+   ```bash
+   sudo wget https://raw.githubusercontent.com/BangerTech/weDock/development/setup_webui.sh
+   ```
+3. Machen Sie das Skript ausführbar:
+   ```bash
+   sudo chmod +x setup_webui.sh
+   ```
+4. Führen Sie das Setup-Skript aus:
+   ```bash
+   sh setup_webui.sh
+   ```
+5. Wählen Sie ein Programm aus und folgen Sie den Anweisungen des Tools.
 
-For X86 Systems:
-1. cd $HOME
-2. sudo wget https://raw.githubusercontent.com/BangerTech/weDock/development/setup_webui.sh
-3. sudo chmod +x setup_webui.sh
-4. sh setup_webui.sh
-5. pick a Program and follow the Steps presented by the Tool
+## Unterstützung / Feedback
+Bei Bugs oder Feature-Anfragen können Sie mich [hier](https://github.com/bangertech) kontaktieren oder das "Issues"-Tab im GitHub-Repository nutzen!
 
+## Mitwirken
+Forken Sie das Repository und erstellen Sie Pull-Requests.
 
-
-# 5. Support / Feedback
-Any bugs? Feature request? Message me [here](https://github.com/bangertech) or click on the "Issues" tab here on the GitHub repository!
-
-# 6. How to contribute?
-
-Fork the repository and create PR's.
-
-# 7 How to sponsor?
-
+## Sponsoring
 
 <a href="https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=FD26FHKRWS3US" target="_blank"><img src="https://pics.paypal.com/00/s/N2EwMzk4NzUtOTQ4Yy00Yjc4LWIwYmUtMTA3MWExNWIzYzMz/file.PNG" alt="SUPPORT" height="51"></a>
