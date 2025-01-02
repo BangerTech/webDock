@@ -8,72 +8,72 @@
 
 <img src="images/screenshots/status.png" width="49%" /> <img src="images/screenshots/special.png" width="49%" />
 
-## Inhaltsverzeichnis
-- [Was ist webDock?](#was-ist-webdock)
-- [Setup & Anforderungen](#setup--anforderungen)
-- [Verwendung](#verwendung)
-- [Unterstützung / Feedback](#unterstützung--feedback)
-- [Mitwirken](#mitwirken)
-- [Sponsoring](#sponsoring)
+## Table of Contents
+- [What is webDock?](#what-is-webdock)
+- [Setup & Requirements](#setup--requirements)
+- [Usage](#usage)
+- [Support / Feedback](#support--feedback)
+- [Contributing](#contributing)
+- [Sponsorship](#sponsorship)
 
-## Was ist webDock?
-webDock ist ein leistungsstarkes Tool zur Verwaltung und Installation von Software auf Debian-basierten Systemen. Es bietet eine benutzerfreundliche Oberfläche zur Verwaltung von Docker-Containern und anderen Softwarelösungen.
+## What is webDock?
+webDock is a powerful tool for managing and installing software on Debian-based systems. It provides a user-friendly interface for managing Docker containers and other software solutions.
 
-### Unterstützte Container
-1. **openHABian** - Smart Home Automatisierung
-2. **Docker + Docker-Compose** - Container-Orchestrierung
-3. **openHAB-Docker** - openHAB in einem Docker-Container
-4. **Frontail** - Log-Viewer für openHAB
-5. **Mosquitto Broker** - MQTT Broker für IoT-Geräte
-6. **Zigbee2MQTT** - Zigbee zu MQTT Bridge
-7. **Grafana** - Visualisierung und Monitoring
-8. **influxDB** - Zeitreihen-Datenbank
-9. **Portainer** - Docker Management UI
-10. **Filestash** - Web-basierter Dateimanager
-11. **Heimdall** - Anwendungs-Dashboard
-12. **HomeAssistant** - Open-Source Heimautomatisierung
-13. **RaspberryMatic** - Homematic Zentrale
-14. **CodeServer** - VS Code im Browser
-15. **Prometheus** - Monitoring und Alerting
-16. **node-exporter** - Systemmetriken für Prometheus
-17. **Whats up Docker** - Docker Container Monitoring
-18. **WatchYourLAN** - Netzwerküberwachung
-19. **Backup** - Backup-Lösungen für Linux und ARM
-20. **shut-wake Script** - Automatisches Herunterfahren und Aufwachen von Systemen
+### Supported Containers
+1. **openHABian** - Smart Home Automation
+2. **Docker + Docker-Compose** - Container Orchestration
+3. **openHAB-Docker** - openHAB in a Docker container
+4. **Frontail** - Log viewer for openHAB
+5. **Mosquitto Broker** - MQTT broker for IoT devices
+6. **Zigbee2MQTT** - Zigbee to MQTT bridge
+7. **Grafana** - Visualization and monitoring
+8. **influxDB** - Time series database
+9. **Portainer** - Docker management UI
+10. **Filestash** - Web-based file manager
+11. **Heimdall** - Application dashboard
+12. **HomeAssistant** - Open-source home automation
+13. **RaspberryMatic** - Homematic central unit
+14. **CodeServer** - VS Code in the browser
+15. **Prometheus** - Monitoring and alerting
+16. **node-exporter** - System metrics for Prometheus
+17. **Whats up Docker** - Docker container monitoring
+18. **WatchYourLAN** - Network monitoring
+19. **Backup** - Backup solutions for Linux and ARM
+20. **shut-wake Script** - Automatic shutdown and wake-up of systems
 
-## Setup & Anforderungen
-- **sudo** sollte installiert sein
-- **$USER** muss Mitglied der Gruppe _sudo_ sein
-- Fügen Sie **%sudo  ALL=(ALL) NOPASSWD:ALL** mit _visudo_ hinzu
-- Docker + Docker-Compose sind **erforderlich** für alle containerbasierten Programme
+## Setup & Requirements
+- **sudo** should be installed
+- **$USER** needs to be a member of the _sudo_ group
+- Add **%sudo  ALL=(ALL) NOPASSWD:ALL** with _visudo_
+- Docker + Docker-Compose are **required** for all container-based programs
 
-## Verwendung
+## Usage
 
-### Für X86-Systeme:
-1. Wechseln Sie in Ihr Home-Verzeichnis:
+### For X86 Systems:
+1. Navigate to your home directory:
    ```bash
    cd $HOME
    ```
-2. Laden Sie das Setup-Skript herunter:
+2. Download the setup script:
    ```bash
    sudo wget https://raw.githubusercontent.com/BangerTech/weDock/development/setup_webui.sh
    ```
-3. Machen Sie das Skript ausführbar:
+3. Make the script executable:
    ```bash
    sudo chmod +x setup_webui.sh
    ```
-4. Führen Sie das Setup-Skript aus:
+4. Run the setup script:
    ```bash
    sh setup_webui.sh
    ```
-5. Wählen Sie ein Programm aus und folgen Sie den Anweisungen des Tools.
+5. Pick a program and follow the steps presented by the tool.
 
-## Unterstützung / Feedback
-Bei Bugs oder Feature-Anfragen können Sie mich [hier](https://github.com/bangertech) kontaktieren oder das "Issues"-Tab im GitHub-Repository nutzen!
+## Support / Feedback
+Any bugs or feature requests? Contact me [here](https://github.com/bangertech) or click on the "Issues" tab in the GitHub repository!
 
-## Mitwirken
-Forken Sie das Repository und erstellen Sie Pull-Requests.
+## Contributing
+Fork the repository and create pull requests.
 
-## Sponsoring
+## Sponsorship
 
 <a href="https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=FD26FHKRWS3US" target="_blank"><img src="https://pics.paypal.com/00/s/N2EwMzk4NzUtOTQ4Yy00Yjc4LWIwYmUtMTA3MWExNWIzYzMz/file.PNG" alt="SUPPORT" height="51"></a>
