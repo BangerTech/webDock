@@ -17,6 +17,63 @@ let commandHistory = [];  // Neu: Global definiert
 let historyIndex = -1;   // Neu: Global definiert
 let currentInput = '';   // Neu: Global definiert
 
+// Am Anfang der Datei
+const cachedData = {
+    containers: null,
+    categories: null,
+    lastUpdate: 0
+};
+
+function getCachedData(key, ttl = 30000) {
+    return cachedData[key] && (Date.now() - cachedData.lastUpdate < ttl) 
+        ? cachedData[key] 
+        : null;
+}
+
+function showErrorNotification(error, context) {
+    console.error(`Error in ${context}:`, error);
+    showNotification('error', `${context}: ${error.message || 'An error occurred'}`);
+}
+
+// Verbesserte showNotification Funktion
+function showNotification(type, message, duration = 3000) {
+    const notificationContainer = document.getElementById('notification-container') 
+        || createNotificationContainer();
+    
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.innerHTML = `
+        <i class="fa fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i>
+        <span>${message}</span>
+        <button class="close-notification">
+            <i class="fa fa-times"></i>
+        </button>
+    `;
+    
+    notificationContainer.appendChild(notification);
+    
+    notification.querySelector('.close-notification').addEventListener('click', () => {
+        notification.classList.remove('show');
+        setTimeout(() => notification.remove(), 300);
+    });
+    
+    setTimeout(() => notification.classList.add('show'), 10);
+    
+    if (duration) {
+        setTimeout(() => {
+            notification.classList.remove('show');
+            setTimeout(() => notification.remove(), 300);
+        }, duration);
+    }
+}
+
+function createNotificationContainer() {
+    const container = document.createElement('div');
+    container.id = 'notification-container';
+    document.body.appendChild(container);
+    return container;
+}
+
 window.disconnectFromServer = function() {
     fetch('/api/disconnect', {
         method: 'POST',
@@ -659,6 +716,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         </div>
                         <div class="form-group">
                             <label>Containers</label>
+                            <input type="text" id="container-search" placeholder="Search containers...">
                             <div class="container-selection">
                                 <div class="selection-header">
                                     <button type="button" class="select-all-btn">Select All</button>
@@ -673,58 +731,75 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
                 <div class="modal-footer">
                     <button class="save-btn">Save</button>
-                    <button onclick="closeModal()" class="cancel-btn">Cancel</button>
+                    <button class="cancel-btn">Cancel</button>
                 </div>
             </div>
         `;
 
-        // Füge CSS-Styles für die Container-Auswahl hinzu
+        // Füge CSS-Styles für die verbesserte Container-Auswahl hinzu
         const style = document.createElement('style');
         style.textContent = `
+            #container-search {
+                width: 100%;
+                padding: 8px;
+                margin-bottom: 8px;
+                border: 1px solid var(--border-color);
+                border-radius: 4px;
+            }
+            
             .container-selection {
-                border: 1px solid #ddd;
+                border: 1px solid var(--border-color);
                 border-radius: 4px;
                 max-height: 300px;
                 overflow-y: auto;
             }
+            
             .selection-header {
                 padding: 8px;
-                border-bottom: 1px solid #ddd;
+                border-bottom: 1px solid var(--border-color);
                 display: flex;
                 gap: 8px;
+                position: sticky;
+                top: 0;
+                background: var(--background-color);
+                z-index: 1;
             }
+            
             .selection-header button {
                 padding: 4px 8px;
                 font-size: 12px;
                 border-radius: 3px;
-                border: 1px solid #ddd;
-                background: #f5f5f5;
+                border: 1px solid var(--border-color);
+                background: var(--background-color);
                 cursor: pointer;
             }
+            
             .selection-header button:hover {
-                background: #e5e5e5;
+                background: var(--hover-color);
             }
+            
             .container-list {
                 padding: 8px;
             }
+            
             .container-item {
-                display: flex;
-                align-items: center;
                 padding: 6px 8px;
                 margin: 2px 0;
                 border-radius: 4px;
                 transition: background-color 0.2s;
             }
+            
             .container-item:hover {
-                background-color: #f5f5f5;
+                background-color: var(--hover-color);
             }
+            
             .container-item label {
                 display: flex;
                 align-items: center;
                 gap: 8px;
-                width: 100%;
                 cursor: pointer;
             }
+            
             .container-item input[type="checkbox"] {
                 margin: 0;
                 cursor: pointer;
@@ -733,7 +808,17 @@ document.addEventListener('DOMContentLoaded', function() {
         document.head.appendChild(style);
         document.body.appendChild(modal);
 
-        // Event-Listener für Select/Deselect All Buttons
+        // Event-Listener für die Suche
+        const searchInput = modal.querySelector('#container-search');
+        searchInput.addEventListener('input', (e) => {
+            const searchTerm = e.target.value.toLowerCase();
+            modal.querySelectorAll('.container-item').forEach(item => {
+                const containerName = item.querySelector('label').textContent.toLowerCase();
+                item.style.display = containerName.includes(searchTerm) ? '' : 'none';
+            });
+        });
+
+        // Event-Listener für Select/Deselect All
         modal.querySelector('.select-all-btn').addEventListener('click', () => {
             modal.querySelectorAll('.container-item input[type="checkbox"]').forEach(cb => cb.checked = true);
         });
@@ -742,16 +827,22 @@ document.addEventListener('DOMContentLoaded', function() {
             modal.querySelectorAll('.container-item input[type="checkbox"]').forEach(cb => cb.checked = false);
         });
 
-        // Rest der Modal-Logik...
+        // Event-Listener für Save-Button
+        modal.querySelector('.save-btn').addEventListener('click', () => {
+            saveCategory(categoryId);
+        });
+
+        // Event-Listener für Cancel-Button und Close-Button
+        modal.querySelector('.cancel-btn').addEventListener('click', closeModal);
         modal.querySelector('.close-modal').addEventListener('click', closeModal);
-        
+
         if (mode === 'edit' && categoryId) {
             fetch('/api/categories')
                 .then(response => response.json())
                 .then(data => {
                     const category = data.categories[categoryId];
                     if (!category) {
-                        showNotification('error', 'Category not found');
+                        showErrorNotification('Category not found', 'Loading category');
                         closeModal();
                         return;
                     }
@@ -760,21 +851,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     document.getElementById('category-description').value = category.description || '';
                     loadAvailableContainers(category.containers || []);
                 })
-                .catch(error => {
-                    console.error('Error loading category:', error);
-                    showNotification('error', 'Failed to load category');
-                    closeModal();
-                });
+                .catch(error => showErrorNotification(error, 'Loading category'));
         } else {
             loadAvailableContainers([]);
         }
-        
-        setTimeout(() => modal.classList.add('show'), 10);
 
-        // Füge Event-Listener für Save-Button hinzu
-        modal.querySelector('.save-btn').addEventListener('click', () => {
-            saveCategory(categoryId);
-        });
+        setTimeout(() => modal.classList.add('show'), 10);
     }
 
     function loadAvailableContainers(selectedContainers = []) {
