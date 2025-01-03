@@ -412,36 +412,6 @@
                 document.getElementById('debug').style.display = 'block';
             });
 
-        // Funktion zum Speichern der Kategorie
-        function saveCategory(categoryId) {
-            const categoryForm = document.getElementById('category-form');
-            const formData = {
-                name: categoryForm.querySelector('#category-name').value,
-                icon: categoryForm.querySelector('#category-icon').value,
-                description: categoryForm.querySelector('#category-description').value,
-                containers: Array.from(categoryForm.querySelector('#category-containers').selectedOptions)
-                                .map(option => option.value)
-            };
-
-            fetch(`/api/categories/${categoryId}`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(formData)
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    // Aktualisiere die Anzeige
-                    window.location.reload();
-                } else {
-                    console.error('Error saving category:', data.error);
-                }
-            })
-            .catch(error => console.error('Error:', error));
-        }
-
         // Funktion zum Laden der Kategorien
         function loadCategories() {
             fetch('/api/categories')

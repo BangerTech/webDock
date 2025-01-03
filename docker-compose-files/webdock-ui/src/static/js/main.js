@@ -515,49 +515,20 @@ document.addEventListener('DOMContentLoaded', function() {
                 const categoryList = document.querySelector('.category-list');
                 categoryList.innerHTML = '';
                 
-                // Füge zuerst die "Other" Kategorie hinzu
-                const otherItem = document.createElement('div');
-                otherItem.className = 'category-item';
-                otherItem.dataset.id = 'other';
-                otherItem.draggable = true;
-                
-                otherItem.innerHTML = `
-                    <div class="drag-handle">
-                        <i class="fa fa-bars"></i>
-                    </div>
-                    <div class="category-info">
-                        <i class="fa fa-cube"></i>
-                        <span>Other</span>
-                    </div>
-                    <div class="category-actions">
-                        <button class="edit-category" disabled title="Default category cannot be edited">
-                            <i class="fa fa-edit"></i>
-                        </button>
-                        <button class="delete-category" disabled title="Default category cannot be deleted">
-                            <i class="fa fa-trash"></i>
-                        </button>
-                    </div>
-                `;
-                
-                // Drag & Drop Event-Listener für Other
-                otherItem.addEventListener('dragstart', handleDragStart);
-                otherItem.addEventListener('dragend', handleDragEnd);
-                otherItem.addEventListener('dragover', handleDragOver);
-                otherItem.addEventListener('drop', handleDrop);
-                otherItem.addEventListener('dragenter', handleDragEnter);
-                otherItem.addEventListener('dragleave', handleDragLeave);
-                
-                categoryList.appendChild(otherItem);
-                
-                // Sortiere Kategorien nach ihrer Position (falls vorhanden)
-                const sortedCategories = Object.entries(data.categories)
-                    .sort(([, a], [, b]) => (a.position || 0) - (b.position || 0));
-                
+                // Sortiere die Kategorien alphabetisch, aber stelle sicher dass "Other" am Ende ist
+                const sortedCategories = Object.entries(data.categories || {}).sort((a, b) => {
+                    if (a[1].name === 'Other') return 1;
+                    if (b[1].name === 'Other') return -1;
+                    return a[1].name.localeCompare(b[1].name);
+                });
+
                 sortedCategories.forEach(([id, category]) => {
                     const categoryItem = document.createElement('div');
                     categoryItem.className = 'category-item';
                     categoryItem.dataset.id = id;
                     categoryItem.draggable = true;
+                    
+                    const isOther = category.name === 'Other';
                     
                     categoryItem.innerHTML = `
                         <div class="drag-handle">
@@ -568,29 +539,31 @@ document.addEventListener('DOMContentLoaded', function() {
                             <span>${category.name}</span>
                         </div>
                         <div class="category-actions">
-                            <button class="edit-category">
+                            <button class="edit-category" ${isOther ? 'disabled title="Default category cannot be edited"' : ''}>
                                 <i class="fa fa-edit"></i>
                             </button>
-                            <button class="delete-category">
+                            <button class="delete-category" ${isOther ? 'disabled title="Default category cannot be deleted"' : ''}>
                                 <i class="fa fa-trash"></i>
                             </button>
                         </div>
                     `;
                     
-                    // Event-Listener für Edit und Delete
-                    categoryItem.querySelector('.edit-category').addEventListener('click', () => editCategory(id));
-                    categoryItem.querySelector('.delete-category').addEventListener('click', () => deleteCategory(id));
+                    // Event-Listener nur hinzufügen, wenn es nicht die "Other" Kategorie ist
+                    if (!isOther) {
+                        categoryItem.querySelector('.edit-category').addEventListener('click', () => editCategory(id));
+                        categoryItem.querySelector('.delete-category').addEventListener('click', () => deleteCategory(id));
+                    }
                     
                     // Drag & Drop Event-Listener
                     categoryItem.addEventListener('dragstart', handleDragStart);
                     categoryItem.addEventListener('dragend', handleDragEnd);
-                    categoryItem.addEventListener('dragover', handleDragOver);
-                    categoryItem.addEventListener('drop', handleDrop);
-                    categoryItem.addEventListener('dragenter', handleDragEnter);
-                    categoryItem.addEventListener('dragleave', handleDragLeave);
                     
                     categoryList.appendChild(categoryItem);
                 });
+            })
+            .catch(error => {
+                console.error('Error loading categories:', error);
+                showNotification('Error loading categories', 'error');
             });
     }
 
@@ -635,19 +608,8 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     function editCategory(id) {
-        fetch('/api/categories')
-            .then(response => response.json())
-            .then(data => {
-                const category = data.categories[id];
-                document.getElementById('category-modal-title').textContent = 'Edit Category';
-                document.getElementById('category-name').value = category.name;
-                document.getElementById('category-icon').value = category.icon;
-                document.getElementById('category-description').value = category.description;
-                document.getElementById('category-form').dataset.editing = id;
-                
-                loadAvailableContainers(category.containers);
-                document.getElementById('category-modal').classList.add('show');
-            });
+        // Statt direkt die Kategorie zu laden, nutzen wir die showCategoryModal Funktion
+        showCategoryModal('edit', id);
     }
 
     function deleteCategory(id) {
@@ -667,12 +629,165 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    function showCategoryModal(mode, categoryId = null) {
+        const modal = document.createElement('div');
+        modal.className = 'modal';
+        modal.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>${mode === 'edit' ? 'Edit' : 'Add'} Category</h2>
+                    <button class="close-modal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <form id="category-form">
+                        <div class="form-group">
+                            <label>Name</label>
+                            <input type="text" id="category-name" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Icon</label>
+                            <select id="category-icon">
+                                <option value="fa-folder">📁 Folder</option>
+                                <option value="fa-home">🏠 Home</option>
+                                <option value="fa-chart-line">📈 Chart</option>
+                                <option value="fa-network-wired">🌐 Network</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Description</label>
+                            <input type="text" id="category-description">
+                        </div>
+                        <div class="form-group">
+                            <label>Containers</label>
+                            <div class="container-selection">
+                                <div class="selection-header">
+                                    <button type="button" class="select-all-btn">Select All</button>
+                                    <button type="button" class="deselect-all-btn">Deselect All</button>
+                                </div>
+                                <div class="container-list" id="container-list">
+                                    <!-- Container-Checkboxen werden hier dynamisch eingefügt -->
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button class="save-btn">Save</button>
+                    <button onclick="closeModal()" class="cancel-btn">Cancel</button>
+                </div>
+            </div>
+        `;
+
+        // Füge CSS-Styles für die Container-Auswahl hinzu
+        const style = document.createElement('style');
+        style.textContent = `
+            .container-selection {
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                max-height: 300px;
+                overflow-y: auto;
+            }
+            .selection-header {
+                padding: 8px;
+                border-bottom: 1px solid #ddd;
+                display: flex;
+                gap: 8px;
+            }
+            .selection-header button {
+                padding: 4px 8px;
+                font-size: 12px;
+                border-radius: 3px;
+                border: 1px solid #ddd;
+                background: #f5f5f5;
+                cursor: pointer;
+            }
+            .selection-header button:hover {
+                background: #e5e5e5;
+            }
+            .container-list {
+                padding: 8px;
+            }
+            .container-item {
+                display: flex;
+                align-items: center;
+                padding: 6px 8px;
+                margin: 2px 0;
+                border-radius: 4px;
+                transition: background-color 0.2s;
+            }
+            .container-item:hover {
+                background-color: #f5f5f5;
+            }
+            .container-item label {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                width: 100%;
+                cursor: pointer;
+            }
+            .container-item input[type="checkbox"] {
+                margin: 0;
+                cursor: pointer;
+            }
+        `;
+        document.head.appendChild(style);
+        document.body.appendChild(modal);
+
+        // Event-Listener für Select/Deselect All Buttons
+        modal.querySelector('.select-all-btn').addEventListener('click', () => {
+            modal.querySelectorAll('.container-item input[type="checkbox"]').forEach(cb => cb.checked = true);
+        });
+
+        modal.querySelector('.deselect-all-btn').addEventListener('click', () => {
+            modal.querySelectorAll('.container-item input[type="checkbox"]').forEach(cb => cb.checked = false);
+        });
+
+        // Rest der Modal-Logik...
+        modal.querySelector('.close-modal').addEventListener('click', closeModal);
+        
+        if (mode === 'edit' && categoryId) {
+            fetch('/api/categories')
+                .then(response => response.json())
+                .then(data => {
+                    const category = data.categories[categoryId];
+                    if (!category) {
+                        showNotification('error', 'Category not found');
+                        closeModal();
+                        return;
+                    }
+                    document.getElementById('category-name').value = category.name;
+                    document.getElementById('category-icon').value = category.icon;
+                    document.getElementById('category-description').value = category.description || '';
+                    loadAvailableContainers(category.containers || []);
+                })
+                .catch(error => {
+                    console.error('Error loading category:', error);
+                    showNotification('error', 'Failed to load category');
+                    closeModal();
+                });
+        } else {
+            loadAvailableContainers([]);
+        }
+        
+        setTimeout(() => modal.classList.add('show'), 10);
+
+        // Füge Event-Listener für Save-Button hinzu
+        modal.querySelector('.save-btn').addEventListener('click', () => {
+            saveCategory(categoryId);
+        });
+    }
+
     function loadAvailableContainers(selectedContainers = []) {
+        const containerList = document.getElementById('container-list');
+        if (!containerList) {
+            console.error('Container list element not found');
+            return;
+        }
+        
         fetch('/api/containers')
             .then(response => response.json())
             .then(data => {
-                const containerSelector = document.querySelector('.container-selector');
-                containerSelector.innerHTML = '';
+                containerList.innerHTML = '';
                 
                 const allContainers = new Set();
                 Object.values(data).forEach(group => {
@@ -682,15 +797,60 @@ document.addEventListener('DOMContentLoaded', function() {
                 });
                 
                 Array.from(allContainers).sort().forEach(container => {
-                    containerSelector.innerHTML += `
-                        <label class="container-option">
-                            <input type="checkbox" value="${container}" 
-                                ${selectedContainers.includes(container) ? 'checked' : ''}>
+                    const item = document.createElement('div');
+                    item.className = 'container-item';
+                    item.innerHTML = `
+                        <label>
+                            <input type="checkbox" 
+                                   name="containers" 
+                                   value="${container}"
+                                   ${selectedContainers.includes(container) ? 'checked' : ''}>
                             ${container}
                         </label>
                     `;
+                    containerList.appendChild(item);
                 });
+            })
+            .catch(error => {
+                console.error('Error loading containers:', error);
+                showNotification('error', 'Failed to load containers');
             });
+    }
+
+    function saveCategory(categoryId) {
+        const formData = {
+            name: document.getElementById('category-name').value,
+            icon: document.getElementById('category-icon').value,
+            description: document.getElementById('category-description').value,
+            containers: Array.from(document.querySelectorAll('.container-item input[type="checkbox"]:checked'))
+                .map(cb => cb.value)
+        };
+        
+        const method = categoryId ? 'PUT' : 'POST';
+        const url = '/api/categories' + (categoryId ? `/${categoryId}` : '');
+        
+        fetch(url, {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(formData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                showNotification('success', `Category ${categoryId ? 'updated' : 'added'} successfully`);
+                closeModal();
+                updateContainerStatus();
+                loadCategories();
+            } else {
+                throw new Error(data.message || 'Failed to save category');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showNotification('error', error.message);
+        });
     }
 
     // Initial load
@@ -1659,51 +1819,6 @@ function initializeCategoryEditor() {
             showCategoryModal('edit', categoryId);
         });
     });
-} 
-
-function showCategoryModal(mode, categoryId = null) {
-    const modal = document.createElement('div');
-    modal.className = 'modal';
-    modal.innerHTML = `
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>${mode === 'edit' ? 'Edit' : 'Add'} Category</h2>
-                <button class="close-modal">&times;</button>
-            </div>
-            <div class="modal-body">
-                <form id="category-form">
-                    <div class="form-group">
-                        <label>Name</label>
-                        <input type="text" id="category-name" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Icon</label>
-                        <select id="category-icon">
-                            <option value="fa-folder">📁 Folder</option>
-                            <option value="fa-home">🏠 Home</option>
-                            <option value="fa-chart-line">📈 Chart</option>
-                            <option value="fa-network-wired">🌐 Network</option>
-                        </select>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button onclick="saveCategory('${categoryId}')" class="save-btn">Save</button>
-                <button onclick="closeModal()" class="cancel-btn">Cancel</button>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(modal);
-    
-    if (mode === 'edit' && categoryId) {
-        // Lade existierende Kategorie-Daten
-        fetch(`/api/categories/${categoryId}`)
-            .then(response => response.json())
-            .then(data => {
-                document.getElementById('category-name').value = data.name;
-                document.getElementById('category-icon').value = data.icon;
-            });
-    }
 } 
 
 function initializeTerminal() {
