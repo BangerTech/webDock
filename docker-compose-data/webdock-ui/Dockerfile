@@ -19,7 +19,9 @@ RUN apt-get update && \
 
 # Erstelle Docker-Gruppe und füge Benutzer hinzu
 RUN groupadd -g 999 docker && \
-    useradd -r -u 999 -g docker webdock
+    useradd -r -u 999 -g docker webdock && \
+    mkdir -p /home/webdock && \
+    chown -R webdock:docker /home/webdock
 
 # Python-Abhängigkeiten
 COPY requirements.txt .
@@ -47,12 +49,16 @@ COPY --chown=webdock:docker docker-compose-files/ /app/docker-compose-files/
 # Kopiere Icons aus docker-compose-files
 COPY --chown=webdock:docker docker-compose-files/webdock-ui/src/static/img/icons/* /app/static/img/icons/
 
+# Kopiere die Standard-Kategorien-Datei
+COPY --chown=webdock:docker src/config/categories.yaml /app/config/categories.yaml
+
 # Setze Umgebungsvariablen
 ENV FLASK_APP=app.py
 ENV FLASK_ENV=development
 ENV FLASK_DEBUG=1
 ENV PYTHONUNBUFFERED=1
 ENV CONFIG_DIR=/app/config
+ENV HOME=/app
 
 EXPOSE 80
 
