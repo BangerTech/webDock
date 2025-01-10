@@ -31,7 +31,8 @@ RUN mkdir -p /app/static/css \
             /app/static/img/icons \
             /app/templates \
             /app/docker-compose-files \
-            /app/config
+            /app/config \
+            /app/data
 
 # Kopiere die Anwendungsdateien
 COPY src/app.py /app/
@@ -44,8 +45,9 @@ COPY docker-compose-files/ /app/docker-compose-files/
 COPY docker-compose-files/webdock-ui/src/static/img/icons/* /app/static/img/icons/
 
 # Setze Berechtigungen
-RUN chmod -R 755 /app && \
-    chown -R webdock:docker /app && \
+RUN chown -R webdock:docker /app && \
+    chmod -R 755 /app && \
+    chmod -R 777 /app/config /app/data && \
     chmod 666 /var/run/docker.sock || true
 
 # Setze Umgebungsvariablen
