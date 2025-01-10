@@ -36,8 +36,8 @@ COPY src/static/ /app/static/
 COPY src/config/ /app/config/
 COPY docker-compose-files/ /app/docker-compose-files/
 
-# Kopiere Icons aus docker-compose-files in das static/img/icons Verzeichnis
-RUN cp -r /app/docker-compose-files/webdock-ui/src/static/img/icons/* /app/static/img/icons/ || true
+# Kopiere Icons aus docker-compose-files
+COPY docker-compose-files/webdock-ui/src/static/img/icons/* /app/static/img/icons/
 
 # Setze Berechtigungen
 RUN chmod -R 755 /app
