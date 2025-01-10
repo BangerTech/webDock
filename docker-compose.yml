@@ -3,15 +3,12 @@ services:
   webdock-ui:
     image: bangertech/webdock:latest
     container_name: webdock-ui
-    user: "999:999"
     ports:
       - "8585:80"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./data:/app/data:rw
-      - ./config:/app/config:rw
+      - ./data:/app/data
+      - ./config:/app/config
     environment:
       - CONFIG_DIR=/app/config
-      - DOCKER_GID=999
-      - HOME=/app
     restart: unless-stopped 

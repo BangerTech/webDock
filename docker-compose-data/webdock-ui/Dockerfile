@@ -19,9 +19,7 @@ RUN apt-get update && \
 
 # Erstelle Docker-Gruppe und füge Benutzer hinzu
 RUN groupadd -g 999 docker && \
-    useradd -r -u 999 -g docker webdock && \
-    mkdir -p /home/webdock && \
-    chown -R webdock:docker /home/webdock
+    useradd -r -u 999 -g docker webdock
 
 # Python-Abhängigkeiten
 COPY requirements.txt .
@@ -34,23 +32,40 @@ RUN mkdir -p /app/static/css \
             /app/templates \
             /app/docker-compose-files \
             /app/config \
-            /app/data && \
-    chown -R webdock:docker /app && \
-    chmod -R 755 /app && \
-    chmod -R 777 /app/config /app/data
+            /app/data
 
 # Kopiere die Anwendungsdateien
-COPY --chown=webdock:docker src/app.py /app/
-COPY --chown=webdock:docker src/templates/ /app/templates/
-COPY --chown=webdock:docker src/static/ /app/static/
-COPY --chown=webdock:docker src/config/ /app/config/
-COPY --chown=webdock:docker docker-compose-files/ /app/docker-compose-files/
+COPY src/app.py /app/
+COPY src/templates/ /app/templates/
+COPY src/static/ /app/static/
+COPY src/config/ /app/config/
+COPY docker-compose-files/ /app/docker-compose-files/
 
 # Kopiere Icons aus docker-compose-files
-COPY --chown=webdock:docker docker-compose-files/webdock-ui/src/static/img/icons/* /app/static/img/icons/
+COPY docker-compose-files/webdock-ui/src/static/img/icons/* /app/static/img/icons/
 
-# Kopiere die Standard-Kategorien-Datei
-COPY --chown=webdock:docker src/config/categories.yaml /app/config/categories.yaml
+# Erstelle ein Startup-Script
+COPY <<'EOF' /app/entrypoint.sh
+#!/bin/sh
+# Setze Berechtigungen für gemountete Verzeichnisse
+mkdir -p /app/config /app/data
+chown -R webdock:docker /app/config /app/data
+chmod -R 777 /app/config /app/data
+
+# Kopiere Standard-Kategorien, wenn sie nicht existieren
+if [ ! -f /app/config/categories.yaml ]; then
+    cp /app/src/config/categories.yaml /app/config/
+fi
+
+# Starte die Anwendung
+exec python3 /app/app.py
+EOF
+
+RUN chmod +x /app/entrypoint.sh
+
+# Setze Berechtigungen
+RUN chown -R webdock:docker /app && \
+    chmod -R 755 /app
 
 # Setze Umgebungsvariablen
 ENV FLASK_APP=app.py
@@ -58,16 +73,12 @@ ENV FLASK_ENV=development
 ENV FLASK_DEBUG=1
 ENV PYTHONUNBUFFERED=1
 ENV CONFIG_DIR=/app/config
-ENV HOME=/app
 
 EXPOSE 80
-
-# Wechsle zum webdock Benutzer
-USER webdock
 
 # Healthcheck
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
     CMD curl -f http://localhost/test || exit 1
 
-# Starte die Flask-App
-CMD ["python3", "/app/app.py"] 
+# Starte die Flask-App über das Entrypoint-Script
+CMD ["/app/entrypoint.sh"] 
