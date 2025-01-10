@@ -103,7 +103,8 @@ services:
       - "8585:8585"
     volumes:
       - ./data:/app/data
-    restart: unless-stopped```
+    restart: unless-stopped
+```
 
 
 
