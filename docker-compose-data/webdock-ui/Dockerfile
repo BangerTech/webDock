@@ -17,6 +17,10 @@ RUN apt-get update && \
     apt-get install -y docker-ce-cli && \
     rm -rf /var/lib/apt/lists/*
 
+# Erstelle Docker-Gruppe und füge Benutzer hinzu
+RUN groupadd -g 999 docker && \
+    useradd -r -u 999 -g docker webdock
+
 # Python-Abhängigkeiten
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
@@ -40,8 +44,9 @@ COPY docker-compose-files/ /app/docker-compose-files/
 COPY docker-compose-files/webdock-ui/src/static/img/icons/* /app/static/img/icons/
 
 # Setze Berechtigungen
-RUN chmod -R 755 /app
-RUN chown -R root:root /app
+RUN chmod -R 755 /app && \
+    chown -R webdock:docker /app && \
+    chmod 666 /var/run/docker.sock || true
 
 # Setze Umgebungsvariablen
 ENV FLASK_APP=app.py
@@ -54,6 +59,9 @@ EXPOSE 80
 # Healthcheck
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
     CMD curl -f http://localhost/test || exit 1
+
+# Wechsle zum webdock Benutzer
+USER webdock
 
 # Starte die Flask-App
 CMD ["python3", "/app/app.py"] 

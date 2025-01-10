@@ -11,4 +11,5 @@ services:
       - ./config:/app/config
     environment:
       - CONFIG_DIR=/app/config
+      - DOCKER_GID=999
     restart: unless-stopped 
