@@ -110,7 +110,7 @@ webDock is a powerful tool for managing and installing software on Debian-based 
 ```
 services:
   webdock-ui:
-    image: your-dockerhub-username/your-repo-name:latest
+    image: bangertech/webdock:latest
     ports:
       - "8585:8585"
     volumes:
