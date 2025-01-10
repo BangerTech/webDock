@@ -112,7 +112,7 @@ services:
   webdock-ui:
     image: bangertech/webdock:latest
     ports:
-      - "8585:8585"
+      - "8585:80"
     volumes:
       - ./data:/app/data
     restart: unless-stopped
