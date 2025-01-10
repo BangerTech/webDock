@@ -3,6 +3,7 @@ services:
   webdock-ui:
     image: bangertech/webdock:latest
     container_name: webdock-ui
+    user: "999:999"
     ports:
       - "8585:80"
     volumes:
