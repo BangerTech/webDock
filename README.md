@@ -111,10 +111,15 @@ webDock is a powerful tool for managing and installing software on Debian-based 
 services:
   webdock-ui:
     image: bangertech/webdock:latest
+    container_name: webdock-ui
     ports:
       - "8585:80"
     volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./data:/app/data
+      - ./config:/app/config
+    environment:
+      - CONFIG_DIR=/app/config
     restart: unless-stopped
 ```
 
