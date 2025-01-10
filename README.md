@@ -91,6 +91,22 @@ webDock is a powerful tool for managing and installing software on Debian-based 
    ```
 5. Pick a program and follow the steps presented by the tool.
 
+## Docker Compose Setup
+
+1. Create a new docker-compose.yml File:
+
+```
+services:
+  webdock-ui:
+    image: your-dockerhub-username/your-repo-name:latest
+    ports:
+      - "8585:8585"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped```
+
+
+
 ## Support / Feedback
 Any bugs or feature requests? Contact me [here](https://github.com/bangertech) or click on the "Issues" tab in the GitHub repository!
 
