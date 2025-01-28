@@ -100,29 +100,13 @@ class SSHSession:
             time.sleep(0.1)
         self.channel.recv(4096)  # Clear buffer
 
-def update_configs_periodically():
-    """Aktualisiert die Container-Konfigurationen im Hintergrund"""
-    while True:
-        try:
-            logger.info("Starting background update of container configurations...")
-            download_compose_files()
-            time.sleep(CACHE_TIMEOUT)
-        except Exception as e:
-            logger.error(f"Error in background update: {e}")
-            time.sleep(60)  # Warte eine Minute bei Fehler
-
-# Starte Background-Thread
-update_thread = threading.Thread(target=update_configs_periodically, daemon=True)
-update_thread.start()
-
-@lru_cache(maxsize=100)
 def get_cached_containers():
     """Gibt gecachte Container-Konfigurationen zurück"""
     global last_update, config_cache
     
     current_time = time.time()
     if current_time - last_update > CACHE_TIMEOUT:
-        compose_dir = '/home/webDock/docker-compose-files'
+        compose_dir = '/app/docker-compose-files'  # Geändert von /home/webDock/docker-compose-files
         if not os.path.exists(compose_dir):
             download_compose_files()
         config_cache = load_container_configs(compose_dir)
@@ -133,16 +117,21 @@ def get_cached_containers():
 def load_container_configs(compose_dir):
     """Lädt Container-Konfigurationen aus dem Dateisystem"""
     configs = {}
-    for root, dirs, files in os.walk(compose_dir):
-        if 'docker-compose.yml' in files:
-            try:
-                with open(os.path.join(root, 'docker-compose.yml')) as f:
-                    compose_data = yaml.safe_load(f)
-                    if compose_data and 'services' in compose_data:
-                        container_name = os.path.basename(root)
-                        configs[container_name] = compose_data
-            except Exception as e:
-                logger.error(f"Error loading config for {root}: {e}")
+    try:
+        logger.info(f"Loading configs from {compose_dir}")
+        for root, dirs, files in os.walk(compose_dir):
+            if 'docker-compose.yml' in files:
+                try:
+                    with open(os.path.join(root, 'docker-compose.yml')) as f:
+                        compose_data = yaml.safe_load(f)
+                        if compose_data and 'services' in compose_data:
+                            container_name = os.path.basename(root)
+                            configs[container_name] = compose_data
+                            logger.info(f"Loaded config for {container_name}")
+                except Exception as e:
+                    logger.error(f"Error loading config for {root}: {e}")
+    except Exception as e:
+        logger.error(f"Error walking directory {compose_dir}: {e}")
     return configs
 
 def _extract_port(ports):
@@ -363,45 +352,44 @@ def setup_container_environment(container_name, install_path, config_data=None):
         return False
 
 def download_compose_files():
-    """Lädt alle docker-compose Dateien von GitHub"""
+    """Lädt die docker-compose Files von GitHub herunter"""
     try:
-        logger.info("Starting download of compose files from GitHub...")
-        headers = {'Accept': 'application/vnd.github.v3+json'}
-        response = requests.get(GITHUB_API_URL, headers=headers)
+        # Hole die Liste der Verzeichnisse von GitHub
+        response = requests.get(GITHUB_API_URL)
         if response.status_code != 200:
-            logger.error(f"Failed to get directory listing: {response.status_code} - {response.text}")
-            return
+            raise Exception(f"Failed to get directory listing: {response.status_code}")
         
         directories = [item['name'] for item in response.json() if item['type'] == 'dir']
-        logger.info(f"Found {len(directories)} directories: {sorted(directories)}")
+        logger.info(f"Found {len(directories)} directories: {directories}")
         
-        compose_dir = '/home/webDock/docker-compose-files'
-        os.makedirs(compose_dir, exist_ok=True)
+        successful_downloads = 0
         
-        success_count = 0
-        for dir_name in directories:
+        # Erstelle das Basis-Verzeichnis
+        os.makedirs('/app/docker-compose-files', exist_ok=True)
+        
+        for directory in directories:
             try:
-                dir_path = os.path.join(compose_dir, dir_name)
-                os.makedirs(dir_path, exist_ok=True)
+                # Hole die docker-compose.yml
+                compose_url = f"{GITHUB_RAW_URL}/{directory}/docker-compose.yml"
+                response = requests.get(compose_url)
                 
-                # Lade docker-compose.yml
-                compose_url = f"{GITHUB_RAW_URL}/{dir_name}/docker-compose.yml"
-                compose_response = requests.get(compose_url, headers=headers)
-                if compose_response.status_code == 200:
-                    compose_path = os.path.join(dir_path, 'docker-compose.yml')
-                    with open(compose_path, 'w') as f:
-                        f.write(compose_response.text)
-                    success_count += 1
-                else:
-                    logger.error(f"Failed to download {compose_url}: {compose_response.status_code}")
+                if response.status_code == 200:
+                    # Erstelle Verzeichnis und speichere die Datei
+                    os.makedirs(f'/app/docker-compose-files/{directory}', exist_ok=True)
+                    with open(f'/app/docker-compose-files/{directory}/docker-compose.yml', 'w') as f:
+                        f.write(response.text)
+                    successful_downloads += 1
+                
             except Exception as e:
-                logger.error(f"Error processing {dir_name}: {str(e)}")
+                logger.error(f"Error downloading {directory}: {str(e)}")
+                continue
         
-        logger.info(f"Successfully downloaded {success_count} of {len(directories)} compose files")
-        return success_count
+        logger.info(f"Successfully downloaded {successful_downloads} of {len(directories)} compose files")
+        return True
+        
     except Exception as e:
         logger.error(f"Error downloading compose files: {str(e)}")
-        return 0
+        return False
 
 @app.route('/')
 def index():
@@ -455,50 +443,50 @@ def debug():
 def get_installed_containers():
     """Überprüft welche Container installiert sind"""
     try:
-        # Starte mit bangertech-ui als installiertem Container
-        installed = {'bangertech-ui'}
+        installed = set()
         
-        # Liste der zu prüfenden Verzeichnisse
+        # Hole laufende Container direkt von Docker
+        try:
+            result = subprocess.run(['docker', 'ps', '--format', '{{.Names}}'], 
+                                 capture_output=True, text=True)
+            if result.returncode == 0:
+                running_containers = result.stdout.strip().split('\n')
+                # Spezielle Behandlung für webdock-ui/bangertech-ui
+                for container in running_containers:
+                    if container in ['webdock-ui', 'bangertech-ui']:
+                        installed.add('webdock-ui')  # Normalisiere auf webdock-ui
+                    else:
+                        installed.add(container)
+        except Exception as e:
+            logger.error(f"Error getting running containers: {str(e)}")
+        
+        # Durchsuche auch docker-compose Dateien
         data_dirs = [
-            '/home/webDock/docker-compose-data',  # Hauptverzeichnis
-            os.path.expanduser('~/docker-compose-data'),  # Home-Verzeichnis
+            '/home/webDock/docker-compose-data',
+            os.path.expanduser('~/docker-compose-data'),
+            '.',
+            '..'
         ]
         
-        # Durchsuche alle Verzeichnisse
         for data_dir in data_dirs:
             if not os.path.exists(data_dir):
-                logger.debug(f"Directory does not exist: {data_dir}")
                 continue
             
-            logger.debug(f"Checking directory: {data_dir}")
-            
-            # Prüfe ob es eine docker-compose.yml im Verzeichnis gibt
             compose_file = os.path.join(data_dir, 'docker-compose.yml')
             if os.path.exists(compose_file):
                 try:
                     with open(compose_file) as f:
                         compose_data = yaml.safe_load(f)
                         if compose_data and 'services' in compose_data:
-                            installed.update(compose_data['services'].keys())
-                            logger.debug(f"Found services in {compose_file}: {compose_data['services'].keys()}")
+                            for service_name in compose_data['services'].keys():
+                                if service_name in ['webdock-ui', 'bangertech-ui']:
+                                    installed.add('webdock-ui')  # Normalisiere auf webdock-ui
+                                else:
+                                    installed.add(service_name)
                 except Exception as e:
                     logger.error(f"Error reading {compose_file}: {str(e)}")
-                continue
-            
-            for item in os.listdir(data_dir):
-                if os.path.isdir(os.path.join(data_dir, item)):
-                    compose_file = os.path.join(data_dir, item, 'docker-compose.yml')
-                    if os.path.exists(compose_file):
-                        try:
-                            with open(compose_file) as f:
-                                compose_data = yaml.safe_load(f)
-                                if compose_data and 'services' in compose_data:
-                                    installed.update(compose_data['services'].keys())
-                                    logger.debug(f"Found services in {compose_file}: {compose_data['services'].keys()}")
-                        except Exception as e:
-                            logger.error(f"Error reading {compose_file}: {str(e)}")
         
-        logger.info(f"Found installed containers: {installed}")
+        logger.info(f"Final installed containers: {installed}")
         return installed
     except Exception as e:
         logger.error(f"Error getting installed containers: {str(e)}")
@@ -1039,22 +1027,24 @@ def update_category_order():
         return {'error': str(e)}, 500
 
 def init_app():
-    """Initialisiere die Anwendung"""
+    """Initialisiert die Anwendung"""
     try:
-        # Erstelle Konfigurationsverzeichnis falls nicht vorhanden
-        os.makedirs(CONFIG_DIR, exist_ok=True)
+        # Erstelle notwendige Verzeichnisse
+        os.makedirs('/app/config', exist_ok=True)
+        os.makedirs('/app/data', exist_ok=True)
         
-        # Lösche alte categories.yaml wenn vorhanden
-        if os.path.exists(CATEGORIES_FILE):
-            os.remove(CATEGORIES_FILE)
+        # Lade die docker-compose Files beim Start
+        logger.info("Downloading compose files on startup...")
+        download_compose_files()
         
         # Lade oder erstelle Kategorien
         categories = load_categories()
         logger.info(f"Loaded categories: {categories}")
         
-        logger.info("Application initialized successfully")
+        return True
     except Exception as e:
-        logger.exception("Error in init_app")
+        logger.error(f"Error initializing app: {e}")
+        return False
 
 def get_container_config(container_name):
     """Liest die Konfiguration eines Containers aus seiner docker-compose.yml"""
@@ -2474,6 +2464,18 @@ def get_host_config():
     except Exception as e:
         logger.exception("Error getting host config")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/categories/refresh', methods=['POST'])
+def refresh_categories():
+    """Aktualisiert den Kategorien-Cache"""
+    try:
+        global categories_cache, last_categories_update
+        categories_cache = None
+        last_categories_update = 0
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        logger.error(f"Error refreshing categories: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 if __name__ == '__main__':
     # Initialisiere die Anwendung

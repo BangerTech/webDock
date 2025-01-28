@@ -1,8 +1,10 @@
-# Produktionsversion für normale Nutzer
+# Entwicklungsversion für lokales Bauen
 version: '3'
 services:
   webdock-ui:
-    image: bangertech/webdock:latest
+    build:
+      context: ./docker-compose-data/webdock-ui
+      dockerfile: Dockerfile
     container_name: webdock-ui
     ports:
       - "8585:80"

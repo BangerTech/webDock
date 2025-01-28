@@ -92,36 +92,27 @@ document.addEventListener('DOMContentLoaded', function() {
     loadingOverlay = document.getElementById('loading-overlay');
     
     // Container-Status-Updates als globale Funktion
-    window.updateContainerStatus = function(preserveScroll = false) {
-        if (preserveScroll) {
-            lastScrollPosition = window.scrollY;
-        }
-        
-        if (loadingOverlay) {
+    window.updateContainerStatus = function(showLoading = false) {
+        if (showLoading && loadingOverlay) {
             loadingOverlay.style.display = 'flex';
         }
         
-        fetch('/api/containers')
+        // Hole zuerst die Kategorien, dann die Container
+        fetch('/api/categories')
             .then(response => response.json())
-            .then(data => {
-                const groups = document.querySelector('.container-groups');
-                if (!groups) return;
+            .then(categoriesData => {
+                const categories = categoriesData.categories;
                 
-                // Hole zuerst die Kategorien
-                fetch('/api/categories')
+                // Jetzt hole die Container
+                return fetch('/api/containers')
                     .then(response => response.json())
-                    .then(categoriesData => {
-                        const categories = categoriesData.categories;
+                    .then(data => {
+                        const groups = document.querySelector('.container-groups');
+                        if (!groups) return;
                         
                         // Gruppiere Container nach Kategorien
                         const groupedContainers = {};
-                        
-                        // Füge "Other" Kategorie zuerst hinzu
-                        groupedContainers['Other'] = {
-                            name: 'Other',
-                            icon: 'fa-cube',
-                            containers: []
-                        };
+                        const assignedContainers = new Set(); // Merke dir zugewiesene Container
                         
                         // Initialisiere alle Kategorien
                         Object.entries(categories || {}).forEach(([id, category]) => {
@@ -132,35 +123,42 @@ document.addEventListener('DOMContentLoaded', function() {
                             };
                         });
                         
+                        // Füge "Other" Kategorie hinzu
+                        groupedContainers['Other'] = {
+                            name: 'Other',
+                            icon: 'fa-cube',
+                            containers: []
+                        };
+                        
                         // Sortiere Container in ihre Kategorien
                         Object.values(data).forEach(group => {
                             group.containers.forEach(container => {
-                                let categoryName = 'Other';
+                                let assigned = false;
                                 
-                                // Finde die passende Kategorie
+                                // Suche die passende Kategorie
                                 Object.entries(categories || {}).forEach(([id, category]) => {
-                                    if (category.containers && category.containers.includes(container.name)) {
-                                        categoryName = category.name;
+                                    if (category.containers && 
+                                        category.containers.includes(container.name) && 
+                                        !assignedContainers.has(container.name)) { // Prüfe ob Container bereits zugewiesen
+                                        groupedContainers[category.name].containers.push(container);
+                                        assignedContainers.add(container.name); // Markiere Container als zugewiesen
+                                        assigned = true;
                                     }
                                 });
                                 
-                                groupedContainers[categoryName].containers.push(container);
+                                // Wenn keine Kategorie gefunden wurde, füge zu "Other" hinzu
+                                if (!assigned && !assignedContainers.has(container.name)) {
+                                    groupedContainers['Other'].containers.push(container);
+                                    assignedContainers.add(container.name);
+                                }
                             });
                         });
                         
-                        // Zeige nur Kategorien mit Containern
-                        const sortedGroups = Object.entries(groupedContainers)
-                            .filter(([name, group]) => group.containers.length > 0)
-                            .sort(([nameA], [nameB]) => {
-                                if (nameA === 'Other') return 1;
-                                if (nameB === 'Other') return -1;
-                                return nameA.localeCompare(nameB);
-                            });
-                        
+                        // Aktualisiere die Anzeige
                         groups.innerHTML = '';
-                        
-                        sortedGroups.forEach(([name, group]) => {
-                            if (group.containers.length > 0) {
+                        Object.entries(groupedContainers)
+                            .filter(([name, group]) => group.containers.length > 0)
+                            .forEach(([name, group]) => {
                                 groups.innerHTML += `
                                     <div class="group-section">
                                         <h2><i class="fa ${group.icon}"></i> ${name}</h2>
@@ -169,52 +167,37 @@ document.addEventListener('DOMContentLoaded', function() {
                                         </div>
                                     </div>
                                 `;
-                            }
-                        });
-                        
-                        // Füge Event-Listener für die Buttons hinzu
-                        document.querySelectorAll('.install-btn').forEach(btn => {
-                            btn.addEventListener('click', (e) => {
-                                const containerName = e.target.closest('.container-card').querySelector('h3').textContent;
-                                installContainer(containerName);
                             });
-                        });
-                        
-                        document.querySelectorAll('.status-btn').forEach(btn => {
-                            btn.addEventListener('click', (e) => {
-                                const containerName = e.target.closest('.container-card').querySelector('h3').textContent;
-                                toggleContainer(containerName);
-                            });
-                        });
+                            
+                        // Event-Listener wieder hinzufügen
+                        addContainerEventListeners();
                     });
             })
             .catch(error => {
                 console.error('Error:', error);
-                showNotification('error', 'Failed to load containers');
+                if (showLoading) {
+                    showNotification('error', 'Failed to load containers');
+                }
             })
             .finally(() => {
-                if (loadingOverlay) {
+                if (showLoading && loadingOverlay) {
                     loadingOverlay.style.display = 'none';
                 }
-                if (preserveScroll) {
-                    window.scrollTo(0, lastScrollPosition);
-                }
             });
-    }
+    };
 
-    // Initialer Update-Aufruf
-    updateContainerStatus(false);
+    // Initialer Update-Aufruf mit Loading-Anzeige
+    updateContainerStatus(true);
 
-    // Periodische Updates
+    // Periodische Updates ohne Loading-Anzeige
     setInterval(() => {
         if (!document.querySelector('.modal.show') && !document.activeElement.tagName.match(/input|select|textarea/i)) {
-            updateContainerStatus(true);
+            updateContainerStatus(false);
         }
-    }, 30000);
+    }, 300000); // Alle 5 Minuten
 
-    // Event-Listener für manuelle Aktualisierung
+    // Event-Listener für manuelle Aktualisierung mit Loading-Anzeige
     document.addEventListener('keydown', function(e) {
-        // Manuelle Aktualisierung mit F5 oder Strg+R verhindern
         if (e.key === 'F5' || (e.ctrlKey && e.key === 'r')) {
             e.preventDefault();
             updateContainerStatus(true);
@@ -923,8 +906,13 @@ document.addEventListener('DOMContentLoaded', function() {
             if (data.status === 'success') {
                 showNotification('success', `Category ${categoryId ? 'updated' : 'added'} successfully`);
                 closeModal();
-                updateContainerStatus();
+                // Aktualisiere Container-Status mit Loading-Anzeige
+                updateContainerStatus(true);
+                // Aktualisiere die Kategorien-Liste
                 loadCategories();
+                // Erzwinge eine sofortige Aktualisierung des Caches
+                fetch('/api/categories/refresh', { method: 'POST' })
+                    .catch(error => console.error('Error refreshing categories:', error));
             } else {
                 throw new Error(data.message || 'Failed to save category');
             }
@@ -2567,4 +2555,69 @@ async function deleteSchedule(id) {
     } catch (error) {
         showNotification('error', `Failed to delete schedule: ${error.message}`);
     }
+}
+
+// Reduziere die Update-Frequenz oder entferne automatische Updates
+const UPDATE_INTERVAL = 300000; // 5 Minuten statt alle paar Sekunden
+
+// Lade Container-Status
+async function updateContainerStatus() {
+    try {
+        const response = await fetch('/api/containers');
+        const containers = await response.json();
+        updateContainerList(containers);
+    } catch (error) {
+        console.error('Error updating container status:', error);
+    }
+}
+
+// Initialisierung
+document.addEventListener('DOMContentLoaded', async () => {
+    // Erste Ladung
+    await updateContainerStatus();
+    
+    // Periodische Updates (optional)
+    setInterval(updateContainerStatus, UPDATE_INTERVAL);
+});
+
+// Nur manuelles Update über Button
+document.addEventListener('DOMContentLoaded', async () => {
+    // Erste Ladung
+    await updateContainerStatus();
+    
+    // Refresh Button (falls gewünscht)
+    const refreshButton = document.getElementById('refresh-button');
+    if (refreshButton) {
+        refreshButton.addEventListener('click', updateContainerStatus);
+    }
+});
+
+// Füge diese Funktion vor der updateContainerStatus Funktion hinzu
+function addContainerEventListeners() {
+    // Event-Listener für Install-Buttons
+    document.querySelectorAll('.install-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const containerName = e.target.closest('.container-card').querySelector('h3').textContent;
+            installContainer(containerName);
+        });
+    });
+    
+    // Event-Listener für Status-Buttons
+    document.querySelectorAll('.status-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const containerName = e.target.closest('.container-card').querySelector('h3').textContent;
+            toggleContainer(containerName);
+        });
+    });
+    
+    // Event-Listener für Container-Karten (falls vorhanden)
+    document.querySelectorAll('.container-card').forEach(card => {
+        card.addEventListener('click', function(e) {
+            // Nur reagieren wenn nicht auf einen Button geklickt wurde
+            if (!e.target.closest('button')) {
+                const containerName = this.querySelector('h3').textContent;
+                showContainerDetails(containerName);
+            }
+        });
+    });
 }

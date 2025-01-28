@@ -5,15 +5,14 @@ categories:
     - mosquitto-broker
     - zigbee2mqtt
     description: IoT bridges and communication
-    icon: ''
+    icon: fa-exchange
     name: Bridge
   dashboard:
     containers:
-    - grafana
     - heimdall
-    - webdock-ui
+    - grafana
     description: Visualization and monitoring dashboards
-    icon: ''
+    icon: fa-th-large
     name: Dashboard
   other:
     containers:
