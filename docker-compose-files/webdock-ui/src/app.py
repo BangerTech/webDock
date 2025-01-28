@@ -19,6 +19,7 @@ import socket
 import stat
 import re
 from datetime import timedelta
+from typing import Dict, Any
 
 # Konfiguriere Logging
 logging.basicConfig(
@@ -805,30 +806,98 @@ def get_containers_health():
 
 @app.route('/api/system/logs')
 def get_system_logs():
+    """Gibt die System-Logs zurück"""
     try:
-        # Hole die letzten Container-Logs
-        cmd = ["docker", "compose", "logs", "--tail=50"]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        
         logs = []
-        if result.returncode == 0:
-            # Verarbeite die Logs
-            raw_logs = result.stdout.strip().split('\n')
-            logs = [line for line in raw_logs if line.strip()]
-            if not logs[0]:  # Wenn keine Logs vorhanden
-                logs = ["No recent Docker events"]
-        else:
-            # Versuche alternative Log-Quelle
-            cmd_alt = ["docker", "ps", "--format", "{{.Names}}\t{{.Status}}"]
-            alt_result = subprocess.run(cmd_alt, capture_output=True, text=True)
-            if alt_result.returncode == 0:
-                status_logs = alt_result.stdout.strip().split('\n')
-                logs = [f"Container Status: {line}" for line in status_logs if line.strip()]
         
-        return jsonify({'logs': logs})
+        # 1. Hole Docker Container Logs
+        cmd = ["docker", "logs", "--tail", "50", "webdock-ui"]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                try:
+                    # Versuche das Standard-Log-Format zu parsen
+                    if " - " in line:
+                        parts = line.split(" - ", 3)
+                        if len(parts) >= 3:
+                            timestamp_str = parts[0].strip()
+                            try:
+                                timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S,%f')
+                                timestamp_iso = timestamp.isoformat()
+                            except ValueError:
+                                timestamp_iso = None
+                            
+                            logs.append({
+                                'timestamp': timestamp_iso,
+                                'level': parts[2].strip(),
+                                'message': parts[3].strip() if len(parts) > 3 else parts[-1].strip(),
+                                'source': 'webdock-ui'
+                            })
+                    else:
+                        # Fallback für nicht-standardisierte Log-Zeilen
+                        logs.append({
+                            'timestamp': datetime.now().isoformat(),
+                            'level': 'INFO',
+                            'message': line.strip(),
+                            'source': 'webdock-ui'
+                        })
+                except Exception as e:
+                    logger.error(f"Error parsing log line: {e}")
+                    continue
+
+        # 2. Hole Docker Events (Container-Status-Änderungen)
+        cmd = ["docker", "events", "--since", "30m", "--until", "now", "--format", 
+               "{{.Time}} - {{.Type}} - {{.Action}} - {{.Actor.Attributes.name}}"]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                try:
+                    parts = line.split(" - ")
+                    if len(parts) >= 4:
+                        timestamp = int(parts[0])
+                        event_type = parts[1]
+                        action = parts[2]
+                        container = parts[3]
+                        
+                        logs.append({
+                            'timestamp': datetime.fromtimestamp(timestamp).isoformat(),
+                            'level': 'EVENT',
+                            'message': f"{event_type}: {action} - Container: {container}",
+                            'source': 'docker'
+                        })
+                except Exception as e:
+                    logger.error(f"Error parsing event: {e}")
+                    continue
+
+        # 3. Hole aktuelle Container-Status
+        cmd = ["docker", "ps", "-a", "--format", "{{.Names}}\t{{.Status}}\t{{.State}}"]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                try:
+                    name, status, state = line.split('\t')
+                    logs.append({
+                        'timestamp': datetime.now().isoformat(),
+                        'level': 'STATUS',
+                        'message': f"Container {name}: {status} ({state})",
+                        'source': 'docker'
+                    })
+                except Exception as e:
+                    logger.error(f"Error parsing status: {e}")
+                    continue
+
+        # Sortiere alle Logs nach Timestamp
+        logs.sort(key=lambda x: x['timestamp'] if x['timestamp'] else '', reverse=True)
+        return jsonify(logs[:100])  # Limitiere auf die letzten 100 Einträge
+        
     except Exception as e:
-        logger.exception("Error getting system logs")
-        return {'error': str(e)}, 500
+        logger.error(f"Error reading logs: {str(e)}")
+        return jsonify([{
+            'timestamp': datetime.now().isoformat(),
+            'level': 'ERROR',
+            'message': f"Error reading logs: {str(e)}",
+            'source': 'system'
+        }])
 
 @app.route('/api/docker/info')
 def get_docker_info():
@@ -2476,6 +2545,149 @@ def refresh_categories():
     except Exception as e:
         logger.error(f"Error refreshing categories: {str(e)}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/convert-docker-run', methods=['POST'])
+def convert_docker_run():
+    try:
+        command = request.json.get('command', '')
+        if not command.startswith('docker run'):
+            return jsonify({
+                'status': 'error',
+                'message': 'Invalid docker run command'
+            }), 400
+            
+        # Parse docker run command
+        compose = docker_run_to_compose(command)
+        
+        # Erstelle ein neues Dictionary für den Service mit dem korrekten Namen
+        if 'container_name' in compose['services']['app']:
+            service_name = compose['services']['app']['container_name']
+            compose['services'][service_name] = compose['services']['app']
+            del compose['services']['app']
+        
+        # Konvertiere zu YAML mit korrekter Formatierung
+        yaml_str = yaml.dump(compose, default_flow_style=False, sort_keys=False)
+        
+        return jsonify({
+            'status': 'success',
+            'compose': yaml_str
+        })
+        
+    except Exception as e:
+        logger.error(f"Error converting docker run command: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+def docker_run_to_compose(command: str) -> Dict[str, Any]:
+    """Konvertiert docker run Befehl zu docker-compose Format"""
+    parts = command.split()
+    
+    compose = {
+        'services': {
+            'app': {  # Starte immer mit 'app' als Service-Name
+                'image': '',
+            }
+        }
+    }
+    
+    i = 0
+    while i < len(parts):
+        try:
+            if parts[i] == 'docker' and parts[i+1] == 'run':
+                i += 2
+                continue
+                
+            if parts[i] == '-d':
+                i += 1
+                continue
+                
+            if parts[i] == '--name':
+                compose['services']['app']['container_name'] = parts[i+1]
+                i += 2
+                continue
+                
+            if parts[i].startswith('-p'):
+                port = parts[i+1] if parts[i] == '-p' else parts[i][2:]
+                if 'ports' not in compose['services']['app']:
+                    compose['services']['app']['ports'] = []
+                compose['services']['app']['ports'].append(port)
+                i += 2 if parts[i] == '-p' else 1
+                continue
+                
+            if parts[i].startswith('-v'):
+                volume = parts[i+1] if parts[i] == '-v' else parts[i][2:]
+                if 'volumes' not in compose['services']['app']:
+                    compose['services']['app']['volumes'] = []
+                compose['services']['app']['volumes'].append(volume)
+                i += 2 if parts[i] == '-v' else 1
+                continue
+                
+            if parts[i].startswith('-e'):
+                env = parts[i+1] if parts[i] == '-e' else parts[i][2:]
+                if 'environment' not in compose['services']['app']:
+                    compose['services']['app']['environment'] = []
+                compose['services']['app']['environment'].append(env)
+                i += 2 if parts[i] == '-e' else 1
+                continue
+                
+            if parts[i] == '--restart':
+                compose['services']['app']['restart'] = parts[i+1]
+                i += 2
+                continue
+                
+            # Wenn kein Flag, dann ist es das Image
+            if not parts[i].startswith('-'):
+                compose['services']['app']['image'] = parts[i]
+                i += 1
+                continue
+                
+            i += 1
+            
+        except IndexError:
+            raise ValueError(f"Invalid command format at parameter: {parts[i]}")
+    
+    if not compose['services']['app']['image']:
+        raise ValueError("No image specified in docker run command")
+    
+    return compose
+
+@app.route('/api/import-compose', methods=['POST'])
+def import_compose():
+    try:
+        compose_content = request.json.get('compose', '')
+        
+        # Validiere YAML
+        compose_data = yaml.safe_load(compose_content)
+        if not compose_data or 'services' not in compose_data:
+            raise ValueError('Invalid compose file format')
+            
+        # Hole den ersten Service-Namen
+        service_name = list(compose_data['services'].keys())[0]
+        
+        # Erstelle Verzeichnis
+        install_path = f'/home/webDock/docker-compose-data/{service_name}'
+        os.makedirs(install_path, exist_ok=True)
+        
+        # Speichere compose file
+        with open(os.path.join(install_path, 'docker-compose.yml'), 'w') as f:
+            f.write(compose_content)
+            
+        # Starte Container
+        subprocess.run(['docker', 'compose', '-f', os.path.join(install_path, 'docker-compose.yml'), 'up', '-d'])
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Container {service_name} imported successfully'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error importing compose file: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
 
 if __name__ == '__main__':
     # Initialisiere die Anwendung

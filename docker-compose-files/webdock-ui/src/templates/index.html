@@ -338,6 +338,57 @@
                         </div>
                     </div>
                 </section>
+
+                <!-- Container Import -->
+                <div class="collapsible-section">
+                    <div class="section-header" onclick="toggleSection(this)">
+                        <h2><i class="fa fa-download"></i> Container Import</h2>
+                        <i class="fa fa-chevron-down"></i>
+                    </div>
+                    <div class="section-content" style="display: none;">
+                        <div class="import-tabs">
+                            <button class="tab-btn active" data-tab="docker-run">Docker Run</button>
+                            <button class="tab-btn" data-tab="compose-upload">Compose Upload</button>
+                        </div>
+                        
+                        <div class="tab-content active" id="docker-run-tab">
+                            <div class="form-group">
+                                <label for="docker-run-command">Docker Run Command:</label>
+                                <textarea id="docker-run-command" class="code-input" placeholder="docker run -d --name container ..."></textarea>
+                                <span class="hint">Paste your docker run command here</span>
+                            </div>
+                            <button class="convert-btn" onclick="convertToCompose()">
+                                <i class="fa fa-sync"></i> Convert to Compose
+                            </button>
+                        </div>
+                        
+                        <div class="tab-content hidden" id="compose-upload-tab">
+                            <div class="form-group">
+                                <label for="compose-file">Docker Compose File:</label>
+                                <div class="file-drop-zone" id="file-drop-zone">
+                                    <i class="fa fa-cloud-upload-alt"></i>
+                                    <p>Drop your docker-compose.yml here or click to select</p>
+                                    <input type="file" id="compose-file" accept=".yml,.yaml" hidden>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div id="compose-preview" class="compose-preview hidden">
+                            <div class="preview-header">
+                                <h3>Generated Compose File</h3>
+                                <div class="preview-actions">
+                                    <button class="edit-btn" onclick="editCompose()">
+                                        <i class="fa fa-edit"></i> Edit
+                                    </button>
+                                    <button class="save-btn" onclick="saveCompose()">
+                                        <i class="fa fa-save"></i> Save & Install
+                                    </button>
+                                </div>
+                            </div>
+                            <pre id="compose-content" class="compose-content"></pre>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </main>

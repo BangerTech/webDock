@@ -275,29 +275,71 @@ document.addEventListener('DOMContentLoaded', function() {
             .catch(error => console.error('Error updating container health:', error));
     }
 
-    // System Logs Updates
+    function formatLogDate(timestamp) {
+        if (!timestamp) return 'N/A';
+        
+        try {
+            // Prüfe ob der Timestamp ein Unix-Timestamp (Zahl) ist
+            if (typeof timestamp === 'number') {
+                return new Date(timestamp * 1000).toLocaleString();
+            }
+            
+            // Versuche das Datum zu parsen
+            const date = new Date(timestamp);
+            if (isNaN(date.getTime())) {
+                return 'Invalid Date';
+            }
+            
+            // Formatiere das Datum
+            return date.toLocaleString('de-DE', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        } catch (e) {
+            console.error('Error formatting date:', e);
+            return 'Invalid Date';
+        }
+    }
+
+    // Aktualisiere die Log-Anzeige Funktion
     function updateSystemLogs() {
         fetch('/api/system/logs')
             .then(response => response.json())
-            .then(data => {
+            .then(logs => {
                 const logsContainer = document.getElementById('system-logs');
-                logsContainer.innerHTML = data.logs.map(log => {
-                    const timestamp = new Date(log.timestamp * 1000);
-                    const formattedTime = timestamp.toLocaleString();
-                    const level = log.level ? log.level.toLowerCase() : 'info';
+                if (!logsContainer) return;
+                
+                logsContainer.innerHTML = logs.map(log => {
+                    const levelClass = log.level.toLowerCase();
+                    const sourceIcon = {
+                        'webdock-ui': 'fa-desktop',
+                        'docker': 'fa-docker',
+                        'system': 'fa-cog'
+                    }[log.source] || 'fa-info-circle';
+                    
                     return `
-                        <div class="log-entry">
-                            <span class="log-timestamp">${formattedTime}</span>
-                            <span class="log-level ${level}">${log.level || 'INFO'}</span>
-                            <span class="log-message">${log.message || ''}</span>
+                        <div class="log-entry ${levelClass}">
+                            <span class="log-time">${formatLogDate(log.timestamp)}</span>
+                            <span class="log-level">
+                                <i class="fa ${sourceIcon}"></i> ${log.level}
+                            </span>
+                            <span class="log-message">${log.message}</span>
                         </div>
                     `;
                 }).join('');
                 
+                // Scrolle zum neuesten Log
                 logsContainer.scrollTop = logsContainer.scrollHeight;
             })
-            .catch(error => console.error('Error updating logs:', error));
+            .catch(error => console.error('Error loading logs:', error));
     }
+
+    // Aktualisiere die Logs alle 10 Sekunden
+    setInterval(updateSystemLogs, 10000);
 
     // Settings Management
     const themeSelect = document.getElementById('theme-select');
@@ -1242,6 +1284,96 @@ document.addEventListener('DOMContentLoaded', function() {
         } catch (error) {
             showNotification('error', `Connection failed: ${error.message}`);
         }
+    });
+
+    // Füge diese Funktion zur main.js hinzu
+    function initializeImportTabs() {
+        const tabButtons = document.querySelectorAll('.import-tabs .tab-btn');
+        const tabContents = document.querySelectorAll('.tab-content');
+        
+        tabButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                // Entferne active Klasse von allen Buttons und Contents
+                tabButtons.forEach(btn => btn.classList.remove('active'));
+                tabContents.forEach(content => content.classList.add('hidden'));
+                
+                // Füge active Klasse zum geklickten Button hinzu
+                button.classList.add('active');
+                
+                // Zeige entsprechenden Content
+                const tabId = button.getAttribute('data-tab');
+                const content = document.getElementById(tabId + '-tab');
+                if (content) {
+                    content.classList.remove('hidden');
+                }
+            });
+        });
+    }
+
+    // Füge diese Zeile zur bestehenden DOMContentLoaded Event-Listener hinzu
+    document.addEventListener('DOMContentLoaded', function() {
+        // ... bestehender Code ...
+        
+        // Initialisiere Import Tabs
+        initializeImportTabs();
+    });
+
+    // Füge diese Funktionen zur main.js hinzu
+    function initializeHeaderTabs() {
+        const navLinks = document.querySelectorAll('nav a');
+        const tabContents = document.querySelectorAll('main > .tab-content');
+        
+        navLinks.forEach(link => {
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                
+                // Entferne active von allen Links und Contents
+                navLinks.forEach(l => l.classList.remove('active'));
+                tabContents.forEach(content => content.classList.remove('active'));
+                
+                // Füge active zum geklickten Link hinzu
+                link.classList.add('active');
+                
+                // Zeige entsprechenden Content
+                const tabId = link.getAttribute('href').substring(1);
+                const content = document.getElementById(tabId);
+                if (content) {
+                    content.classList.add('active');
+                }
+            });
+        });
+    }
+
+    function initializeImportTabs() {
+        const tabButtons = document.querySelectorAll('.import-tabs .tab-btn');
+        const tabContents = document.querySelectorAll('.section-content .tab-content');
+        
+        tabButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                // Entferne active Klasse von allen Buttons und Contents
+                tabButtons.forEach(btn => btn.classList.remove('active'));
+                tabContents.forEach(content => content.classList.add('hidden'));
+                
+                // Füge active Klasse zum geklickten Button hinzu
+                button.classList.add('active');
+                
+                // Zeige entsprechenden Content
+                const tabId = button.getAttribute('data-tab');
+                const content = document.getElementById(tabId + '-tab');
+                if (content) {
+                    content.classList.remove('hidden');
+                }
+            });
+        });
+    }
+
+    // Aktualisiere den DOMContentLoaded Event-Listener
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialisiere beide Tab-Systeme
+        initializeHeaderTabs();
+        initializeImportTabs();
+        
+        // ... restlicher bestehender Code ...
     });
 });
 
@@ -2619,5 +2751,99 @@ function addContainerEventListeners() {
                 showContainerDetails(containerName);
             }
         });
+    });
+}
+
+// Füge diese Funktionen zur main.js hinzu
+
+function convertToCompose() {
+    const command = document.getElementById('docker-run-command').value;
+    
+    fetch('/api/convert-docker-run', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ command: command })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            document.getElementById('compose-content').textContent = data.compose;
+            document.getElementById('compose-preview').classList.remove('hidden');
+        } else {
+            showNotification('error', data.message);
+        }
+    })
+    .catch(error => {
+        showNotification('error', 'Failed to convert command');
+    });
+}
+
+// File Drop Zone Handler
+document.getElementById('file-drop-zone').addEventListener('click', () => {
+    document.getElementById('compose-file').click();
+});
+
+document.getElementById('compose-file').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            document.getElementById('compose-content').textContent = e.target.result;
+            document.getElementById('compose-preview').classList.remove('hidden');
+        };
+        reader.readAsText(file);
+    }
+});
+
+// Drag & Drop Handler
+const dropZone = document.getElementById('file-drop-zone');
+
+dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('dragover');
+});
+
+dropZone.addEventListener('dragleave', () => {
+    dropZone.classList.remove('dragover');
+});
+
+dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    
+    const file = e.dataTransfer.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            document.getElementById('compose-content').textContent = e.target.result;
+            document.getElementById('compose-preview').classList.remove('hidden');
+        };
+        reader.readAsText(file);
+    }
+});
+
+function saveCompose() {
+    const compose = document.getElementById('compose-content').textContent;
+    
+    fetch('/api/import-compose', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ compose: compose })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            showNotification('success', 'Container imported successfully');
+            updateContainerStatus(true);
+        } else {
+            showNotification('error', data.message);
+        }
+    })
+    .catch(error => {
+        showNotification('error', 'Failed to import container');
     });
 }

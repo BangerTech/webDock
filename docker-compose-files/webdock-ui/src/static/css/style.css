@@ -319,7 +319,7 @@ button:disabled {
 
 /* Tab Styles */
 .tab-content {
-    display: none;
+    display: block;
 }
 
 .tab-content.active {
@@ -1282,43 +1282,23 @@ section h2 i {
 }
 
 /* System Logs Styling */
-.log-viewer {
-    background: var(--color-background-dark);
-    padding: 1.5rem;
-    border-radius: 12px;
-    max-height: 400px;
-    overflow-y: auto;
-    font-family: 'SF Mono', 'Monaco', 'Menlo', 'Courier', monospace;
-    font-size: 0.9rem;
-    line-height: 1.5;
-}
-
 .log-entry {
-    padding: 0.5rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 8px;
+    border-bottom: 1px solid #eee;
+    font-family: monospace;
     display: flex;
-    gap: 1rem;
+    gap: 10px;
+    align-items: center;
 }
 
-.log-timestamp {
-    color: var(--color-text-maxcontrast);
-    white-space: nowrap;
-}
+.log-entry.error { background-color: rgba(255, 0, 0, 0.1); }
+.log-entry.warning { background-color: rgba(255, 165, 0, 0.1); }
+.log-entry.event { background-color: rgba(0, 128, 0, 0.1); }
+.log-entry.status { background-color: rgba(0, 0, 255, 0.1); }
 
-.log-message {
-    flex: 1;
-}
-
-.log-level {
-    padding: 2px 8px;
-    border-radius: 12px;
-    font-size: 0.8rem;
-    margin-right: 8px;
-}
-
-.log-level.info { background-color: rgba(0, 130, 201, 0.2); }
-.log-level.warning { background-color: rgba(240, 173, 78, 0.2); }
-.log-level.error { background-color: rgba(233, 50, 45, 0.2); }
+.log-time { color: #666; min-width: 180px; }
+.log-level { min-width: 100px; display: flex; align-items: center; gap: 5px; }
+.log-message { flex: 1; line-height: 1.2; }
 
 /* Container Logo Styles */
 .container-logo {
@@ -2158,4 +2138,151 @@ section h2 i {
 
 .close-notification:hover {
     opacity: 1;
+}
+
+/* Container Import Styling */
+.import-tabs {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--color-border);
+    padding-bottom: 0.5rem;
+}
+
+.import-tabs .tab-btn {
+    padding: 0.5rem 1rem;
+    border: none;
+    background: none;
+    color: var(--color-main-text);
+    cursor: pointer;
+    opacity: 0.7;
+    transition: all 0.2s;
+    border-bottom: 2px solid transparent;
+}
+
+.import-tabs .tab-btn:hover {
+    opacity: 1;
+}
+
+.import-tabs .tab-btn.active {
+    opacity: 1;
+    border-bottom-color: var(--color-primary);
+    color: var(--color-primary);
+}
+
+.tab-content {
+    display: block;
+}
+
+.tab-content.hidden {
+    display: none;
+}
+
+.code-input {
+    width: 100%;
+    min-height: 120px;
+    font-family: monospace;
+    padding: 1rem;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: var(--color-main-background);
+    color: var(--color-main-text);
+    resize: vertical;
+}
+
+.file-drop-zone {
+    border: 2px dashed var(--color-border);
+    border-radius: 6px;
+    padding: 2rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.file-drop-zone:hover {
+    border-color: var(--color-primary);
+    background: rgba(0, 130, 201, 0.05);
+}
+
+.file-drop-zone i {
+    font-size: 3em;
+    color: var(--color-primary);
+    margin-bottom: 1rem;
+}
+
+.compose-preview {
+    margin-top: 2rem;
+    background: var(--color-background-dark);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.preview-header {
+    background: var(--color-primary);
+    color: white;
+    padding: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.preview-header h3 {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.preview-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.compose-content {
+    padding: 1rem;
+    margin: 0;
+    background: var(--color-main-background);
+    color: var(--color-main-text);
+    font-family: monospace;
+    white-space: pre-wrap;
+    max-height: 500px;
+    overflow: auto;
+}
+
+.convert-btn {
+    background: var(--color-primary);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 0.8rem 1.5rem;
+    cursor: pointer;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 1rem;
+    transition: all 0.2s;
+}
+
+.convert-btn:hover {
+    background: var(--color-primary-dark);
+    transform: translateY(-1px);
+}
+
+/* Header Tab Styles */
+main > .tab-content {
+    display: none;
+}
+
+main > .tab-content.active {
+    display: block;
+}
+
+/* Import Tab Styles */
+.section-content .tab-content {
+    display: block;
+}
+
+.section-content .tab-content.hidden {
+    display: none;
 }
