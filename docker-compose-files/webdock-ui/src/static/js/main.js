@@ -1286,70 +1286,23 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // Füge diese Funktion zur main.js hinzu
+    // Ersetze die bestehende initializeImportTabs Funktion
     function initializeImportTabs() {
-        const tabButtons = document.querySelectorAll('.import-tabs .tab-btn');
-        const tabContents = document.querySelectorAll('.tab-content');
-        
-        tabButtons.forEach(button => {
-            button.addEventListener('click', () => {
-                // Entferne active Klasse von allen Buttons und Contents
-                tabButtons.forEach(btn => btn.classList.remove('active'));
-                tabContents.forEach(content => content.classList.add('hidden'));
-                
-                // Füge active Klasse zum geklickten Button hinzu
-                button.classList.add('active');
-                
-                // Zeige entsprechenden Content
-                const tabId = button.getAttribute('data-tab');
-                const content = document.getElementById(tabId + '-tab');
-                if (content) {
-                    content.classList.remove('hidden');
-                }
-            });
-        });
-    }
-
-    // Füge diese Zeile zur bestehenden DOMContentLoaded Event-Listener hinzu
-    document.addEventListener('DOMContentLoaded', function() {
-        // ... bestehender Code ...
-        
-        // Initialisiere Import Tabs
-        initializeImportTabs();
-    });
-
-    // Füge diese Funktionen zur main.js hinzu
-    function initializeHeaderTabs() {
-        const navLinks = document.querySelectorAll('nav a');
-        const tabContents = document.querySelectorAll('main > .tab-content');
-        
-        navLinks.forEach(link => {
-            link.addEventListener('click', (e) => {
-                e.preventDefault();
-                
-                // Entferne active von allen Links und Contents
-                navLinks.forEach(l => l.classList.remove('active'));
-                tabContents.forEach(content => content.classList.remove('active'));
-                
-                // Füge active zum geklickten Link hinzu
-                link.classList.add('active');
-                
-                // Zeige entsprechenden Content
-                const tabId = link.getAttribute('href').substring(1);
-                const content = document.getElementById(tabId);
-                if (content) {
-                    content.classList.add('active');
-                }
-            });
-        });
-    }
-
-    function initializeImportTabs() {
+        // Warte bis die DOM-Elemente existieren
         const tabButtons = document.querySelectorAll('.import-tabs .tab-btn');
         const tabContents = document.querySelectorAll('.section-content .tab-content');
         
+        if (!tabButtons.length || !tabContents.length) {
+            // Wenn die Elemente noch nicht existieren, versuche es später erneut
+            setTimeout(initializeImportTabs, 100);
+            return;
+        }
+        
         tabButtons.forEach(button => {
-            button.addEventListener('click', () => {
+            button.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation(); // Verhindert Bubble-up zum Section Toggle
+                
                 // Entferne active Klasse von allen Buttons und Contents
                 tabButtons.forEach(btn => btn.classList.remove('active'));
                 tabContents.forEach(content => content.classList.add('hidden'));
@@ -1367,13 +1320,34 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Aktualisiere den DOMContentLoaded Event-Listener
-    document.addEventListener('DOMContentLoaded', function() {
-        // Initialisiere beide Tab-Systeme
-        initializeHeaderTabs();
-        initializeImportTabs();
+    // Bestehende toggleSection Funktion aktualisieren (nur die Implementierung ändern, nicht die Position)
+    function toggleSection(header) {
+        const content = header.nextElementSibling;
+        const icon = header.querySelector('.fa-chevron-down');
         
-        // ... restlicher bestehender Code ...
+        if (content.style.display === 'none') {
+            content.style.display = 'block';
+            icon.style.transform = 'rotate(180deg)';
+            // Initialisiere Tabs wenn Section geöffnet wird
+            if (content.querySelector('.import-tabs')) {
+                setTimeout(initializeImportTabs, 100); // Verzögerung hinzugefügt
+            }
+        } else {
+            content.style.display = 'none';
+            icon.style.transform = 'rotate(0deg)';
+        }
+    }
+
+    // Initialisierung beim Laden der Seite
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialisiere Header-Tabs
+        initializeHeaderTabs();
+        
+        // Initialisiere Import-Tabs nur wenn die Section bereits offen ist
+        const importSection = document.querySelector('.import-tabs');
+        if (importSection && importSection.offsetParent !== null) {
+            initializeImportTabs();
+        }
     });
 });
 
@@ -2596,18 +2570,19 @@ document.querySelector('.file-explorer')?.addEventListener('click', (e) => {
 }); 
 
 function toggleSection(header) {
-    const section = header.parentElement;
-    const content = section.querySelector('.section-content');
+    const content = header.nextElementSibling;
     const icon = header.querySelector('.fa-chevron-down');
-    
-    header.classList.toggle('active');
     
     if (content.style.display === 'none') {
         content.style.display = 'block';
         icon.style.transform = 'rotate(180deg)';
+        // Initialisiere Tabs wenn Section geöffnet wird
+        if (content.querySelector('.import-tabs')) {
+            initializeImportTabs();
+        }
     } else {
         content.style.display = 'none';
-        icon.style.transform = 'rotate(0)';
+        icon.style.transform = 'rotate(0deg)';
     }
 }
 
@@ -2693,7 +2668,7 @@ async function deleteSchedule(id) {
 const UPDATE_INTERVAL = 300000; // 5 Minuten statt alle paar Sekunden
 
 // Lade Container-Status
-async function updateContainerStatus() {
+async function updateContainerStatus(forceRefresh = false) {
     try {
         const response = await fetch('/api/containers');
         const containers = await response.json();
@@ -2827,6 +2802,17 @@ dropZone.addEventListener('drop', (e) => {
 function saveCompose() {
     const compose = document.getElementById('compose-content').textContent;
     
+    // Zeige Ladeanimation
+    const saveBtn = document.querySelector('.save-btn');
+    const originalContent = saveBtn.innerHTML;
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Installing...';
+    
+    // Zeige Loading Overlay
+    if (loadingOverlay) {
+        loadingOverlay.style.display = 'flex';
+    }
+    
     fetch('/api/import-compose', {
         method: 'POST',
         headers: {
@@ -2838,12 +2824,82 @@ function saveCompose() {
     .then(data => {
         if (data.status === 'success') {
             showNotification('success', 'Container imported successfully');
-            updateContainerStatus(true);
+            // Warte kurz bevor Update
+            setTimeout(() => {
+                updateContainerStatus(true);
+                // Optional: Scrolle zur Imported Kategorie
+                const importedSection = document.querySelector('[data-category="imported"]');
+                if (importedSection) {
+                    importedSection.scrollIntoView({ behavior: 'smooth' });
+                }
+            }, 2000);
         } else {
             showNotification('error', data.message);
         }
     })
     .catch(error => {
         showNotification('error', 'Failed to import container');
+    })
+    .finally(() => {
+        // Entferne Ladeanimation
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = originalContent;
+        
+        // Verstecke Loading Overlay
+        if (loadingOverlay) {
+            loadingOverlay.style.display = 'none';
+        }
     });
+}
+
+function updateContainerStatus(forceRefresh = false) {
+    fetch('/api/containers')
+        .then(response => response.json())
+        .then(containers => {
+            console.log('Containers:', containers); // Debug log
+            // Hole Kategorien
+            return fetch('/api/categories')
+                .then(response => response.json())
+                .then(categories => {
+                    console.log('Categories:', categories); // Debug log
+                    return { containers, categories };
+                });
+        })
+        .then(({ containers, categories }) => {
+            const containerList = document.getElementById('container-list');
+            containerList.innerHTML = ''; // Clear existing containers
+            
+            // Iteriere über alle Kategorien
+            Object.entries(categories.categories).forEach(([categoryId, category]) => {
+                if (category.containers && category.containers.length > 0) {
+                    // Erstelle Kategorie-Header
+                    const categorySection = document.createElement('div');
+                    categorySection.className = 'category-section';
+                    categorySection.setAttribute('data-category', categoryId);
+                    
+                    const categoryHeader = document.createElement('h2');
+                    categoryHeader.innerHTML = `<i class="fa ${category.icon}"></i> ${category.name}`;
+                    categorySection.appendChild(categoryHeader);
+                    
+                    // Container-Grid für diese Kategorie
+                    const containerGrid = document.createElement('div');
+                    containerGrid.className = 'container-grid';
+                    
+                    // Füge Container dieser Kategorie hinzu
+                    category.containers.forEach(containerId => {
+                        const containerInfo = containers.find(c => c.name === containerId);
+                        if (containerInfo) {
+                            const containerCard = createContainerCard(containerInfo);
+                            containerGrid.appendChild(containerCard);
+                        }
+                    });
+                    
+                    if (containerGrid.children.length > 0) {
+                        categorySection.appendChild(containerGrid);
+                        containerList.appendChild(categorySection);
+                    }
+                }
+            });
+        })
+        .catch(error => console.error('Error:', error));
 }

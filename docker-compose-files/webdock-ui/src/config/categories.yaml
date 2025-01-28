@@ -42,4 +42,10 @@ categories:
     icon: "fa-cogs"
     containers:
       - "webdock-ui"
-      - "portainer" 
+      - "portainer"
+
+  imported:
+    name: 'Imported'
+    icon: 'fa-download'
+    description: 'Manually imported containers'
+    containers: [] 

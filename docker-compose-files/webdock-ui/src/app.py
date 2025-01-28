@@ -20,6 +20,7 @@ import stat
 import re
 from datetime import timedelta
 from typing import Dict, Any
+import docker
 
 # Konfiguriere Logging
 logging.basicConfig(
@@ -259,6 +260,7 @@ def update_category(category_id):
 def get_categories():
     try:
         categories = load_categories()
+        logger.info(f"Returning categories: {categories}")  # Debug logging
         return jsonify(categories)
     except Exception as e:
         logger.exception("Error getting categories")
@@ -553,8 +555,8 @@ def get_containers():
         categories = load_categories()
         grouped_containers = {}
         
+        # Füge zuerst alle Standard-Container hinzu
         for container_name, compose_data in container_configs.items():
-            # Verwende den korrekten Container-Namen
             dir_name = get_container_directory_name(container_name)
             
             for service_name, service_data in compose_data['services'].items():
@@ -562,21 +564,14 @@ def get_containers():
                     continue
                 
                 # Verwende den korrekten Service-Namen
-                # Spezielle Behandlung für den UI Container
-                if service_name == 'bangertech-ui':
-                    display_name = 'webdock-ui'
-                else:
-                    display_name = dir_name if service_name == 'mosquitto' else service_name
+                display_name = 'webdock-ui' if service_name == 'bangertech-ui' else (dir_name if service_name == 'mosquitto' else service_name)
                 processed_services.add(display_name)
                 
                 # Bestimme die Kategorie
                 category = 'Other'
                 for cat_id, cat_data in categories.get('categories', {}).items():
-                    logger.info(f"Checking category {cat_id} for container {display_name}")
-                    logger.info(f"Category containers: {cat_data.get('containers', [])}")
                     if display_name in cat_data.get('containers', []):
                         category = cat_data['name']
-                        logger.info(f"Found category {category} for container {display_name}")
                         break
                 
                 # Extrahiere Port aus service_data
@@ -588,15 +583,14 @@ def get_containers():
                     'name': display_name,
                     'status': 'running' if display_name in running_containers else 'stopped',
                     'installed': display_name in installed_containers,
-                    'description': service_data.get('labels', {}).get('description', ''),  # Vereinfachte Beschreibung
+                    'description': service_data.get('labels', {}).get('description', ''),
                     'group': category,
                     'icon': categories.get('categories', {}).get(category, {}).get('icon', 'fa-cube'),
-                    'version': service_data.get('image', '').split(':')[-1] or 'latest',  # Version aus Image-Tag
+                    'version': service_data.get('image', '').split(':')[-1] or 'latest',
                     'port': port,
                     'volumes': service_data.get('volumes', [])
                 }
                 
-                # Gruppiere Container nach Kategorie
                 if category not in grouped_containers:
                     grouped_containers[category] = {
                         'name': category,
@@ -604,6 +598,41 @@ def get_containers():
                         'containers': []
                     }
                 grouped_containers[category]['containers'].append(container)
+        
+        # Füge importierte Container hinzu
+        if 'imported' in categories.get('categories', {}):
+            imported_category = categories['categories']['imported']
+            if 'Imported' not in grouped_containers:
+                grouped_containers['Imported'] = {
+                    'name': 'Imported',
+                    'icon': imported_category.get('icon', 'fa-download'),
+                    'containers': []
+                }
+            
+            for container_name in imported_category.get('containers', []):
+                if container_name not in processed_services:
+                    # Hole Container-Konfiguration für importierte Container
+                    compose_file = os.path.join(COMPOSE_DIR, container_name, 'docker-compose.yml')
+                    try:
+                        with open(compose_file, 'r') as f:
+                            imported_config = yaml.safe_load(f)
+                            service_data = imported_config['services'][container_name]
+                            port = _extract_port(service_data.get('ports', []))
+                    except Exception as e:
+                        logger.warning(f"Could not load config for {container_name}: {e}")
+                        port = None
+                    
+                    container = {
+                        'name': container_name,
+                        'status': 'running' if container_name in running_containers else 'stopped',
+                        'installed': True,
+                        'description': f'Imported container: {container_name}',
+                        'group': 'Imported',
+                        'icon': 'fa-download',
+                        'version': 'latest',
+                        'port': port
+                    }
+                    grouped_containers['Imported']['containers'].append(container)
         
         return jsonify(grouped_containers)
         
@@ -1159,55 +1188,36 @@ def get_container_config(container_name):
         logger.error(f"Error reading config for {container_name}: {str(e)}")
         return None
 
-@app.route('/api/container/<container_name>/config', methods=['GET'])
+@app.route('/api/container/<container_name>/config')
 def get_container_config(container_name):
     try:
-        # Hole den korrekten Verzeichnisnamen
-        dir_name = get_container_directory_name(container_name)
-        
-        # Unterscheide zwischen Template und installiertem Container
-        if request.args.get('template') == 'true':
-            # Hole Template-Konfiguration aus dem docker-compose-files Verzeichnis
-            compose_paths = [
-                f'/app/docker-compose-files/{dir_name}/docker-compose.yml',
-                f'/home/webDock/docker-compose-files/{dir_name}/docker-compose.yml'
-            ]
-            
-            # Versuche beide mögliche Pfade
-            for compose_path in compose_paths:
-                if os.path.exists(compose_path):
-                    logger.info(f"Found config file at {compose_path}")
-                    with open(compose_path, 'r') as f:
-                        yaml_content = f.read()
-                        return jsonify({
-                            'status': 'success',
-                            'yaml': yaml_content
-                        })
-            
-            # Wenn keine Datei gefunden wurde
-            logger.error(f"Configuration file not found at any of these locations: {compose_paths}")
-            return jsonify({
-                'status': 'error',
-                'message': 'Configuration file not found'
-            }), 404
-        else:
-            # Hole installierte Konfiguration
-            compose_path = f'/home/webDock/docker-compose-data/{dir_name}/docker-compose.yml'
-            if not os.path.exists(compose_path):
+        # Prüfe zuerst in den Standard-Containern
+        container_configs = get_cached_containers()
+        for config_name, compose_data in container_configs.items():
+            if container_name in compose_data.get('services', {}):
                 return jsonify({
-                    'status': 'error',
-                    'message': 'Configuration file not found'
-                }), 404
-
-            with open(compose_path, 'r') as f:
-                yaml_content = f.read()
-                
-            return jsonify({
-                'status': 'success',
-                'yaml': yaml_content
-            })
+                    'status': 'success',
+                    'yaml': yaml.dump(compose_data['services'][container_name])
+                })
+        
+        # Wenn nicht gefunden, prüfe in importierten Containern
+        compose_file = os.path.join(COMPOSE_DIR, container_name, 'docker-compose.yml')
+        if os.path.exists(compose_file):
+            with open(compose_file, 'r') as f:
+                compose_data = yaml.safe_load(f)
+                if container_name in compose_data.get('services', {}):
+                    return jsonify({
+                        'status': 'success',
+                        'yaml': yaml.dump(compose_data['services'][container_name])
+                    })
+        
+        return jsonify({
+            'status': 'error',
+            'message': 'Container configuration not found'
+        }), 404
+        
     except Exception as e:
-        logger.exception(f"Error getting config for {container_name}")
+        logger.error(f"Error getting container config: {str(e)}")
         return jsonify({
             'status': 'error',
             'message': str(e)
@@ -2666,16 +2676,63 @@ def import_compose():
         # Hole den ersten Service-Namen
         service_name = list(compose_data['services'].keys())[0]
         
-        # Erstelle Verzeichnis
-        install_path = f'/home/webDock/docker-compose-data/{service_name}'
+        # Erstelle Verzeichnis im standardisierten Format
+        install_path = os.path.join(CONFIG_DIR, 'compose-files', service_name)
         os.makedirs(install_path, exist_ok=True)
         
         # Speichere compose file
-        with open(os.path.join(install_path, 'docker-compose.yml'), 'w') as f:
+        compose_file_path = os.path.join(install_path, 'docker-compose.yml')
+        with open(compose_file_path, 'w') as f:
             f.write(compose_content)
             
         # Starte Container
-        subprocess.run(['docker', 'compose', '-f', os.path.join(install_path, 'docker-compose.yml'), 'up', '-d'])
+        result = subprocess.run(
+            ['docker', 'compose', '-f', compose_file_path, 'up', '-d'],
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode != 0:
+            raise ValueError(f"Failed to start container: {result.stderr}")
+        
+        # Lade und aktualisiere Kategorien
+        categories = load_categories()
+        
+        # Debug logging
+        logger.info(f"Importing container: {service_name}")
+        logger.info(f"Categories before update: {categories}")
+        
+        # Stelle sicher, dass die Imported-Kategorie existiert
+        if 'imported' not in categories['categories']:
+            logger.info("Creating imported category")
+            categories['categories']['imported'] = {
+                'name': 'Imported',
+                'icon': 'fa-download',
+                'description': 'Manually imported containers',
+                'containers': []
+            }
+        
+        # Füge Container zur Imported-Kategorie hinzu
+        if service_name not in categories['categories']['imported']['containers']:
+            logger.info(f"Adding {service_name} to imported category")
+            categories['categories']['imported']['containers'].append(service_name)
+        
+        # Debug logging
+        logger.info(f"Categories after update: {categories}")
+        
+        # Speichere die aktualisierten Kategorien
+        save_categories(categories)
+        
+        # Erstelle compose.info Datei
+        info = {
+            'name': service_name,
+            'description': f'Imported container: {service_name}',
+            'category': 'imported',
+            'import_date': datetime.now().isoformat()
+        }
+        
+        with open(os.path.join(install_path, 'compose.info'), 'w') as f:
+            yaml.dump(info, f, default_flow_style=False)
         
         return jsonify({
             'status': 'success',
@@ -2688,6 +2745,17 @@ def import_compose():
             'status': 'error',
             'message': str(e)
         }), 500
+
+def save_categories(categories):
+    """Speichert die Kategorien in die categories.yaml Datei"""
+    try:
+        with open(CATEGORIES_FILE, 'w') as f:
+            yaml.dump(categories, f, default_flow_style=False, sort_keys=False)
+        # Setze Berechtigungen
+        os.chmod(CATEGORIES_FILE, 0o644)
+    except Exception as e:
+        logger.error(f"Error saving categories: {str(e)}")
+        raise
 
 if __name__ == '__main__':
     # Initialisiere die Anwendung

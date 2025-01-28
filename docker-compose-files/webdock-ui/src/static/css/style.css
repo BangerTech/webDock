@@ -2141,41 +2141,19 @@ section h2 i {
 }
 
 /* Container Import Styling */
-.import-tabs {
-    display: flex;
-    gap: 1rem;
+.import-section {
+    background: var(--color-background-dark);
+    border-radius: 8px;
+    padding: 1.5rem;
     margin-bottom: 1.5rem;
-    border-bottom: 1px solid var(--color-border);
-    padding-bottom: 0.5rem;
 }
 
-.import-tabs .tab-btn {
-    padding: 0.5rem 1rem;
-    border: none;
-    background: none;
-    color: var(--color-main-text);
-    cursor: pointer;
-    opacity: 0.7;
-    transition: all 0.2s;
-    border-bottom: 2px solid transparent;
-}
-
-.import-tabs .tab-btn:hover {
-    opacity: 1;
-}
-
-.import-tabs .tab-btn.active {
-    opacity: 1;
-    border-bottom-color: var(--color-primary);
-    color: var(--color-primary);
-}
-
-.tab-content {
-    display: block;
-}
-
-.tab-content.hidden {
-    display: none;
+.import-section h3 {
+    margin-top: 0;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
 }
 
 .code-input {
@@ -2188,6 +2166,7 @@ section h2 i {
     background: var(--color-main-background);
     color: var(--color-main-text);
     resize: vertical;
+    margin-bottom: 1rem;
 }
 
 .file-drop-zone {
@@ -2226,13 +2205,6 @@ section h2 i {
     align-items: center;
 }
 
-.preview-header h3 {
-    margin: 0;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
 .preview-actions {
     display: flex;
     gap: 0.5rem;
@@ -2249,19 +2221,21 @@ section h2 i {
     overflow: auto;
 }
 
-.convert-btn {
-    background: var(--color-primary);
-    color: white;
+.convert-btn, .edit-btn, .save-btn {
+    padding: 0.8rem 1.5rem;
     border: none;
     border-radius: 6px;
-    padding: 0.8rem 1.5rem;
     cursor: pointer;
     font-weight: 600;
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    margin-top: 1rem;
     transition: all 0.2s;
+}
+
+.convert-btn {
+    background: var(--color-primary);
+    color: white;
 }
 
 .convert-btn:hover {
