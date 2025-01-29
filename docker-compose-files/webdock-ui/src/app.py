@@ -60,6 +60,15 @@ host_credentials = {
     'password': None
 }
 
+# Am Anfang der Datei nach den Imports
+WEBDOCK_BASE_PATH = os.environ.get('WEBDOCK_BASE_PATH', '/home/webDock')
+COMPOSE_DATA_DIR = os.path.join(WEBDOCK_BASE_PATH, 'docker-compose-data')
+COMPOSE_FILES_DIR = os.path.join('/app', 'docker-compose-files')  # Template-Dateien im Container
+
+# Stelle sicher, dass die Verzeichnisse existieren
+os.makedirs(COMPOSE_DATA_DIR, exist_ok=True)
+os.makedirs(COMPOSE_FILES_DIR, exist_ok=True)
+
 # Funktion zum Laden der Host-Konfiguration
 def load_host_config():
     try:
@@ -645,49 +654,131 @@ def install_container():
     try:
         data = request.json
         container_name = data['name']
-        dir_name = get_container_directory_name(container_name)
-        install_path = data['path']
-        config_data = data.get('config', {})
         
-        # Erstelle Installationsverzeichnis
+        # Verwende den korrekten Pfad für die Installation
+        install_path = os.path.join(COMPOSE_DATA_DIR, container_name)
+        logger.info(f"Installing container {container_name} to {install_path}")
+        
+        # Erstelle Basis-Verzeichnisse
         os.makedirs(install_path, exist_ok=True)
+        logger.info(f"Created directory: {install_path}")
         
-        # Führe container-spezifisches Setup durch
-        if not setup_container_environment(dir_name, install_path, config_data):
-            raise Exception(f"Setup failed for {container_name}")
-        
+        # Spezielle Behandlung für mosquitto-broker
+        if container_name in ['mosquitto-broker', 'mosquitto']:
+            config_dir = os.path.join(install_path, 'config')
+            data_dir = os.path.join(install_path, 'data')
+            log_dir = os.path.join(install_path, 'log')
+            
+            # Erstelle Verzeichnisse
+            for directory in [config_dir, data_dir, log_dir]:
+                os.makedirs(directory, exist_ok=True)
+                logger.info(f"Created directory: {directory}")
+            
+            # Setze Berechtigungen
+            for directory in [config_dir, data_dir, log_dir]:
+                os.chmod(directory, 0o755)
+                logger.info(f"Set permissions for: {directory}")
+
+            # Erstelle und konfiguriere mosquitto.conf
+            mosquitto_conf = os.path.join(config_dir, 'mosquitto.conf')
+            if not os.path.exists(mosquitto_conf):
+                with open(mosquitto_conf, 'w') as f:
+                    f.write("""# Default mosquitto.conf
+listener 1883
+allow_anonymous true
+persistence true
+persistence_location /mosquitto/data/
+log_dest file /mosquitto/log/mosquitto.log
+""")
+                os.chmod(mosquitto_conf, 0o644)
+                logger.info(f"Created default mosquitto.conf: {mosquitto_conf}")
+
         # Kopiere und aktualisiere docker-compose.yml
-        compose_template = f'/app/docker-compose-files/{dir_name}/docker-compose.yml'
+        template_path = os.path.join(COMPOSE_FILES_DIR, container_name, 'docker-compose.yml')
         target_compose = os.path.join(install_path, 'docker-compose.yml')
         
-        with open(compose_template, 'r') as src:
+        logger.info(f"Copying compose file from {template_path} to {target_compose}")
+        
+        with open(template_path, 'r') as src:
             compose_content = src.read()
         
-        # Aktualisiere Compose-Datei mit benutzerdefinierten Einstellungen
+        # Aktualisiere Compose-Datei
         compose_content = update_compose_file(compose_content, data)
         
-        # Schreibe aktualisierte docker-compose.yml
-        with open(target_compose, 'w') as dst:
-            dst.write(compose_content)
+        with open(target_compose, 'w') as f:
+            f.write(compose_content)
         
-        # Starte Container mit vollem Pfad zu docker-compose
-        docker_compose_cmd = '/usr/libexec/docker/cli-plugins/docker-compose'
-        if not os.path.exists(docker_compose_cmd):
-            docker_compose_cmd = 'docker compose'  # Fallback auf neuen Docker Compose Befehl
+        os.chmod(target_compose, 0o644)
+        logger.info(f"Created compose file: {target_compose}")
+
+        # Stelle sicher, dass das Docker-Netzwerk existiert
+        try:
+            # Prüfe ob Netzwerk existiert
+            result = subprocess.run(
+                ['docker', 'network', 'inspect', 'webdock'],
+                capture_output=True,
+                text=True
+            )
             
-        # Starte Container
-        subprocess.run(f'{docker_compose_cmd} -f {target_compose} up -d', 
-                      shell=True, 
-                      check=True,
-                      cwd=install_path)
+            if result.returncode != 0:
+                logger.info("Creating webdock network")
+                # Erstelle Netzwerk wenn es nicht existiert
+                result = subprocess.run(
+                    ['docker', 'network', 'create', 'webdock'],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                logger.info("Webdock network created successfully")
+        except subprocess.CalledProcessError as e:
+            error_msg = f"Failed to create network: {e.stderr}"
+            logger.error(error_msg)
+            raise Exception(error_msg)
+
+        # Aktualisiere die docker-compose.yml um das Netzwerk einzubinden
+        compose_data = yaml.safe_load(compose_content)
+        service = compose_data['services'][list(compose_data['services'].keys())[0]]
         
+        # Füge Netzwerk-Konfiguration hinzu
+        if 'networks' not in compose_data:
+            compose_data['networks'] = {'webdock': {'external': True}}
+        if 'networks' not in service:
+            service['networks'] = ['webdock']
+
+        # Speichere aktualisierte compose-Datei
+        with open(target_compose, 'w') as f:
+            yaml.dump(compose_data, f)
+
+        # Starte den Container
+        try:
+            result = subprocess.run(
+                ['docker', 'compose', '-f', target_compose, 'up', '-d'],
+                check=True,
+                cwd=install_path,
+                capture_output=True,
+                text=True
+            )
+            logger.info(f"Started container: {container_name}")
+        except subprocess.CalledProcessError as e:
+            error_msg = f"Failed to start container: {e.stderr}"
+            logger.error(error_msg)
+            # Lösche fehlgeschlagene Installation
+            shutil.rmtree(install_path)
+            return jsonify({
+                'status': 'error',
+                'message': error_msg
+            }), 500
+
         return jsonify({
             'status': 'success',
             'message': f'Container {container_name} installed successfully'
         })
         
     except Exception as e:
-        logger.error(f"Installation failed: {str(e)}")
+        logger.error(f"Error installing container: {str(e)}")
+        # Lösche fehlgeschlagene Installation
+        if 'install_path' in locals():
+            shutil.rmtree(install_path)
         return jsonify({
             'status': 'error',
             'message': str(e)
@@ -801,37 +892,77 @@ def get_system_status():
 
 @app.route('/api/containers/health')
 def get_containers_health():
+    """Holt den Gesundheitszustand aller Container"""
     try:
-        containers = []
-        cmd = ["docker", "stats", "--no-stream", "--format", "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}\t{{.BlockIO}}\t{{.PIDs}}"]
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        health_data = []
         
-        if result.returncode == 0:
-            for line in result.stdout.strip().split('\n'):
-                if line:
-                    name, cpu, mem, net, block, pids = line.split('\t')
-                    
-                    # Hole Container-Uptime
-                    cmd_inspect = ["docker", "inspect", "--format", "{{.State.StartedAt}}", name]
-                    inspect_result = subprocess.run(cmd_inspect, capture_output=True, text=True)
-                    # Bereinige das Zeitformat
-                    timestamp = inspect_result.stdout.strip()
-                    timestamp = timestamp.split('.')[0]  # Entferne Nanosekunden
-                    started_at = datetime.strptime(timestamp, '%Y-%m-%dT%H:%M:%S').replace(tzinfo=timezone.utc)
-                    uptime = datetime.now(timezone.utc) - started_at
-                    
-                    containers.append({
-                        'name': name,
-                        'status': 'healthy',  # TODO: Implementiere Gesundheitsprüfung
-                        'cpu': cpu,
-                        'memory': mem,
-                        'uptime': str(uptime).split('.')[0]  # Formatiere Uptime
-                    })
+        # Hole Liste aller Container
+        result = subprocess.run(
+            ['docker', 'ps', '-a', '--format', '{{.ID}}\t{{.Names}}\t{{.Status}}'],
+            capture_output=True,
+            text=True,
+            check=True
+        )
         
-        return jsonify(containers)
+        for line in result.stdout.splitlines():
+            try:
+                container_id, name, status = line.split('\t')
+                
+                # Basis-Container-Informationen
+                container_info = {
+                    'id': container_id[:12],
+                    'name': name,
+                    'status': status.lower(),
+                    'health': 'unknown'
+                }
+                
+                # Prüfe Container-Zustand
+                if 'up' in status.lower():
+                    # Hole detaillierte Container-Informationen
+                    inspect_result = subprocess.run(
+                        ['docker', 'inspect', container_id],
+                        capture_output=True,
+                        text=True,
+                        check=True
+                    )
+                    
+                    inspect_data = json.loads(inspect_result.stdout)[0]
+                    state = inspect_data.get('State', {})
+                    
+                    # Hole Zeitstempel
+                    timestamp = state.get('StartedAt', '')
+                    
+                    # Prüfe ob Zeitstempel vorhanden und gültig ist
+                    if timestamp and len(timestamp) >= 19:
+                        try:
+                            timestamp = timestamp[:19]  # YYYY-MM-DDTHH:MM:SS
+                            started_at = datetime.strptime(timestamp, '%Y-%m-%dT%H:%M:%S').replace(tzinfo=timezone.utc)
+                            uptime = datetime.now(timezone.utc) - started_at
+                            container_info['uptime'] = str(uptime).split('.')[0]  # Ohne Millisekunden
+                        except ValueError as e:
+                            logger.warning(f"Invalid timestamp format for container {name}: {timestamp}")
+                            container_info['uptime'] = 'unknown'
+                    else:
+                        container_info['uptime'] = 'unknown'
+
+                    # Prüfe Health Check falls vorhanden
+                    health = state.get('Health', {}).get('Status', 'none')
+                    container_info['health'] = health if health != 'none' else 'running'
+                
+                health_data.append(container_info)
+
+            except Exception as e:
+                logger.error(f"Error processing container {line}: {str(e)}")
+                continue
+
+        return jsonify(health_data)
+
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Error getting container health: {e.stderr}")
+        return jsonify([]), 500
     except Exception as e:
-        logger.exception("Error getting container health")
-        return {'error': str(e)}, 500
+        logger.error(f"Error getting container health: {str(e)}")
+        return jsonify([]), 500
 
 @app.route('/api/system/logs')
 def get_system_logs():
@@ -1191,6 +1322,10 @@ def get_container_config(container_name):
 @app.route('/api/container/<container_name>/config')
 def get_container_config(container_name):
     try:
+        # Normalisiere den Container-Namen
+        dir_name = get_container_directory_name(container_name)
+        logger.debug(f"Getting config for container: {container_name} (dir: {dir_name})")
+        
         # Prüfe zuerst in den Standard-Containern
         container_configs = get_cached_containers()
         for config_name, compose_data in container_configs.items():
@@ -1586,14 +1721,18 @@ def setup_watchyourlan(container_name, install_path, config_data):
 def get_container_directory_name(container_name):
     """Mappt Container-Namen zu ihren Verzeichnisnamen"""
     container_mapping = {
-        'mosquitto': 'mosquitto-broker',  # Mapping von mosquitto zu mosquitto-broker
-        'mosquitto-broker': 'mosquitto-broker',  # Direktes Mapping
+        'mosquitto': 'mosquitto-broker',
+        'mosquitto-broker': 'mosquitto-broker',
         'influxdb': 'influxdb-x86',
         'node-exporter': 'nodeexporter',
         'zigbee2mqtt': 'zigbee2mqtt',
         'code-server': 'codeserver',
         'whats-up-docker': 'whatsupdocker'
     }
+    
+    # Logging für bessere Fehlersuche
+    logger.debug(f"Mapping container name: {container_name} -> {container_mapping.get(container_name, container_name)}")
+    
     return container_mapping.get(container_name, container_name)
 
 def update_compose_file(compose_content, install_data):

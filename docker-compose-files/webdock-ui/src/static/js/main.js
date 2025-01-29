@@ -1376,21 +1376,61 @@ function installContainer(name) {
 
 async function showInstallModal(containerName) {
     try {
+        // Normalisiere den Container-Namen für die API-Anfrage
+        const apiContainerName = containerName === 'mosquitto' ? 'mosquitto-broker' : containerName;
+        
         // Hole Template-Konfiguration
-        const response = await fetch(`/api/container/${containerName}/config?template=true`);
+        const response = await fetch(`/api/container/${apiContainerName}/config?template=true`);
         if (!response.ok) {
             throw new Error(`Failed to load config: ${response.status}`);
         }
         const config = await response.json();
         
+        if (!config.yaml) {
+            throw new Error('No YAML configuration received');
+        }
+
         // Parse YAML für Environment-Variablen und Ports
         const yamlConfig = jsyaml.load(config.yaml);
-        const service = yamlConfig.services[containerName];
+        
+        // Prüfe ob es ein gültiges Service-Objekt ist
+        if (!yamlConfig || typeof yamlConfig !== 'object') {
+            throw new Error('Invalid YAML configuration');
+        }
+
+        // Das Service-Objekt ist direkt die Konfiguration, nicht unter services
+        const service = yamlConfig;
         
         // Extrahiere Ports und Environment-Variablen
         const ports = service.ports || [];
         const environment = service.environment || {};
         
+        // Spezielle Felder für mosquitto-broker
+        let additionalFields = '';
+        if (containerName === 'mosquitto-broker' || containerName === 'mosquitto') {
+            additionalFields = `
+                <div class="auth-section" style="margin-bottom: 20px; padding: 15px; background: var(--color-background-dark); border-radius: 8px;">
+                    <h3 style="margin-bottom: 15px;">Authentication Settings</h3>
+                    <div class="form-group">
+                        <label class="checkbox-label" style="display: flex; align-items: center; cursor: pointer;">
+                            <input type="checkbox" id="mqtt-auth" name="mqtt-auth" style="margin-right: 10px;">
+                            <span>Enable Authentication</span>
+                        </label>
+                    </div>
+                    <div class="auth-credentials" style="display: none; margin-top: 15px;">
+                        <div class="form-group">
+                            <label for="mqtt-username">MQTT Username</label>
+                            <input type="text" id="mqtt-username" name="mqtt-username" placeholder="Enter username" class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label for="mqtt-password">MQTT Password</label>
+                            <input type="password" id="mqtt-password" name="mqtt-password" placeholder="Enter password" class="form-control">
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
         // Erstelle Modal
         const modal = document.createElement('div');
         modal.className = 'modal';
@@ -1403,78 +1443,43 @@ async function showInstallModal(containerName) {
                              style="width: 24px; height: 24px; margin-right: 8px;">
                         Install ${containerName}
                     </h2>
-                    <button class="close-modal">&times;</button>
+                    <button class="close-modal" onclick="closeModal()">&times;</button>
                 </div>
                 <div class="modal-body">
-                    <div class="install-steps" style="display: none;">
-                        <div class="step-indicator">
-                            <div class="step preparing">
-                                <i class="fa fa-cog"></i>
-                                <span>Preparing</span>
-                            </div>
-                            <div class="step installing">
-                                <i class="fa fa-download"></i>
-                                <span>Installing</span>
-                            </div>
-                            <div class="step configuring">
-                                <i class="fa fa-wrench"></i>
-                                <span>Configuring</span>
-                            </div>
-                            <div class="step finishing">
-                                <i class="fa fa-check"></i>
-                                <span>Finishing</span>
+                    ${additionalFields}
+                    <div class="section">
+                        <h3>Port Configuration</h3>
+                        <div class="port-mappings">
+                            ${createPortMappings(ports)}
+                        </div>
+                    </div>
+                    ${environment && Object.keys(environment).length > 0 ? `
+                        <div class="section">
+                            <h3>Environment Variables</h3>
+                            <div class="environment-vars">
+                                ${createEnvironmentVars(environment)}
                             </div>
                         </div>
-                        <div class="step-details"></div>
-                    </div>
-                    <form id="install-form">
-                        ${ports.length > 0 ? `
-                            <div class="config-section">
-                                <h3><i class="fa fa-globe"></i> Port Configuration</h3>
-                                ${ports.map((port, index) => {
-                                    const [hostPort, containerPort] = port.split(':');
-                                    return `
-                                        <div class="form-group">
-                                            <label>Port Mapping (Container Port: ${containerPort}):</label>
-                                            <input type="number" 
-                                                   name="port_${index}" 
-                                                   value="${hostPort}"
-                                                   min="1"
-                                                   max="65535"
-                                                   class="port-input">
-                                        </div>
-                                    `;
-                                }).join('')}
-                            </div>
-                        ` : ''}
-                        
-                        ${Object.keys(environment).length > 0 ? `
-                            <div class="config-section">
-                                <h3><i class="fa fa-cogs"></i> Environment Variables</h3>
-                                ${Object.entries(environment).map(([key, defaultValue]) => `
-                                    <div class="form-group">
-                                        <label>${key}:</label>
-                                        <input type="text" 
-                                               name="env_${key}" 
-                                               value="${defaultValue || ''}"
-                                               placeholder="${getEnvPlaceholder(key)}"
-                                               class="env-input">
-                                        ${getEnvDescription(key)}
-                                    </div>
-                                `).join('')}
-                            </div>
-                        ` : ''}
-                    </form>
+                    ` : ''}
                 </div>
                 <div class="modal-footer">
-                    <button class="btn cancel" onclick="closeModal()">Cancel</button>
-                    <button class="btn install" onclick="executeInstall('${containerName}')">
-                        <i class="fa fa-download"></i> Install
-                    </button>
+                    <button class="install-btn" onclick="executeInstall('${containerName}')">Install</button>
+                    <button class="cancel-btn" onclick="closeModal()">Cancel</button>
                 </div>
             </div>
         `;
-        
+
+        // Event-Listener für Authentication Checkbox
+        const authCheckbox = modal.querySelector('#mqtt-auth');
+        const authCredentials = modal.querySelector('.auth-credentials');
+        if (authCheckbox) {
+            authCheckbox.addEventListener('change', (e) => {
+                authCredentials.style.display = e.target.checked ? 'block' : 'none';
+            });
+        }
+
+        // ... Rest des Codes ...
+
         document.body.appendChild(modal);
         setTimeout(() => modal.classList.add('show'), 10);
         
@@ -1511,103 +1516,107 @@ function getEnvDescription(key) {
 
 // Angepasste executeInstall Funktion
 async function executeInstall(containerName) {
-    const form = document.getElementById('install-form');
-    const modalBody = document.querySelector('.modal-body');
-    const modalFooter = document.querySelector('.modal-footer');
-    const installSteps = modalBody.querySelector('.install-steps');
-    
     try {
-        // Zeige Installations-Schritte
-        installSteps.style.display = 'block';
-        form.style.display = 'none';
-        modalFooter.style.display = 'none';
+        // Zeige Loading-Overlay
+        if (loadingOverlay) {
+            loadingOverlay.style.display = 'flex';
+        }
 
-        // Aktiviere ersten Schritt
-        const steps = installSteps.querySelectorAll('.step');
-        steps[0].classList.add('active');
-        
-        // Sammle die Formulardaten
-        const formData = new FormData(form);
+        // Deaktiviere den Install-Button und zeige Spinner
+        const installButton = document.querySelector('.modal .install-btn');
+        if (installButton) {
+            installButton.disabled = true;
+            installButton.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Installing...';
+        }
+
+        // Sammle Formulardaten
         const installData = {
             name: containerName,
-            path: `/home/webDock/docker-compose-data/${containerName}`,
+            path: `/app/config/compose-files/${containerName}`,
             ports: {},
-            env: {}
+            env: {},
+            volumes: []  // Füge Volumes hinzu
         };
-        
-        // Sammle Ports und Environment-Variablen
-        formData.forEach((value, key) => {
-            if (key.startsWith('port_')) {
-                const index = key.replace('port_', '');
-                installData.ports[index] = value;
-            } else if (key.startsWith('env_')) {
-                const envKey = key.replace('env_', '');
-                if (value) {
-                    installData.env[envKey] = value;
-                }
-            }
-        });
 
-        // Update Status: Preparing -> Installing
-        steps[0].classList.remove('active');
-        steps[0].classList.add('done');
-        steps[1].classList.add('active');
-        
-        // Führe Installation durch
+        // Füge Standard-Volumes basierend auf Container-Typ hinzu
+        if (containerName === 'mosquitto-broker' || containerName === 'mosquitto') {
+            installData.volumes = [
+                `./config:/mosquitto/config`,
+                `./data:/mosquitto/data`,
+                `./log:/mosquitto/log`
+            ];
+            
+            // Erstelle auch die notwendige mosquitto.conf wenn sie nicht existiert
+            const configContent = `
+listener 1883
+allow_anonymous true
+persistence true
+persistence_location /mosquitto/data/
+log_dest file /mosquitto/log/mosquitto.log
+`;
+            
+            // Sende Config-Erstellung mit
+            installData.config_files = {
+                'config/mosquitto.conf': configContent
+            };
+        }
+
+        // Verarbeite Port-Mappings
+        const portInputs = document.querySelectorAll('.modal .port-mapping input');
+        if (portInputs.length > 0) {
+            portInputs.forEach(input => {
+                const containerPort = input.getAttribute('data-port');
+                if (containerPort) {
+                    installData.ports[containerPort] = input.value;
+                }
+            });
+        }
+
+        // Verarbeite Environment-Variablen
+        const envInputs = document.querySelectorAll('.modal .env-var input');
+        if (envInputs.length > 0) {
+            envInputs.forEach(input => {
+                const envKey = input.getAttribute('data-env-key');
+                if (envKey) {
+                    installData.env[envKey] = input.value;
+                }
+            });
+        }
+
+        // Sende Installation Request
         const response = await fetch('/api/install', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json'
+            },
             body: JSON.stringify(installData)
         });
-        
-        const data = await response.json();
-        
-        if (data.status === 'success') {
-            // Update Status: Installing -> Configuring -> Finishing
-            steps[1].classList.remove('active');
-            steps[1].classList.add('done');
-            steps[2].classList.add('active');
-            
-            await new Promise(resolve => setTimeout(resolve, 500));
-            
-            steps[2].classList.remove('active');
-            steps[2].classList.add('done');
-            steps[3].classList.add('active');
-            
-            await new Promise(resolve => setTimeout(resolve, 500));
-            
-            steps[3].classList.remove('active');
-            steps[3].classList.add('done');
-            
-            // Aktualisiere Container-Status
+
+        const result = await response.json();
+
+        if (result.status === 'success') {
+            showNotification('success', `${containerName} installed successfully`);
+            closeModal();
             updateContainerStatus(true);
-            
-            // Zeige Erfolgs-Nachricht und schließe Modal
-            setTimeout(() => {
-                closeModal();
-                showNotification('success', `${containerName} installed successfully`);
-            }, 1000);
         } else {
-            throw new Error(data.message || 'Installation failed');
+            throw new Error(result.message || 'Installation failed');
         }
+
     } catch (error) {
-        console.error('Error:', error);
-        // Zeige Fehler im Modal
-        modalBody.innerHTML = `
-            <div class="install-error">
-                <i class="fa fa-times-circle"></i>
-                <h3>Installation Failed</h3>
-                <p>${error.message}</p>
-                <div class="error-details">
-                    <p>Please check the logs for more details.</p>
-                </div>
-            </div>
-        `;
-        modalFooter.innerHTML = `
-            <button class="btn" onclick="closeModal()">Close</button>
-            <button class="btn retry" onclick="executeInstall('${containerName}')">Retry</button>
-        `;
-        modalFooter.style.display = 'flex';
+        console.error('Installation error:', error);
+        showNotification('error', error.message || 'Installation failed');
+    } finally {
+        // Verstecke Loading-Overlay
+        if (loadingOverlay) {
+            loadingOverlay.style.display = 'none';
+        }
+
+        // Reaktiviere den Install-Button
+        const installButton = document.querySelector('.modal .install-btn');
+        if (installButton) {
+            installButton.disabled = false;
+            installButton.innerHTML = 'Install';
+        }
     }
 }
 
@@ -2903,3 +2912,101 @@ function updateContainerStatus(forceRefresh = false) {
         })
         .catch(error => console.error('Error:', error));
 }
+
+// Hilfsfunktionen für das Modal
+function createPortMappings(ports) {
+    if (!ports || ports.length === 0) return 'No ports to configure';
+    
+    return ports.map(port => {
+        let containerPort, hostPort;
+        
+        if (typeof port === 'string') {
+            [hostPort, containerPort] = port.split(':');
+        } else {
+            containerPort = port;
+            hostPort = port;
+        }
+        
+        // Entferne eventuelle Protokoll-Suffixe (z.B. /tcp)
+        containerPort = containerPort.split('/')[0];
+        
+        return `
+            <div class="port-mapping">
+                <label>Port ${containerPort}:</label>
+                <input type="number" 
+                       data-port="${containerPort}"
+                       value="${hostPort.split('/')[0]}"
+                       min="1"
+                       max="65535"
+                       class="form-control">
+            </div>
+        `;
+    }).join('');
+}
+
+function createEnvironmentVars(environment) {
+    if (!environment || Object.keys(environment).length === 0) {
+        return 'No environment variables to configure';
+    }
+    
+    return Object.entries(environment).map(([key, defaultValue]) => `
+        <div class="env-var">
+            <label>${key}:</label>
+            <input type="text" 
+                   data-env-key="${key}"
+                   value="${defaultValue || ''}"
+                   placeholder="${getEnvPlaceholder(key)}"
+                   class="form-control">
+            ${getEnvDescription(key)}
+        </div>
+    `).join('');
+}
+
+// CSS für die neuen Komponenten
+const style = document.createElement('style');
+style.textContent = `
+    .port-mapping, .env-var {
+        margin-bottom: 15px;
+    }
+    
+    .port-mapping label, .env-var label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+    }
+    
+    .form-control {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        background: var(--color-background-light);
+        color: var(--color-text);
+    }
+    
+    .form-control:focus {
+        border-color: var(--color-primary);
+        outline: none;
+    }
+    
+    .section {
+        margin-bottom: 20px;
+        padding: 15px;
+        background: var(--color-background-dark);
+        border-radius: 8px;
+    }
+    
+    .section h3 {
+        margin-bottom: 15px;
+        color: var(--color-text);
+    }
+    
+    .hint {
+        display: block;
+        margin-top: 5px;
+        color: var(--color-text-muted);
+        font-size: 0.9em;
+    }
+`;
+
+document.head.appendChild(style);
