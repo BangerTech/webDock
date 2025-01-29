@@ -653,11 +653,7 @@ def get_containers():
 def install_container():
     try:
         data = request.json
-        logger.info(f"Received installation request with data: {data}")
-        
-        container_name = data.get('name')
-        if not container_name:
-            raise Exception("Container name is required")
+        container_name = data['name']
         
         # Verwende den korrekten Pfad für die Installation
         install_path = os.path.join(COMPOSE_DATA_DIR, container_name)
@@ -669,19 +665,33 @@ def install_container():
         
         # Spezielle Behandlung für mosquitto-broker
         if container_name in ['mosquitto-broker', 'mosquitto']:
-            success = setup_mosquitto(container_name, install_path, data)
-            if not success:
-                raise Exception("Failed to setup Mosquitto")
-        else:
-            # Standard-Verzeichnisse für andere Container
             config_dir = os.path.join(install_path, 'config')
             data_dir = os.path.join(install_path, 'data')
             log_dir = os.path.join(install_path, 'log')
             
+            # Erstelle Verzeichnisse
             for directory in [config_dir, data_dir, log_dir]:
                 os.makedirs(directory, exist_ok=True)
+                logger.info(f"Created directory: {directory}")
+            
+            # Setze Berechtigungen
+            for directory in [config_dir, data_dir, log_dir]:
                 os.chmod(directory, 0o755)
-                logger.info(f"Created and configured directory: {directory}")
+                logger.info(f"Set permissions for: {directory}")
+
+            # Erstelle und konfiguriere mosquitto.conf
+            mosquitto_conf = os.path.join(config_dir, 'mosquitto.conf')
+            if not os.path.exists(mosquitto_conf):
+                with open(mosquitto_conf, 'w') as f:
+                    f.write("""# Default mosquitto.conf
+listener 1883
+allow_anonymous true
+persistence true
+persistence_location /mosquitto/data/
+log_dest file /mosquitto/log/mosquitto.log
+""")
+                os.chmod(mosquitto_conf, 0o644)
+                logger.info(f"Created default mosquitto.conf: {mosquitto_conf}")
 
         # Kopiere und aktualisiere docker-compose.yml
         template_path = os.path.join(COMPOSE_FILES_DIR, container_name, 'docker-compose.yml')
@@ -701,18 +711,78 @@ def install_container():
         os.chmod(target_compose, 0o644)
         logger.info(f"Created compose file: {target_compose}")
 
+        # Stelle sicher, dass das Docker-Netzwerk existiert
+        try:
+            # Prüfe ob Netzwerk existiert
+            result = subprocess.run(
+                ['docker', 'network', 'inspect', 'webdock'],
+                capture_output=True,
+                text=True
+            )
+            
+            if result.returncode != 0:
+                logger.info("Creating webdock network")
+                # Erstelle Netzwerk wenn es nicht existiert
+                result = subprocess.run(
+                    ['docker', 'network', 'create', 'webdock'],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                logger.info("Webdock network created successfully")
+        except subprocess.CalledProcessError as e:
+            error_msg = f"Failed to create network: {e.stderr}"
+            logger.error(error_msg)
+            raise Exception(error_msg)
+
+        # Aktualisiere die docker-compose.yml um das Netzwerk einzubinden
+        compose_data = yaml.safe_load(compose_content)
+        service = compose_data['services'][list(compose_data['services'].keys())[0]]
+        
+        # Füge Netzwerk-Konfiguration hinzu
+        if 'networks' not in compose_data:
+            compose_data['networks'] = {'webdock': {'external': True}}
+        if 'networks' not in service:
+            service['networks'] = ['webdock']
+
+        # Speichere aktualisierte compose-Datei
+        with open(target_compose, 'w') as f:
+            yaml.dump(compose_data, f)
+
         # Starte den Container
         try:
-            subprocess.run(['docker', 'compose', '-f', target_compose, 'up', '-d'], check=True)
+            result = subprocess.run(
+                ['docker', 'compose', '-f', target_compose, 'up', '-d'],
+                check=True,
+                cwd=install_path,
+                capture_output=True,
+                text=True
+            )
             logger.info(f"Started container: {container_name}")
         except subprocess.CalledProcessError as e:
-            logger.error(f"Error starting container: {e}")
-            raise Exception(f"Failed to start container: {e}")
+            error_msg = f"Failed to start container: {e.stderr}"
+            logger.error(error_msg)
+            # Lösche fehlgeschlagene Installation
+            shutil.rmtree(install_path)
+            return jsonify({
+                'status': 'error',
+                'message': error_msg
+            }), 500
 
-        return jsonify({'status': 'success'})
+        return jsonify({
+            'status': 'success',
+            'message': f'Container {container_name} installed successfully'
+        })
+        
     except Exception as e:
         logger.error(f"Error installing container: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        # Lösche fehlgeschlagene Installation
+        if 'install_path' in locals():
+            shutil.rmtree(install_path)
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
 
 def get_docker_compose_cmd():
     """Gibt den korrekten docker-compose Befehl zurück"""
@@ -1445,90 +1515,66 @@ def debug_icons():
         'full_path': os.path.abspath(img_dir)
     })
 
-def setup_mosquitto(container_name, install_path, config_data=None):
+def setup_mosquitto(container_name, install_path):
     """Setup für Mosquitto Broker"""
     try:
-        # Debug-Logging
-        logger.info(f"Received config data in setup_mosquitto: {config_data}")
-        
         # Erstelle Verzeichnisse
-        config_dir = os.path.join(install_path, "config")
-        data_dir = os.path.join(install_path, "data")
-        log_dir = os.path.join(install_path, "log")
+        config_dir = os.path.join(install_path, 'config')
+        data_dir = os.path.join(install_path, 'data')
+        log_dir = os.path.join(install_path, 'log')
         
         for dir_path in [config_dir, data_dir, log_dir]:
             os.makedirs(dir_path, exist_ok=True, mode=0o755)
         
-        # Prüfe ob Authentifizierung aktiviert ist
-        auth_enabled = False
-        if config_data and 'mosquitto' in config_data:
-            mosquitto_config = config_data['mosquitto']
-            logger.info(f"Mosquitto config: {mosquitto_config}")
-            
-            auth_enabled = mosquitto_config.get('auth_enabled', False)
-            logger.info(f"Auth enabled: {auth_enabled}")
-            
-            if auth_enabled:
-                username = mosquitto_config.get('username')
-                password = mosquitto_config.get('password')
-                logger.info(f"Username: {username}")
-                logger.info(f"Password: {'*' * len(password) if password else 'None'}")
-        
-        # Erstelle Konfigurationsdatei
-        config_path = os.path.join(config_dir, "mosquitto.conf")
-        with open(config_path, "w") as f:
-            f.write(f"""
-# Default listener
+        # Erstelle Konfigurationsdatei mit korrekten Pfaden
+        config_path = os.path.join(config_dir, 'mosquitto.conf')
+        with open(config_path, 'w') as f:
+            f.write("""
+# Default Mosquitto Configuration
 listener 1883
+allow_anonymous true
 
 # Persistence
 persistence true
-persistence_location /mosquitto/data/
+persistence_location /mosquitto/data
 
 # Logging
 log_dest file /mosquitto/log/mosquitto.log
-log_dest stdout
+log_type all
+connection_messages true
+log_timestamp true
 
-# Authentication
-allow_anonymous {str(not auth_enabled).lower()}
+# Konfigurationsdateien
+include_dir /mosquitto/config/conf.d
+
+# Berechtigungen
+allow_anonymous false
 password_file /mosquitto/config/passwd
-""")
+acl_file /mosquitto/config/acl
+            """.strip())
         
-        # Erstelle Passwort-Datei nur wenn Auth aktiviert ist
-        if auth_enabled:
-            username = config_data['mosquitto'].get('username', 'admin')
-            password = config_data['mosquitto'].get('password', 'admin')
-            
-            passwd_file = os.path.join(config_dir, "passwd")
-            try:
-                # Erstelle die Passwort-Datei im Container
-                result = subprocess.run([
-                    'docker', 'run', '--rm',
-                    '-v', f'{config_dir}:/mosquitto/config',
-                    'eclipse-mosquitto:latest',
-                    'sh', '-c',
-                    f'touch /mosquitto/config/passwd && mosquitto_passwd -b /mosquitto/config/passwd {username} {password}'
-                ], capture_output=True, text=True, check=True)
-                
-                logger.info(f"Created password file for user {username}")
-                logger.info(f"Command output: {result.stdout}")
-                
-                # Setze Berechtigungen
-                os.chmod(passwd_file, 0o644)
-                
-            except subprocess.CalledProcessError as e:
-                logger.error(f"Error creating password file: {e.stderr}")
-                raise
-        else:
-            # Erstelle leere Passwort-Datei
-            passwd_file = os.path.join(config_dir, "passwd")
-            with open(passwd_file, 'w') as f:
-                pass
-            os.chmod(passwd_file, 0o644)
-            logger.info("Created empty password file (auth disabled)")
+        # Erstelle zusätzliche Konfigurationsverzeichnisse
+        conf_d_dir = os.path.join(config_dir, 'conf.d')
+        os.makedirs(conf_d_dir, exist_ok=True)
         
-        # Setze Berechtigungen für config
-        os.chmod(config_path, 0o644)
+        # Erstelle leere Passwort- und ACL-Dateien
+        passwd_file = os.path.join(config_dir, 'passwd')
+        acl_file = os.path.join(config_dir, 'acl')
+        
+        # Erstelle leere Dateien wenn sie nicht existieren
+        for file_path in [passwd_file, acl_file]:
+            if not os.path.exists(file_path):
+                open(file_path, 'a').close()
+                os.chmod(file_path, 0o644)
+        
+        # Setze Berechtigungen für alle Verzeichnisse und Dateien
+        for dir_path in [config_dir, data_dir, log_dir, conf_d_dir]:
+            os.chmod(dir_path, 0o755)
+            for root, dirs, files in os.walk(dir_path):
+                for d in dirs:
+                    os.chmod(os.path.join(root, d), 0o755)
+                for f in files:
+                    os.chmod(os.path.join(root, f), 0o644)
         
         return True
     except Exception as e:
