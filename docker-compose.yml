@@ -2,14 +2,23 @@
 version: '3'
 services:
   webdock-ui:
-    image: bangertech/webdock:latest
     container_name: webdock-ui
+    build: .
     ports:
       - "8585:80"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./data:/app/data
-      - ./config:/app/config
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/docker:/usr/bin/docker:ro
+      - /usr/libexec/docker/cli-plugins/docker-compose:/usr/libexec/docker/cli-plugins/docker-compose:ro
+      - ./docker-compose-data:/home/webDock/docker-compose-data
+      - ./docker-compose-files:/app/docker-compose-files
+      - ./src/static/img:/app/static/img
     environment:
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - FLASK_DEBUG=1
+      - FLASK_ENV=development
       - CONFIG_DIR=/app/config
+      - WEBDOCK_BASE_PATH=/home/webDock
+    group_add:
+      - "$(getent group docker | cut -d: -f3)"  # Fügt Container zur Docker-Gruppe hinzu
     restart: unless-stopped 
