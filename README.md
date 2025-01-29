@@ -91,23 +91,16 @@ webDock is a powerful tool for managing and installing software on Debian-based 
    ```
 5. Pick a program and follow the steps presented by the tool.
 
-## Docker Compose Setup
+## Quick Start Installation
 
-1. Navigate to your home directory:
-   ```bash
-   cd $HOME
-   ```
-2. Create a new folder:
-   ```bash
-   mkdir webdock-ui
-   ```
-3. Navigate to the new folder:
-   ```bash
-   cd webdock-ui
-   ```
-4. Create a new docker-compose.yml File:
-
+1. Create a new directory and navigate into it:
+```bash
+mkdir webdock && cd webdock
 ```
+
+2. Create a docker-compose.yml file with the following content:
+```yaml
+version: '3'
 services:
   webdock-ui:
     image: bangertech/webdock:latest
@@ -123,7 +116,14 @@ services:
     restart: unless-stopped
 ```
 
+3. Start webDock:
+```bash
+docker compose up -d
+```
 
+4. Access webDock at http://localhost:8585
+
+The necessary directories and configurations will be automatically created on first start.
 
 ## Support / Feedback
 Any bugs or feature requests? Contact me [here](https://github.com/bangertech) or click on the "Issues" tab in the GitHub repository!
