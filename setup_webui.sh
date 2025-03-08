@@ -63,6 +63,12 @@ sudo cp docker-compose-files/webdock-ui/src/config/categories.yaml "$SRC_DIR/con
 sudo chown -R $USER:$USER "$BASE_DIR"
 sudo chmod -R 755 "$BASE_DIR"
 
+# Erstelle eine Kopie der Docker-Compose-Datei im Hauptverzeichnis
+echo "Creating docker-compose.yml in main directory..."
+sudo cp "$BASE_DIR/docker-compose.yml" "/home/webDock/docker-compose.yml"
+sudo chown $USER:$USER "/home/webDock/docker-compose.yml"
+sudo chmod 644 "/home/webDock/docker-compose.yml"
+
 echo "=== Verifying setup ==="
 echo "Directory structure:"
 ls -R "$BASE_DIR"

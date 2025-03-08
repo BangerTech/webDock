@@ -17,6 +17,9 @@ services:
       - FLASK_DEBUG=1
       - FLASK_ENV=development
       - CONFIG_DIR=/app/config
+      - WEBDOCK_BASE_PATH=/home/webDock
+      - COMPOSE_FILES_DIR=/app/docker-compose-files
+      - COMPOSE_DATA_DIR=/home/webDock/docker-compose-data
     restart: unless-stopped
 
 volumes:

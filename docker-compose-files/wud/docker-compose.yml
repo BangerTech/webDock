@@ -1,0 +1,23 @@
+version: '3'
+
+services:
+  wud:
+    image: getwud/wud:latest
+    container_name: wud
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./data:/app/data
+    ports:
+      - 3004:3000
+    restart: unless-stopped
+    environment:
+      # Server configuration
+      - WUD_SERVER_PORT=3000
+      # Watcher configuration
+      - WUD_WATCHER_DOCKER=true
+      - WUD_WATCHER_DOCKER_WATCHALL=true
+      - WUD_WATCHER_LOCAL_WATCHALL=true
+      # Registry configuration
+      - WUD_REGISTRY_HUB_PUBLIC=true 

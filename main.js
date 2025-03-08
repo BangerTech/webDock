@@ -163,17 +163,49 @@ async function executeInstall(container) {
         const modal = document.getElementById('installModal');
         
         // Basis-Konfiguration
-        const config = {
+        let config = {
             name: container,
-            mosquitto: {  // Immer die Mosquitto-Konfiguration senden
+            ports: {},
+            env: {},
+            volumes: []
+        };
+
+        // Container-spezifische Konfiguration
+        if (container === 'mosquitto-broker') {
+            config.path = '/app/config/compose-files/mosquitto-broker';
+            config.ports = {'1883': '1883', '9001': '9001'};
+            config.volumes = ['./config:/mosquitto/config', './data:/mosquitto/data', './log:/mosquitto/log'];
+            config.mosquitto = {
                 auth_enabled: modal.querySelector('#auth_enabled')?.checked || false,
                 username: modal.querySelector('#username')?.value || '',
                 password: modal.querySelector('#password')?.value || ''
-            }
-        };
+            };
+            
+            // Debug-Logging für Mosquitto
+            console.log('=== Mosquitto Installation Config ===');
+            console.log('Auth enabled:', config.mosquitto.auth_enabled);
+            console.log('Username:', config.mosquitto.username);
+            console.log('Password:', config.mosquitto.password);
+        } 
+        else if (container === 'dockge') {
+            config.path = '/app/config/compose-files/dockge';
+            config.ports = {'5001': '5001'};
+            config.volumes = ['./data:/app/data'];
+            config.dockge = {
+                stacks_dir: '/home/webDock/docker-compose-data'
+            };
+            
+            // Debug-Logging für Dockge
+            console.log('=== Dockge Installation Config ===');
+            console.log('Stacks Directory:', config.dockge.stacks_dir);
+        }
+        else {
+            // Generische Konfiguration für andere Container
+            config.path = `/app/config/compose-files/${container}`;
+        }
 
         // Debug-Logging
-        console.log('=== Installation Config ===');
+        console.log('=== Installation Data ===');
         console.log(JSON.stringify(config, null, 2));
 
         const response = await fetch('/api/install', {

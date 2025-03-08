@@ -19,7 +19,7 @@ categories:
       - grafana
       - prometheus
       - node_exporter
-      - whatsupdocker
+      - wud
 
   network:
     name: "Network"

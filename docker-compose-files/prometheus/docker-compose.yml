@@ -6,9 +6,16 @@ services:
       - 9090:9090
     volumes:
       - ./prometheus:/etc/prometheus
-      - prometheus-data:/prometheus
+      - ./data:/prometheus
     command: --web.enable-lifecycle  --config.file=/etc/prometheus/prometheus.yml
     restart: unless-stopped
+    networks:
+      - default
+      - webdock
 
 volumes:
   prometheus-data:
+
+networks:
+  webdock:
+    external: true

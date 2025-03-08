@@ -1,0 +1,35 @@
+version: '3'
+
+services:
+  webdock-ui-dev:
+    container_name: webdock-ui-dev
+    build:
+      context: ./docker-compose-files/webdock-ui
+      dockerfile: Dockerfile
+    ports:
+      - "8585:80"
+    volumes:
+      # Docker-Socket und Binaries für Docker-Befehle
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/docker:/usr/bin/docker:ro
+      - /usr/libexec/docker/cli-plugins/docker-compose:/usr/libexec/docker/cli-plugins/docker-compose:ro
+      
+      # Quellcode für Live-Entwicklung
+      - ./docker-compose-files/webdock-ui/src/app.py:/app/app.py
+      - ./docker-compose-files/webdock-ui/src/templates:/app/templates
+      - ./docker-compose-files/webdock-ui/src/static/css:/app/static/css
+      - ./docker-compose-files/webdock-ui/src/static/js:/app/static/js
+      - ./docker-compose-files/webdock-ui/src/static/img:/app/static/img
+      - ./docker-compose-files/webdock-ui/src/config:/app/config
+      
+      # Daten-Verzeichnisse
+      - ./docker-compose-data:/home/webDock/docker-compose-data
+      - ./docker-compose-files:/app/docker-compose-files
+      - ./docker-compose-data/config:/app/config
+    environment:
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - FLASK_DEBUG=1
+      - FLASK_ENV=development
+      - CONFIG_DIR=/app/config
+      - PYTHONUNBUFFERED=1
+    restart: "no"  # Im Entwicklungsmodus nicht automatisch neustarten 

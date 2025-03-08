@@ -1,5 +1,3 @@
-# Produktionsversion für normale Nutzer
-version: '3'
 services:
   webdock-ui:
     container_name: webdock-ui
@@ -10,8 +8,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /usr/bin/docker:/usr/bin/docker:ro
       - /usr/libexec/docker/cli-plugins/docker-compose:/usr/libexec/docker/cli-plugins/docker-compose:ro
-      - ./docker-compose-data:/home/webDock/docker-compose-data
-      - ./docker-compose-files:/app/docker-compose-files
+      - /home/webDock/docker-compose-data:/home/webDock/docker-compose-data
+      - /home/webDock/docker-compose-files:/app/docker-compose-files
+      - /home/webDock/docker-compose-data/config:/app/config
       - ./src/static/img:/app/static/img
     environment:
       - DOCKER_HOST=unix:///var/run/docker.sock
@@ -19,6 +18,9 @@ services:
       - FLASK_ENV=development
       - CONFIG_DIR=/app/config
       - WEBDOCK_BASE_PATH=/home/webDock
-    group_add:
-      - "$(getent group docker | cut -d: -f3)"  # Fügt Container zur Docker-Gruppe hinzu
-    restart: unless-stopped 
+      - COMPOSE_FILES_DIR=/app/docker-compose-files
+      - COMPOSE_DATA_DIR=/home/webDock/docker-compose-data
+    restart: unless-stopped
+
+volumes:
+  host-config:

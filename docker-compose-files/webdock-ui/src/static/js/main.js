@@ -6,7 +6,27 @@ let lastScrollPosition = 0;
 let lastContainerStates = new Map();
 
 // Globale closeModal Funktion
-function closeModal() { const modal = document.querySelector('.modal'); if (modal) { modal.classList.remove('show'); setTimeout(() => modal.remove(), 300); } }
+function closeModal() { 
+    // Suche nach allen modalen Dialogen
+    const modals = document.querySelectorAll('.modal');
+    
+    // Schließe alle gefundenen Modals
+    modals.forEach(modal => {
+        // Entferne die 'show' Klasse für die Animation
+        modal.classList.remove('show');
+        
+        // Entferne das Modal nach der Animation
+        setTimeout(() => {
+            // Prüfe, ob das Modal noch im DOM ist
+            if (modal.parentNode) {
+                modal.parentNode.removeChild(modal);
+            }
+        }, 300);
+    });
+    
+    // Debug-Logging
+    console.log('Modal closed');
+}
 
 // Globale Variablen am Anfang der Datei
 let sshConnection = null;
@@ -1398,15 +1418,26 @@ async function showInstallModal(containerName) {
             throw new Error('Invalid YAML configuration');
         }
 
-        // Das Service-Objekt ist direkt die Konfiguration, nicht unter services
-        const service = yamlConfig;
+        // Extrahiere das erste Service aus der Compose-Datei
+        let service = config.service;
+        if (!service && yamlConfig.services) {
+            // Fallback: Extrahiere das erste Service aus dem geparsten YAML
+            const serviceName = Object.keys(yamlConfig.services)[0];
+            service = yamlConfig.services[serviceName];
+        }
+        
+        if (!service) {
+            throw new Error('No service configuration found in YAML');
+        }
         
         // Extrahiere Ports und Environment-Variablen
         const ports = service.ports || [];
         const environment = service.environment || {};
         
-        // Spezielle Felder für mosquitto-broker
+        // Spezielle Felder für verschiedene Container
         let additionalFields = '';
+        
+        // Mosquitto-Broker
         if (containerName === 'mosquitto-broker' || containerName === 'mosquitto') {
             additionalFields = `
                 <div class="auth-section" style="margin-bottom: 20px; padding: 15px; background: var(--color-background-dark); border-radius: 8px;">
@@ -1430,10 +1461,117 @@ async function showInstallModal(containerName) {
                 </div>
             `;
         }
+        // InfluxDB
+        else if (containerName === 'influxdb' || containerName === 'influxdb-arm' || containerName === 'influxdb-x86') {
+            additionalFields = `
+                <div class="influxdb-section" style="margin-bottom: 20px; padding: 15px; background: var(--color-background-dark); border-radius: 8px;">
+                    <h3 style="margin-bottom: 15px;">Database Settings</h3>
+                    <div class="form-group">
+                        <label class="checkbox-label" style="display: flex; align-items: center; cursor: pointer;">
+                            <input type="checkbox" id="influxdb-create-db" name="influxdb-create-db" style="margin-right: 10px;">
+                            <span>Create Default Database</span>
+                        </label>
+                    </div>
+                    <div class="db-credentials" style="display: none; margin-top: 15px;">
+                        <div class="form-group">
+                            <label for="db-name">Database Name</label>
+                            <input type="text" id="db-name" name="db-name" value="database1" placeholder="Enter database name" class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label for="db-user">Database User</label>
+                            <input type="text" id="db-user" name="db-user" value="user1" placeholder="Enter username" class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label for="db-password">Database Password</label>
+                            <input type="password" id="db-password" name="db-password" value="pwd12345" placeholder="Enter password" class="form-control">
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        // Dockge
+        else if (containerName === 'dockge') {
+            additionalFields = `
+                <div class="dockge-section" style="margin-bottom: 20px; padding: 15px; background: var(--color-background-dark); border-radius: 8px;">
+                    <h3 style="margin-bottom: 15px;">Dockge Settings</h3>
+                    <div class="form-group">
+                        <label for="stacks-dir">Stacks Directory</label>
+                        <input type="text" id="stacks-dir" name="stacks-dir" value="/home/webDock/docker-compose-data" placeholder="Enter stacks directory path" class="form-control">
+                        <small class="hint">Directory where your docker-compose stacks are stored</small>
+                    </div>
+                </div>
+            `;
+        }
+        // Filestash
+        else if (containerName === 'filestash') {
+            additionalFields = `
+                <div class="filestash-section" style="margin-bottom: 20px; padding: 15px; background: var(--color-background-dark); border-radius: 8px;">
+                    <h3 style="margin-bottom: 15px;">Filestash Setup</h3>
+                    <div class="alert alert-info" style="padding: 10px; background-color: #d1ecf1; color: #0c5460; border-radius: 4px; margin-bottom: 15px;">
+                        <p><strong>Note:</strong> Filestash requires a two-step installation process:</p>
+                        <ol style="margin-left: 20px; margin-top: 10px;">
+                            <li>After installation, go to http://[your-ip]:8334 to create an admin password</li>
+                            <li>Then run the <code>complete_setup.sh</code> script in the installation directory</li>
+                        </ol>
+                    </div>
+                </div>
+            `;
+        }
+        // WatchYourLAN
+        else if (containerName === 'watchyourlan' || containerName === 'watchyourlanarm') {
+            additionalFields = `
+                <div class="watchyourlan-section" style="margin-bottom: 20px; padding: 15px; background: var(--color-background-dark); border-radius: 8px;">
+                    <h3 style="margin-bottom: 15px;">WatchYourLAN Settings</h3>
+                    <div class="form-group">
+                        <label for="network-interface">Network Interface</label>
+                        <input type="text" id="network-interface" name="network-interface" placeholder="Enter network interface" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label for="ip-address">IP Address</label>
+                        <input type="text" id="ip-address" name="ip-address" placeholder="Enter IP address" class="form-control">
+                    </div>
+                </div>
+            `;
+        }
+        // Prometheus
+        else if (containerName === 'prometheus') {
+            additionalFields = `
+                <div class="prometheus-section" style="margin-bottom: 20px; padding: 10px; background: var(--color-background-dark); border-radius: 8px;">
+                    <h3 style="margin-bottom: 15px;">Prometheus Setup</h3>
+                    <div class="alert alert-info" style="padding: 10px; background-color: #d1ecf1; color: #0c5460; border-radius: 4px; margin-bottom: 15px;">
+                        <p><strong>Note:</strong> Prometheus configuration files will be created automatically:</p>
+                        <ul style="margin-left: 20px; margin-top: 10px;">
+                            <li><code>prometheus.yml</code> - Main configuration file</li>
+                            <li><code>alert.yml</code> - Alert rules configuration</li>
+                        </ul>
+                        <p style="margin-top: 10px;">After installation, Prometheus will be available at <code>http://[your-ip]:9090</code></p>
+                    </div>
+                </div>
+            `;
+        }
+        // Standard-Volumes für andere Container
+        else {
+            additionalFields = `
+                <div class="config-section" style="margin-bottom: 20px; padding: 15px; background: var(--color-background-dark); border-radius: 8px;">
+                    <div class="section-header" onclick="toggleConfigSection(this)" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin-bottom: 0;">Advanced Configuration</h3>
+                        <i class="fa fa-chevron-down"></i>
+                    </div>
+                    <div class="config-content" style="display: none; margin-top: 15px;">
+                        <div class="form-group">
+                            <label for="config-file">Configuration File</label>
+                            <input type="file" id="config-file" name="config-file" class="form-control">
+                            <small class="hint">Upload a custom configuration file (optional)</small>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
 
         // Erstelle Modal
         const modal = document.createElement('div');
         modal.className = 'modal';
+        modal.id = 'installModal';  // Add ID for easier reference
         modal.innerHTML = `
             <div class="modal-content">
                 <div class="modal-header">
@@ -1446,7 +1584,6 @@ async function showInstallModal(containerName) {
                     <button class="close-modal" onclick="closeModal()">&times;</button>
                 </div>
                 <div class="modal-body">
-                    ${additionalFields}
                     <div class="section">
                         <h3>Port Configuration</h3>
                         <div class="port-mappings">
@@ -1461,6 +1598,7 @@ async function showInstallModal(containerName) {
                             </div>
                         </div>
                     ` : ''}
+                    ${additionalFields}
                 </div>
                 <div class="modal-footer">
                     <button class="install-btn" onclick="executeInstall('${containerName}')">Install</button>
@@ -1469,7 +1607,11 @@ async function showInstallModal(containerName) {
             </div>
         `;
 
-        // Event-Listener für Authentication Checkbox
+        // Event-Listener für Authentication Checkbox bei Mosquitto
+        document.body.appendChild(modal);
+        setTimeout(() => modal.classList.add('show'), 10);
+        
+        // Mosquitto Auth Checkbox
         const authCheckbox = modal.querySelector('#mqtt-auth');
         const authCredentials = modal.querySelector('.auth-credentials');
         if (authCheckbox) {
@@ -1477,11 +1619,15 @@ async function showInstallModal(containerName) {
                 authCredentials.style.display = e.target.checked ? 'block' : 'none';
             });
         }
-
-        // ... Rest des Codes ...
-
-        document.body.appendChild(modal);
-        setTimeout(() => modal.classList.add('show'), 10);
+        
+        // InfluxDB Create DB Checkbox
+        const influxdbCreateDb = modal.querySelector('#influxdb-create-db');
+        const dbCredentials = modal.querySelector('.db-credentials');
+        if (influxdbCreateDb) {
+            influxdbCreateDb.addEventListener('change', (e) => {
+                dbCredentials.style.display = e.target.checked ? 'block' : 'none';
+            });
+        }
         
         // Schließen-Funktionalität
         modal.querySelector('.close-modal').addEventListener('click', closeModal);
@@ -1546,10 +1692,28 @@ async function executeInstall(containerName) {
                 `./log:/mosquitto/log`
             ];
             
-            // Erstelle auch die notwendige mosquitto.conf wenn sie nicht existiert
+            // Prüfe Authentifizierungseinstellungen für Mosquitto
+            const authEnabled = document.getElementById('mqtt-auth')?.checked || false;
+            const username = document.getElementById('mqtt-username')?.value || 'test';
+            const password = document.getElementById('mqtt-password')?.value || 'test';
+            
+            // Füge Mosquitto-spezifische Konfiguration hinzu
+            installData.mosquitto = {
+                auth_enabled: authEnabled,
+                username: username,
+                password: password
+            };
+            
+            // Debug-Logging
+            console.log('=== Mosquitto Installation Config ===');
+            console.log('Auth enabled:', authEnabled);
+            console.log('Username:', username);
+            console.log('Password:', password ? '********' : '');
+            
+            // Erstelle eine einfache Konfiguration ohne Authentifizierungseinstellungen
+            // Die eigentliche Authentifizierung wird vom Backend konfiguriert
             const configContent = `
 listener 1883
-allow_anonymous true
 persistence true
 persistence_location /mosquitto/data/
 log_dest file /mosquitto/log/mosquitto.log
@@ -1559,6 +1723,154 @@ log_dest file /mosquitto/log/mosquitto.log
             installData.config_files = {
                 'config/mosquitto.conf': configContent
             };
+        }
+        // InfluxDB-spezifische Konfiguration
+        else if (containerName === 'influxdb' || containerName === 'influxdb-arm' || containerName === 'influxdb-x86') {
+            installData.volumes = [
+                `./data:/var/lib/influxdb`
+            ];
+            
+            // Prüfe Datenbankeinstellungen für InfluxDB
+            const createDatabase = document.getElementById('influxdb-create-db')?.checked || false;
+            const databaseName = document.getElementById('db-name')?.value || 'database1';
+            const databaseUser = document.getElementById('db-user')?.value || 'user1';
+            const databasePassword = document.getElementById('db-password')?.value || 'pwd12345';
+            
+            // Füge InfluxDB-spezifische Konfiguration hinzu
+            installData.influxdb = {
+                create_database: createDatabase,
+                database_name: databaseName,
+                database_user: databaseUser,
+                database_password: databasePassword
+            };
+            
+            // Debug-Logging
+            console.log('=== InfluxDB Installation Config ===');
+            console.log('Create Database:', createDatabase);
+            console.log('Database Name:', databaseName);
+            console.log('Database User:', databaseUser);
+            console.log('Database Password:', databasePassword ? '********' : '');
+        }
+        // Dockge-spezifische Konfiguration
+        else if (containerName === 'dockge') {
+            installData.volumes = [
+                `./data:/app/data`
+            ];
+            
+            // Prüfe Stacks-Verzeichnis für Dockge
+            const stacksDir = document.getElementById('stacks-dir')?.value || '/home/webDock/docker-compose-data';
+            
+            // Füge Dockge-spezifische Konfiguration hinzu
+            installData.dockge = {
+                stacks_dir: stacksDir
+            };
+            
+            // Debug-Logging
+            console.log('=== Dockge Installation Config ===');
+            console.log('Stacks Directory:', stacksDir);
+        }
+        // WUD-spezifische Konfiguration
+        else if (containerName === 'wud') {
+            console.debug('WUD installation configuration');
+            
+            // Add Docker socket and data volume as strings in the correct format
+            installData.volumes = [
+                '/var/run/docker.sock:/var/run/docker.sock:ro',
+                './data:/app/data'
+            ];
+            
+            // Set environment variables
+            installData.env = {
+                'WUD_SERVER_PORT': '3000',
+                'WUD_WATCHER_DOCKER': 'true',
+                'WUD_WATCHER_DOCKER_WATCHALL': 'true',
+                'WUD_WATCHER_LOCAL_WATCHALL': 'true',
+                'WUD_REGISTRY_HUB_PUBLIC': 'true'
+            };
+            
+            console.debug('WUD configuration:', installData);
+        }
+        // Filestash-spezifische Konfiguration
+        else if (containerName === 'filestash') {
+            installData.volumes = [
+                `./data:/app/data`
+            ];
+            
+            // Debug-Logging
+            console.log('=== Filestash Installation Config ===');
+            console.log('Note: Filestash requires manual setup after installation');
+        }
+        // WatchYourLAN-spezifische Konfiguration
+        else if (containerName === 'watchyourlan' || containerName === 'watchyourlanarm') {
+            installData.volumes = [
+                `./data:/data`
+            ];
+            
+            // Hole Netzwerkschnittstelle und IP-Adresse
+            const networkInterface = document.getElementById('network-interface')?.value || 'eth0';
+            
+            // Hole die IP-Adresse des Hosts
+            let ipAddress = document.getElementById('ip-address')?.value || '';
+            if (!ipAddress) {
+                // Versuche die IP-Adresse automatisch zu ermitteln
+                try {
+                    const response = await fetch('/api/system/info');
+                    const systemInfo = await response.json();
+                    ipAddress = systemInfo.ip_address || window.location.hostname;
+                } catch (error) {
+                    console.error('Error getting IP address:', error);
+                    ipAddress = window.location.hostname;
+                }
+            }
+            
+            // Füge WatchYourLAN-spezifische Konfiguration hinzu
+            installData.watchyourlan = {
+                interface: networkInterface,
+                ip_address: ipAddress
+            };
+            
+            // Debug-Logging
+            console.log('=== WatchYourLAN Installation Config ===');
+            console.log('Network Interface:', networkInterface);
+            console.log('IP Address:', ipAddress);
+        }
+        // Scrypted-spezifische Konfiguration
+        else if (containerName === 'scrypted') {
+            installData.volumes = [
+                `./data:/server/volume`
+            ];
+            
+            // Setze den Port für Scrypted (wird in der UI angezeigt, aber nicht in der docker-compose.yml verwendet)
+            installData.ports = {
+                '10443': '10443'
+            };
+            
+            // Setze network_mode auf host
+            installData.network_mode = 'host';
+            
+            // Debug-Logging
+            console.log('=== Scrypted Installation Config ===');
+            console.log('Volumes configured for Scrypted');
+            console.log('Network mode set to host');
+            console.log('Port 10443 will be used for HTTPS access');
+        }
+        // Prometheus-spezifische Konfiguration
+        else if (containerName === 'prometheus') {
+            installData.volumes = [
+                `./prometheus:/etc/prometheus`,
+                `./data:/prometheus`
+            ];
+            
+            // Debug-Logging
+            console.log('=== Prometheus Installation Config ===');
+            console.log('Note: Prometheus configuration files will be created automatically');
+        }
+        // Standard-Volumes für andere Container
+        else {
+            installData.volumes = [
+                `./config:/config`,
+                `./data:/data`
+            ];
         }
 
         // Verarbeite Port-Mappings
@@ -1583,6 +1895,10 @@ log_dest file /mosquitto/log/mosquitto.log
             });
         }
 
+        // Debug-Logging
+        console.log('=== Installation Data ===');
+        console.log(JSON.stringify(installData, null, 2));
+
         // Sende Installation Request
         const response = await fetch('/api/install', {
             method: 'POST',
@@ -1595,8 +1911,18 @@ log_dest file /mosquitto/log/mosquitto.log
         const result = await response.json();
 
         if (result.status === 'success') {
-            showNotification('success', `${containerName} installed successfully`);
+            // Spezielle Nachricht für Filestash
+            if (containerName === 'filestash') {
+                showNotification('success', `${containerName} installed. Please complete the setup by running the complete_setup.sh script in the installation directory.`);
+            } else {
+                showNotification('success', `${containerName} installed successfully`);
+            }
+            
+            // Schließe das Modal
+            console.log('Closing modal after successful installation');
             closeModal();
+            
+            // Aktualisiere die Container-Anzeige
             updateContainerStatus(true);
         } else {
             throw new Error(result.message || 'Installation failed');
@@ -1735,10 +2061,13 @@ function getContainerLogo(containerName) {
     const logoMapping = {
         'homeassistant': 'homeassistant.png',
         'whatsupdocker': 'whatsupdocker.png',
+        'wud': 'wud.png',
         'code-server': 'codeserver.png',
         'grafana': 'grafana.png',
         'filebrowser': 'filebrowser.png',
+        'filestash': 'filebrowser.png',  // Fallback auf filebrowser icon
         'mosquitto-broker': 'mosquitto.png',
+        'mosquitto': 'mosquitto.png',
         'raspberrymatic': 'raspberrymatic.png',
         'dockge': 'dockge.png',
         'portainer': 'portainer.png',
@@ -1746,11 +2075,27 @@ function getContainerLogo(containerName) {
         'zigbee2mqtt': 'mqtt.png',
         'heimdall': 'heimdall.png',
         'prometheus': 'prometheus.png',
-        'homebridge': 'homebridge.png'
+        'homebridge': 'homebridge.png',
+        'influxdb': 'influxdb.png',
+        'influxdb-arm': 'influxdb.png',
+        'influxdb-x86': 'influxdb.png',
+        'nodeexporter': 'nodeexporter.png',
+        'webdock-ui': 'webdock.png',
+        'bangertech-ui': 'bangertech.png',
+        'frontail': 'bangertech.png',
+        'bambucam': 'bambucam.png',
+        'scrypted': 'scrypted.png',
+        'spoolman': 'spoolman.png',
+        'backuppro': 'backuppro.png',
+        'watchyourlan': 'watchyourlan.png',
+        'watchyourlanarm': 'watchyourlan.png'
     };
     
     // Bestimme den Dateinamen des Logos
     const logoFile = logoMapping[containerName] || 'bangertech.png';
+    
+    // Debug-Logging
+    console.debug(`Container logo for ${containerName}: ${logoFile}`);
     
     return `/static/img/icons/${logoFile}`;
 }
@@ -1846,30 +2191,28 @@ async function openInfo(containerName) {
                             </div>
                             <div class="info-item">
                                 <h3><i class="fa fa-network-wired"></i> Network</h3>
-                                <p>${info.network ? `<span class="network-badge">${info.network}</span>` : 'N/A'}</p>
+                                <p>${info.info && info.info.network ? `<span class="network-badge">${info.info.network}</span>` : 'N/A'}</p>
                             </div>
                             <div class="info-item">
                                 <h3><i class="fa fa-hdd"></i> Volumes</h3>
-                                ${info.volumes && info.volumes.length > 0 ? `
+                                ${info.info && info.info.volumes && info.info.volumes.length > 0 ? `
                                     <ul class="volume-list">
-                                        ${info.volumes.map(v => `<li><code>${v}</code></li>`).join('')}
+                                        ${info.info.volumes.map(v => `<li><code>${v.source} → ${v.destination}</code></li>`).join('')}
                                     </ul>
                                 ` : '<p>No volumes</p>'}
                             </div>
                             <div class="info-item">
                                 <h3><i class="fa fa-globe"></i> Ports</h3>
-                                ${info.ports && info.ports.length > 0 ? `
+                                ${info.info && info.info.ports && Object.keys(info.info.ports).length > 0 ? `
                                     <ul class="port-list">
-                                        ${info.ports.map(p => `
+                                        ${Object.entries(info.info.ports).map(([containerPort, hostPort]) => `
                                             <li>
-                                                <code>${p.published}:${p.target}</code>
-                                                ${p.published ? `
-                                                    <a href="http://${window.location.hostname}:${p.published}" 
-                                                       target="_blank" 
-                                                       class="port-link">
-                                                        <i class="fa fa-external-link"></i>
-                                                    </a>
-                                                ` : ''}
+                                                <code>${hostPort}:${containerPort.split('/')[0]}</code>
+                                                <a href="http://${window.location.hostname}:${hostPort}" 
+                                                   target="_blank" 
+                                                   class="port-link">
+                                                    <i class="fa fa-external-link"></i>
+                                                </a>
                                             </li>
                                         `).join('')}
                                     </ul>
@@ -1877,11 +2220,11 @@ async function openInfo(containerName) {
                             </div>
                             <div class="info-item">
                                 <h3><i class="fa fa-terminal"></i> Image</h3>
-                                <p><code>${info.image || 'N/A'}</code></p>
+                                <p><code>${info.info && info.info.image ? info.info.image : 'N/A'}</code></p>
                             </div>
                             <div class="info-item">
                                 <h3><i class="fa fa-clock-o"></i> Created</h3>
-                                <p>${new Date(info.created).toLocaleString()}</p>
+                                <p>${info.info && info.info.created ? new Date(info.info.created).toLocaleString() : 'N/A'}</p>
                             </div>
                         </div>
                     </div>
@@ -2932,7 +3275,7 @@ function createPortMappings(ports) {
         
         return `
             <div class="port-mapping">
-                <label>Port ${containerPort}:</label>
+                <label>Externer Port (${containerPort} intern):</label>
                 <input type="number" 
                        data-port="${containerPort}"
                        value="${hostPort.split('/')[0]}"
@@ -3010,3 +3353,46 @@ style.textContent = `
 `;
 
 document.head.appendChild(style);
+
+// Function to toggle the configuration section
+function toggleConfigSection(header) {
+    const content = header.nextElementSibling;
+    const icon = header.querySelector('i.fa');
+    
+    if (content.style.display === 'none' || !content.style.display) {
+        content.style.display = 'block';
+        icon.classList.remove('fa-chevron-down');
+        icon.classList.add('fa-chevron-up');
+    } else {
+        content.style.display = 'none';
+        icon.classList.remove('fa-chevron-up');
+        icon.classList.add('fa-chevron-down');
+    }
+}
+
+// Hilfsfunktion zum Generieren der Konfigurationsfelder
+function generateConfigFields(containerConfig, container) {
+    if (!containerConfig.config) {
+        return '';
+    }
+
+    return `
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>${container.name}</h2>
+                <button class="close-modal" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="config-file">Configuration File</label>
+                    <input type="file" id="config-file" name="config-file" class="form-control">
+                    <small class="hint">Upload a custom configuration file (optional)</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="save-btn" onclick="saveSettings('${container.name}')">Save & Restart</button>
+                <button class="cancel-btn" onclick="closeModal()">Cancel</button>
+            </div>
+        </div>
+    `;
+}

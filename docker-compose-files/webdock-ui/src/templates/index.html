@@ -417,7 +417,7 @@
                                 ${group.containers.map(container => `
                                     <div class="container-card">
                                         <div class="container-logo">
-                                            <img src="/static/img/icons/${container.name}.png" 
+                                            <img src="/static/img/icons/${container.icon || container.name + '.png'}" 
                                                  onerror="this.src='/static/img/icons/default.png'" 
                                                  alt="${container.name}">
                                         </div>
