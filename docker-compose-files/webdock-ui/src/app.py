@@ -1862,9 +1862,12 @@ def setup_mosquitto(container_name, install_path, config_data=None):
         # Erstelle Konfigurationsdatei
         config_path = os.path.join(config_dir, "mosquitto.conf")
         with open(config_path, "w") as f:
-            f.write("""
-# Default listener
+            f.write("""# Default listener
 listener 1883
+
+# WebSockets listener
+listener 9001
+protocol websockets
 
 # Persistence
 persistence true
@@ -1919,6 +1922,46 @@ allow_anonymous true
         # Setze Berechtigungen für die Konfigurationsdatei
         os.chmod(config_path, 0o644)
         
+        # Erstelle die docker-compose.yml
+        compose_file = os.path.join(install_path, 'docker-compose.yml')
+        
+        # Hole die Port-Konfiguration
+        mqtt_port = "1883"  # Standardwert
+        websocket_port = "9001"  # Standardwert
+        
+        if config_data and 'ports' in config_data:
+            ports = config_data.get('ports', {})
+            if '1883' in ports:
+                mqtt_port = ports['1883']
+            if '9001' in ports:
+                websocket_port = ports['9001']
+        
+        # Schreibe die docker-compose.yml
+        with open(compose_file, 'w') as f:
+            f.write(f"""version: '3'
+services:
+  mosquitto:
+    container_name: mosquitto-broker
+    image: eclipse-mosquitto:latest
+    networks:
+      - webdock-network
+    restart: unless-stopped
+    ports:
+      - "{mqtt_port}:1883"
+      - "{websocket_port}:9001"
+    volumes:
+      - ./config:/mosquitto/config
+      - ./data:/mosquitto/data
+      - ./log:/mosquitto/log
+
+networks:
+  webdock-network:
+    external: true
+""")
+        
+        logger.info(f"Created Mosquitto docker-compose.yml with ports {mqtt_port}:1883 and {websocket_port}:9001")
+        logger.info(f"Created Mosquitto configuration file at {config_path}")
+        
         return True
     except Exception as e:
         logger.error(f"Mosquitto setup failed: {str(e)}")
@@ -1944,6 +1987,38 @@ GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource,grafana-wo
         os.chmod(env_file, 0o644)
         
         logger.info(f"Created Grafana environment file: {env_file}")
+        
+        # Hole die Port-Konfiguration
+        port = "3000"  # Standardwert
+        if config_data and 'ports' in config_data:
+            ports = config_data.get('ports', {})
+            if ports and '3000' in ports:
+                port = ports['3000']
+        
+        # Erstelle die docker-compose.yml
+        compose_file = os.path.join(install_path, 'docker-compose.yml')
+        with open(compose_file, 'w') as f:
+            f.write(f"""version: '3'
+services:
+  grafana:
+    container_name: grafana
+    image: grafana/grafana:latest
+    networks:
+      - webdock-network
+    restart: unless-stopped
+    ports:
+      - "{port}:3000"
+    volumes:
+      - ./data:/var/lib/grafana
+    env_file:
+      - ./data/env.grafana
+
+networks:
+  webdock-network:
+    external: true
+""")
+        
+        logger.info(f"Created Grafana docker-compose.yml with port {port}")
         
         return True
     except Exception as e:
@@ -1996,6 +2071,43 @@ echo "Datenbank {database_name} mit Benutzer {database_user} erstellt."
                              stderr=subprocess.PIPE)
             
             logger.info(f"Created and executed database creation script for InfluxDB")
+        
+        # Hole die Port-Konfiguration
+        port = "8086"  # Standardwert
+        if config_data and 'ports' in config_data:
+            ports = config_data.get('ports', {})
+            if ports and '8086' in ports:
+                port = ports['8086']
+        
+        # Bestimme das richtige Image basierend auf dem Container-Namen
+        image = "influxdb:latest"
+        if container_name == 'influxdb-arm':
+            image = "influxdb:1.8-alpine"  # Leichteres Image für ARM
+        elif container_name == 'influxdb-x86':
+            image = "influxdb:latest"
+        
+        # Erstelle die docker-compose.yml
+        compose_file = os.path.join(install_path, 'docker-compose.yml')
+        with open(compose_file, 'w') as f:
+            f.write(f"""version: '3'
+services:
+  influxdb:
+    container_name: {container_name}
+    image: {image}
+    networks:
+      - webdock-network
+    restart: unless-stopped
+    ports:
+      - "{port}:8086"
+    volumes:
+      - ./data:/var/lib/influxdb
+
+networks:
+  webdock-network:
+    external: true
+""")
+        
+        logger.info(f"Created InfluxDB docker-compose.yml with port {port} and image {image}")
         
         return True
     except Exception as e:
@@ -2096,36 +2208,112 @@ def setup_filestash(container_name, install_path, config_data=None):
         # Setze die APPLICATION_URL
         application_url = f"http://{server_ip}:{port}"
         
-        # Hole die Umgebungsvariablen aus den Konfigurationsdaten
-        env_vars = config_data.get('env', {}) if config_data else {}
-        
-        # Setze APPLICATION_URL, wenn nicht angegeben
-        if 'APPLICATION_URL' not in env_vars or not env_vars['APPLICATION_URL']:
-            env_vars['APPLICATION_URL'] = application_url
-            logger.info(f"Using detected APPLICATION_URL: {application_url}")
-            
-            # Aktualisiere die Konfigurationsdaten
-            if config_data:
-                config_data['env'] = env_vars
-        
-        # Erstelle die docker-compose.yml
-        compose_file = os.path.join(install_path, 'docker-compose.yml')
-        with open(compose_file, 'w') as f:
-            f.write(f"""version: '3'
-services:
+        # Erstelle die docker-compose-before.yml für den ersten Schritt
+        compose_before_file = os.path.join(install_path, 'docker-compose-before.yml')
+        with open(compose_before_file, 'w') as f:
+            f.write(f"""services:
   app:
     container_name: filestash
     image: machines/filestash
+    networks:
+      - webdock-network
     restart: always
     environment:
-      - APPLICATION_URL={env_vars.get('APPLICATION_URL', application_url)}
+    - APPLICATION_URL={application_url}
+    - GDRIVE_CLIENT_ID=<gdrive_client>
+    - GDRIVE_CLIENT_SECRET=<gdrive_secret>
+    - DROPBOX_CLIENT_ID=<dropbox_key>
+    - ONLYOFFICE_URL=http://onlyoffice
     ports:
-      - "{port}:8334"
-    volumes:
-      - ./data:/app/data/state
+    - "{port}:8334"
+#    volumes:
+#    - ./data:/app/data/state
+  onlyoffice:
+    container_name: filestash_oods
+    image: onlyoffice/documentserver
+    networks:
+      - webdock-network
+    restart: always
+    security_opt:
+      - seccomp:unconfined
+networks:
+  webdock-network:
+    external: true
 """)
         
-        logger.info(f"Created Filestash docker-compose.yml with APPLICATION_URL: {env_vars.get('APPLICATION_URL', application_url)}")
+        # Erstelle die endgültige docker-compose.yml für den zweiten Schritt
+        compose_file = os.path.join(install_path, 'docker-compose.yml')
+        with open(compose_file, 'w') as f:
+            f.write(f"""services:
+  app:
+    container_name: filestash
+    image: machines/filestash
+    networks:
+      - webdock-network
+    restart: always
+    environment:
+    - APPLICATION_URL={application_url}
+    - GDRIVE_CLIENT_ID=<gdrive_client>
+    - GDRIVE_CLIENT_SECRET=<gdrive_secret>
+    - DROPBOX_CLIENT_ID=<dropbox_key>
+    - ONLYOFFICE_URL=http://onlyoffice
+    ports:
+    - "{port}:8334"
+    volumes:
+    - ./data:/app/data/state
+  onlyoffice:
+    container_name: filestash_oods
+    image: onlyoffice/documentserver
+    networks:
+      - webdock-network
+    restart: always
+    security_opt:
+      - seccomp:unconfined
+networks:
+  webdock-network:
+    external: true
+""")
+        
+        # Erstelle ein Setup-Skript, das den zweiten Schritt der Installation durchführt
+        setup_script = os.path.join(install_path, 'complete_setup.sh')
+        with open(setup_script, 'w') as f:
+            f.write(f"""#!/bin/bash
+echo "Completing Filestash setup..."
+echo "Stopping the temporary container..."
+docker-compose -f docker-compose-before.yml down
+
+echo "Copying the state directory from the container..."
+mkdir -p ./data
+docker cp filestash:/app/data/state ./data
+
+echo "Starting Filestash with the final configuration..."
+docker-compose up -d
+
+echo "Setup completed! Filestash is now available at {application_url}"
+""")
+        
+        # Setze die Ausführungsrechte für das Skript
+        os.chmod(setup_script, 0o755)
+        
+        logger.info(f"Created Filestash setup files with APPLICATION_URL: {application_url}")
+        logger.info(f"Created setup script: {setup_script}")
+        
+        # Starte den Container mit der docker-compose-before.yml
+        docker_compose_cmd = get_docker_compose_cmd()
+        result = subprocess.run(
+            f'{docker_compose_cmd} -f docker-compose-before.yml up -d',
+            shell=True,
+            capture_output=True,
+            text=True,
+            cwd=install_path
+        )
+        
+        if result.returncode != 0:
+            logger.error(f"Error starting Filestash container: {result.stderr}")
+            raise Exception(f"Failed to start Filestash container: {result.stderr}")
+        
+        logger.info(f"Started Filestash container with docker-compose-before.yml")
+        logger.info(f"Filestash is now available at {application_url} for initial setup")
         
         return True
     except Exception as e:
@@ -2175,6 +2363,20 @@ def setup_watchyourlan(container_name, install_path, config_data):
                     logger.info(f"Detected IP range: {ip_range}")
         except Exception as e:
             logger.error(f"Error detecting IP range: {str(e)}")
+            
+            # Versuche, den IP-Bereich aus der Client-IP zu ermitteln
+            if hasattr(request, 'remote_addr') and request.remote_addr:
+                client_ip = request.remote_addr
+                logger.info(f"Using client IP to determine network range: {client_ip}")
+                if client_ip and not client_ip.startswith('127.') and not client_ip == '::1':
+                    try:
+                        # Extrahiere die ersten drei Oktette der IP-Adresse
+                        client_ip_parts = client_ip.split('.')
+                        if len(client_ip_parts) == 4:
+                            ip_range = f"{client_ip_parts[0]}.{client_ip_parts[1]}.{client_ip_parts[2]}.0/24"
+                            logger.info(f"Determined IP range from client IP: {ip_range}")
+                    except Exception as e:
+                        logger.error(f"Error processing client IP: {str(e)}")
         
         # Hole die Umgebungsvariablen aus den Konfigurationsdaten
         env_vars = config_data.get('env', {})
@@ -2191,6 +2393,55 @@ def setup_watchyourlan(container_name, install_path, config_data):
         # Aktualisiere die Konfigurationsdaten
         config_data['env'] = env_vars
         
+        # Hole die Port-Konfiguration
+        port = "8840"  # Standardwert
+        if config_data and 'ports' in config_data:
+            ports = config_data.get('ports', {})
+            if ports and '8840' in ports:
+                port = ports['8840']
+            # Prüfe auch auf Port 8850, falls dieser verwendet wird
+            elif ports and '8850' in ports:
+                port = ports['8850']
+                logger.info(f"Using port 8850 instead of 8840: {port}")
+        
+        logger.info(f"Using port for WatchYourLAN: {port}")
+        
+        # Erstelle die docker-compose.yml mit den korrekten Einstellungen
+        compose_file = os.path.join(install_path, 'docker-compose.yml')
+        
+        # Bestimme das richtige Image basierend auf dem Container-Namen
+        image = "aceberg/watchyourlan:latest"
+        if container_name == 'watchyourlanarm':
+            image = "aceberg/watchyourlan:latest-arm"
+        
+        # Erstelle die docker-compose.yml
+        with open(compose_file, 'w') as f:
+            f.write(f"""version: '3'
+services:
+  watchyourlan:
+    image: {image}
+    container_name: watchyourlan
+    restart: unless-stopped
+    networks:
+      - webdock-network
+    ports:
+      - "{port}:8840"
+    volumes:
+      - ./config:/config
+      - ./data:/data
+    environment:
+      - TZ=Europe/Berlin
+      - NETWORK_INTERFACE={env_vars['NETWORK_INTERFACE']}
+      - IP_RANGE={env_vars['IP_RANGE']}
+
+networks:
+  webdock-network:
+    external: true
+""")
+        
+        logger.info(f"Created docker-compose.yml for WatchYourLAN with network interface {env_vars['NETWORK_INTERFACE']} and IP range {env_vars['IP_RANGE']}")
+        logger.info(f"Added webdock-network configuration")
+        
         return True
     except Exception as e:
         logger.error(f"WatchYourLAN setup failed: {str(e)}")
@@ -2199,35 +2450,69 @@ def setup_watchyourlan(container_name, install_path, config_data):
 def get_default_network_interface():
     """Ermittelt das Standard-Netzwerkinterface"""
     try:
-        # Versuche, das Standard-Interface über die Route zu ermitteln
-        result = subprocess.run(
-            ['ip', 'route', 'show', 'default'],
-            capture_output=True,
-            text=True
-        )
+        # Prüfe, ob der 'ip' Befehl verfügbar ist
+        try:
+            # Versuche, das Standard-Interface über die Route zu ermitteln
+            result = subprocess.run(
+                ['ip', 'route', 'show', 'default'],
+                capture_output=True,
+                text=True
+            )
+            
+            if result.returncode == 0 and result.stdout:
+                # Parse die Ausgabe, um das Interface zu extrahieren
+                # Format: default via 192.168.1.1 dev eth0 ...
+                match = re.search(r'dev\s+(\w+)', result.stdout)
+                if match:
+                    return match.group(1)
+            
+            # Fallback: Liste alle Interfaces auf und wähle das erste nicht-lo Interface
+            result = subprocess.run(
+                ['ip', 'link', 'show'],
+                capture_output=True,
+                text=True
+            )
+            
+            if result.returncode == 0:
+                # Parse die Ausgabe, um alle Interfaces zu extrahieren
+                interfaces = re.findall(r'\d+:\s+(\w+):', result.stdout)
+                # Filtere lo (loopback) aus
+                non_lo_interfaces = [iface for iface in interfaces if iface != 'lo']
+                if non_lo_interfaces:
+                    return non_lo_interfaces[0]
+        except FileNotFoundError:
+            # 'ip' Befehl nicht verfügbar, versuche alternative Methoden
+            logger.warning("'ip' command not found, trying alternative methods")
+            
+            # Versuche, das Interface über /proc/net/route zu ermitteln
+            try:
+                with open('/proc/net/route', 'r') as f:
+                    for line in f.readlines()[1:]:  # Überspringe die Kopfzeile
+                        parts = line.strip().split()
+                        if parts[1] == '00000000':  # Default-Route
+                            return parts[0]  # Interface-Name
+            except Exception as e:
+                logger.error(f"Error reading /proc/net/route: {str(e)}")
+            
+            # Versuche, das Interface über ifconfig zu ermitteln
+            try:
+                result = subprocess.run(
+                    ['ifconfig'],
+                    capture_output=True,
+                    text=True
+                )
+                
+                if result.returncode == 0:
+                    # Parse die Ausgabe, um alle Interfaces zu extrahieren
+                    interfaces = re.findall(r'^(\w+):', result.stdout, re.MULTILINE)
+                    # Filtere lo (loopback) aus
+                    non_lo_interfaces = [iface for iface in interfaces if iface != 'lo']
+                    if non_lo_interfaces:
+                        return non_lo_interfaces[0]
+            except FileNotFoundError:
+                logger.warning("'ifconfig' command not found")
         
-        if result.returncode == 0 and result.stdout:
-            # Parse die Ausgabe, um das Interface zu extrahieren
-            # Format: default via 192.168.1.1 dev eth0 ...
-            match = re.search(r'dev\s+(\w+)', result.stdout)
-            if match:
-                return match.group(1)
-        
-        # Fallback: Liste alle Interfaces auf und wähle das erste nicht-lo Interface
-        result = subprocess.run(
-            ['ip', 'link', 'show'],
-            capture_output=True,
-            text=True
-        )
-        
-        if result.returncode == 0:
-            # Parse die Ausgabe, um alle Interfaces zu extrahieren
-            interfaces = re.findall(r'\d+:\s+(\w+):', result.stdout)
-            # Filtere lo (loopback) aus
-            non_lo_interfaces = [iface for iface in interfaces if iface != 'lo']
-            if non_lo_interfaces:
-                return non_lo_interfaces[0]
-        
+        # Wenn alles fehlschlägt, verwende den Standardwert
         return "eth0"  # Fallback-Wert
     except Exception as e:
         logger.error(f"Error detecting default network interface: {str(e)}")
@@ -3632,6 +3917,37 @@ scrape_configs:
         os.chmod(prometheus_yml, 0o644)
         os.chmod(alert_yml, 0o644)
         
+        # Hole die Port-Konfiguration
+        port = "9090"  # Standardwert
+        if config_data and 'ports' in config_data:
+            ports = config_data.get('ports', {})
+            if ports and '9090' in ports:
+                port = ports['9090']
+        
+        # Erstelle die docker-compose.yml
+        compose_file = os.path.join(install_path, 'docker-compose.yml')
+        with open(compose_file, 'w') as f:
+            f.write(f"""version: '3'
+services:
+  prometheus:
+    container_name: prometheus
+    image: prom/prometheus:latest
+    networks:
+      - webdock-network
+    restart: unless-stopped
+    ports:
+      - "{port}:9090"
+    volumes:
+      - ./prometheus:/etc/prometheus
+      - ./data:/prometheus
+
+networks:
+  webdock-network:
+    external: true
+""")
+        
+        logger.info(f"Created Prometheus docker-compose.yml with port {port}")
+        
         return True
     except Exception as e:
         logger.error(f"Prometheus setup failed: {str(e)}")
@@ -3940,10 +4256,28 @@ def get_network_info():
         except Exception as e:
             logger.error(f"Error detecting IP address: {str(e)}")
         
+        # Versuche, die Client-IP-Adresse zu erhalten
+        client_ip = request.remote_addr
+        logger.info(f"Client IP address: {client_ip}")
+        
+        # Wenn die Client-IP im selben Netzwerk ist, können wir sie verwenden, um den Netzwerkbereich zu bestimmen
+        if client_ip and not client_ip.startswith('127.') and not client_ip.startswith('172.') and not client_ip == '::1':
+            try:
+                # Extrahiere die ersten drei Oktette der IP-Adresse
+                client_ip_parts = client_ip.split('.')
+                if len(client_ip_parts) == 4:
+                    # Wenn wir keinen IP-Bereich haben, verwenden wir die Client-IP
+                    if not ip_range or ip_range == "192.168.1.0/24":
+                        ip_range = f"{client_ip_parts[0]}.{client_ip_parts[1]}.{client_ip_parts[2]}.0/24"
+                        logger.info(f"Using client IP to determine network range: {ip_range}")
+            except Exception as e:
+                logger.error(f"Error processing client IP: {str(e)}")
+        
         return jsonify({
             'interface': default_interface,
             'ip_address': ip_addr,
-            'ip_range': ip_range
+            'ip_range': ip_range,
+            'client_ip': client_ip
         })
         
     except Exception as e:

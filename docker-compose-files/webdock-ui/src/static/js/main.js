@@ -1532,29 +1532,61 @@ async function showInstallModal(containerName) {
                 <div class="filestash-section" style="margin-bottom: 20px; padding: 15px; background: var(--color-background-dark); border-radius: 8px;">
                     <h3 style="margin-bottom: 15px;">Filestash Setup</h3>
                     <div class="alert alert-info" style="padding: 10px; background-color: #d1ecf1; color: #0c5460; border-radius: 4px; margin-bottom: 15px;">
-                        <p><strong>Note:</strong> Filestash requires a two-step installation process:</p>
+                        <p><strong>Important:</strong> Filestash requires a two-step installation process:</p>
                         <ol style="margin-left: 20px; margin-top: 10px;">
-                            <li>After installation, go to http://[your-ip]:8334 to create an admin password</li>
-                            <li>Then run the <code>complete_setup.sh</code> script in the installation directory</li>
+                            <li>After clicking "Install", a temporary container will be started.</li>
+                            <li>Go to <strong>http://[your-ip]:8334</strong> to create an admin password.</li>
+                            <li>After creating the password, run the <code>complete_setup.sh</code> script in the installation directory to finalize the setup.</li>
                         </ol>
+                    </div>
+                    <div class="alert alert-warning" style="padding: 10px; background-color: #fff3cd; color: #856404; border-radius: 4px; margin-top: 15px;">
+                        <p><strong>Note:</strong> The installation will not be complete until you run the <code>complete_setup.sh</code> script after creating your admin password!</p>
                     </div>
                 </div>
             `;
         }
         // WatchYourLAN
         else if (containerName === 'watchyourlan' || containerName === 'watchyourlanarm') {
+            // Setze Standardwerte für Netzwerkinterface und IP-Bereich
+            const defaultInterface = "eth0";
+            const defaultIpRange = "192.168.1.0/24";
+            
+            // Versuche, die IP-Adresse aus der Browser-URL zu extrahieren
+            let clientIpRange = null;
+            try {
+                const hostAddress = window.location.hostname;
+                console.log("Host address from browser:", hostAddress);
+                
+                // Wenn es eine IP-Adresse ist, extrahiere die ersten drei Oktette
+                if (/^\d+\.\d+\.\d+\.\d+$/.test(hostAddress)) {
+                    const ipParts = hostAddress.split('.');
+                    clientIpRange = `${ipParts[0]}.${ipParts[1]}.${ipParts[2]}.0/24`;
+                    console.log("Detected IP range from browser:", clientIpRange);
+                }
+            } catch (error) {
+                console.error("Error extracting IP from browser URL:", error);
+            }
+            
             additionalFields = `
                 <div class="watchyourlan-section" style="margin-bottom: 20px; padding: 15px; background: var(--color-background-dark); border-radius: 8px;">
                     <h3 style="margin-bottom: 15px;">WatchYourLAN Settings</h3>
                     <div class="form-group">
                         <label for="network-interface">Network Interface</label>
-                        <input type="text" id="network-interface" name="network-interface" placeholder="Loading..." class="form-control">
-                        ${getEnvDescription('NETWORK_INTERFACE')}
+                        <input type="text" id="network-interface" name="network-interface" value="${defaultInterface}" placeholder="Enter network interface" class="form-control">
+                        <small class="hint">The network interface to monitor (e.g. eth0, wlan0)</small>
                     </div>
                     <div class="form-group">
                         <label for="ip-range">IP Range</label>
-                        <input type="text" id="ip-range" name="ip-range" placeholder="Loading..." class="form-control">
-                        ${getEnvDescription('IP_RANGE')}
+                        <input type="text" id="ip-range" name="ip-range" value="${clientIpRange || defaultIpRange}" placeholder="Enter IP range" class="form-control">
+                        <small class="hint">The IP range to scan (e.g. 192.168.1.0/24)</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="wyl-port">Port</label>
+                        <input type="text" id="wyl-port" name="wyl-port" value="8840" placeholder="Enter port" class="form-control">
+                        <small class="hint">The port for WatchYourLAN web interface (default: 8840)</small>
+                    </div>
+                    <div class="alert alert-info" style="padding: 10px; background-color: #d1ecf1; color: #0c5460; border-radius: 4px; margin-top: 15px;">
+                        <p><strong>Note:</strong> The network interface and IP range are automatically detected. Please verify they are correct for your network.</p>
                     </div>
                 </div>
             `;
@@ -1564,32 +1596,34 @@ async function showInstallModal(containerName) {
                 fetch('/api/network-info')
                     .then(response => response.json())
                     .then(data => {
+                        console.log("Network info from server:", data);
                         const interfaceInput = document.getElementById('network-interface');
                         const ipRangeInput = document.getElementById('ip-range');
                         
                         if (interfaceInput && data.interface) {
                             interfaceInput.value = data.interface;
-                            interfaceInput.placeholder = "Enter network interface";
                         }
                         
-                        if (ipRangeInput && data.ip_range) {
-                            ipRangeInput.value = data.ip_range;
-                            ipRangeInput.placeholder = "Enter IP range";
+                        // Priorität für IP-Bereich:
+                        // 1. Browser-URL IP (wenn verfügbar)
+                        // 2. Client-IP vom Server
+                        // 3. Server-erkannter IP-Bereich
+                        if (ipRangeInput && !clientIpRange) {
+                            if (data.client_ip && data.client_ip !== "127.0.0.1" && data.client_ip !== "::1") {
+                                // Verwende die Client-IP vom Server
+                                const ipParts = data.client_ip.split('.');
+                                if (ipParts.length === 4) {
+                                    ipRangeInput.value = `${ipParts[0]}.${ipParts[1]}.${ipParts[2]}.0/24`;
+                                } else if (data.ip_range) {
+                                    ipRangeInput.value = data.ip_range;
+                                }
+                            } else if (data.ip_range) {
+                                ipRangeInput.value = data.ip_range;
+                            }
                         }
                     })
                     .catch(error => {
                         console.error('Error fetching network info:', error);
-                        // Setze Platzhalter zurück
-                        const interfaceInput = document.getElementById('network-interface');
-                        const ipRangeInput = document.getElementById('ip-range');
-                        
-                        if (interfaceInput) {
-                            interfaceInput.placeholder = "Enter network interface";
-                        }
-                        
-                        if (ipRangeInput) {
-                            ipRangeInput.placeholder = "Enter IP range";
-                        }
                     });
             }, 100);
         }
@@ -1779,19 +1813,8 @@ async function executeInstall(containerName) {
             console.log('Username:', username);
             console.log('Password:', password ? '********' : '');
             
-            // Erstelle eine einfache Konfiguration ohne Authentifizierungseinstellungen
-            // Die eigentliche Authentifizierung wird vom Backend konfiguriert
-            const configContent = `
-listener 1883
-persistence true
-persistence_location /mosquitto/data/
-log_dest file /mosquitto/log/mosquitto.log
-`;
-            
-            // Sende Config-Erstellung mit
-            installData.config_files = {
-                'config/mosquitto.conf': configContent
-            };
+            // Die Konfigurationsdatei wird vom Backend erstellt
+            // Wir senden keine config_files mehr, um Konflikte zu vermeiden
         }
         // InfluxDB-spezifische Konfiguration
         else if (containerName === 'influxdb' || containerName === 'influxdb-arm' || containerName === 'influxdb-x86') {
@@ -1861,23 +1884,27 @@ log_dest file /mosquitto/log/mosquitto.log
         }
         // Filestash-spezifische Konfiguration
         else if (containerName === 'filestash') {
-            installData.volumes = [
-                `./data:/app/data`
-            ];
+            // Für Filestash werden keine speziellen Volumes oder Umgebungsvariablen benötigt,
+            // da diese in der setup_filestash Funktion im Backend gesetzt werden
             
             // Debug-Logging
             console.log('=== Filestash Installation Config ===');
-            console.log('Note: Filestash requires manual setup after installation');
+            console.log('Note: Filestash requires a two-step installation process');
+            console.log('1. A temporary container will be started');
+            console.log('2. User needs to create an admin password at http://[server-ip]:8334');
+            console.log('3. User needs to run complete_setup.sh to finalize the installation');
         }
         // WatchYourLAN-spezifische Konfiguration
         else if (containerName === 'watchyourlan' || containerName === 'watchyourlanarm') {
             installData.volumes = [
+                `./config:/config`,
                 `./data:/data`
             ];
             
             // Hole Netzwerkschnittstelle und IP-Range
             const networkInterface = document.getElementById('network-interface')?.value || 'eth0';
             const ipRange = document.getElementById('ip-range')?.value || '192.168.1.0/24';
+            const port = document.getElementById('wyl-port')?.value || '8840';
             
             // Setze Umgebungsvariablen für WatchYourLAN
             installData.env = {
@@ -1885,10 +1912,16 @@ log_dest file /mosquitto/log/mosquitto.log
                 'IP_RANGE': ipRange
             };
             
+            // Setze den Port für WatchYourLAN
+            installData.ports = {
+                '8840': port
+            };
+            
             // Debug-Logging
             console.log('=== WatchYourLAN Installation Config ===');
             console.log('Network Interface:', networkInterface);
             console.log('IP Range:', ipRange);
+            console.log('Port:', port);
         }
         // Scrypted-spezifische Konfiguration
         else if (containerName === 'scrypted') {
@@ -1977,7 +2010,7 @@ log_dest file /mosquitto/log/mosquitto.log
         if (result.status === 'success') {
             // Spezielle Nachricht für Filestash
             if (containerName === 'filestash') {
-                showNotification('success', `${containerName} installed. Please complete the setup by running the complete_setup.sh script in the installation directory.`);
+                showNotification('success', `${containerName} temporary container started. Please go to http://${window.location.hostname}:8334 to create an admin password, then run the complete_setup.sh script to finalize the installation.`);
             } else {
                 showNotification('success', `${containerName} installed successfully`);
             }
