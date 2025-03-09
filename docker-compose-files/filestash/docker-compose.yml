@@ -2,6 +2,8 @@ services:
   app:
     container_name: filestash
     image: machines/filestash
+    networks:
+      - webdock-network
     restart: always
     environment:
     - APPLICATION_URL=
@@ -16,6 +18,11 @@ services:
   onlyoffice:
     container_name: filestash_oods
     image: onlyoffice/documentserver
+    networks:
+      - webdock-network
     restart: always
     security_opt:
       - seccomp:unconfined
+networks:
+  webdock-network:
+    external: true

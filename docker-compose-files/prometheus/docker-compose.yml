@@ -2,6 +2,8 @@ services:
   prometheus:
     image: prom/prometheus:latest
     container_name: prometheus
+    networks:
+      - webdock-network
     ports:
       - 9090:9090
     volumes:
@@ -9,13 +11,11 @@ services:
       - ./data:/prometheus
     command: --web.enable-lifecycle  --config.file=/etc/prometheus/prometheus.yml
     restart: unless-stopped
-    networks:
-      - default
-      - webdock
+
 
 volumes:
   prometheus-data:
 
 networks:
-  webdock:
+  webdock-network:
     external: true

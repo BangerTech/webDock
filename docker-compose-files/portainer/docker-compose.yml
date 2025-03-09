@@ -2,6 +2,8 @@ services:
   portainer:
     image: portainer/portainer:latest
     container_name: portainer
+    networks:
+      - webdock-network
     restart: always
     ports:
       - 8999:9000
@@ -11,3 +13,6 @@ services:
       - ./portainer_data:/data
 volumes:
   portainer_data:
+networks:
+  webdock-network:
+    external: true

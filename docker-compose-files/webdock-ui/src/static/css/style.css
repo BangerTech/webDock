@@ -114,6 +114,53 @@ nav a:hover, nav a.active {
     box-shadow: 0 5px 15px rgba(0,0,0,0.2);
 }
 
+/* Tooltip Styles */
+.tooltip-trigger {
+    position: relative;
+    cursor: pointer;
+}
+
+.tooltip-trigger[data-tooltip]::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 14px;
+    white-space: nowrap;
+    z-index: 10;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.3s, visibility 0.3s;
+    pointer-events: none;
+    max-width: 250px;
+    text-align: center;
+    white-space: normal;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+.tooltip-trigger[data-tooltip]:hover::after {
+    opacity: 1;
+    visibility: visible;
+    bottom: calc(100% + 10px);
+}
+
+/* Spezifische Positionierung für verschiedene Elemente */
+.container-logo.tooltip-trigger[data-tooltip]::after {
+    bottom: auto;
+    top: 100%;
+    margin-top: 10px;
+}
+
+.container-logo.tooltip-trigger[data-tooltip]:hover::after {
+    bottom: auto;
+    top: 100%;
+}
+
 .container-logo {
     position: absolute;
     top: 1rem;
@@ -2259,4 +2306,58 @@ main > .tab-content.active {
 
 .section-content .tab-content.hidden {
     display: none;
+}
+
+/* Styles für den Advanced-Tab */
+.config-files-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    margin-bottom: 1rem;
+}
+
+.config-file-tab {
+    background: none;
+    border: none;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    opacity: 0.7;
+    transition: all 0.3s;
+    color: var(--color-main-text);
+}
+
+.config-file-tab.active {
+    opacity: 1;
+    border-bottom: 2px solid var(--color-primary);
+    background-color: rgba(0, 130, 201, 0.1);
+}
+
+.config-file-content {
+    margin-top: 1rem;
+}
+
+.config-file-content.hidden {
+    display: none;
+}
+
+.config-file-editor {
+    width: 100%;
+    font-family: monospace;
+    background: var(--color-background-dark);
+    color: var(--color-main-text);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    padding: 1rem;
+    resize: vertical;
+    min-height: 300px;
+    max-height: 60vh;
+    line-height: 1.4;
+    tab-size: 2;
+    white-space: pre;
+}
+
+.config-file-editor:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 2px rgba(0, 130, 201, 0.2);
 }

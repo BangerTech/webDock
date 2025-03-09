@@ -5,6 +5,30 @@ let loadingOverlay;
 let lastScrollPosition = 0;
 let lastContainerStates = new Map();
 
+// Funktion, um Beschreibungen für Container zu erhalten
+function getContainerDescription(containerName) {
+    const descriptions = {
+        'prometheus': 'Monitoring and alerting toolkit for metrics collection and visualization.',
+        'node-exporter': 'Prometheus exporter for hardware and OS metrics with pluggable metric collectors.',
+        'grafana': 'Platform for monitoring and observability with powerful visualization tools.',
+        'influxdb': 'Time series database designed to handle high write and query loads.',
+        'mosquitto': 'Lightweight message broker implementing the MQTT protocol.',
+        'mosquitto-broker': 'Lightweight message broker implementing the MQTT protocol.',
+        'portainer': 'Container management platform for Docker environments.',
+        'dockge': 'Modern, easy-to-use, and responsive self-hosted docker compose.yaml stack-oriented manager.',
+        'filebrowser': 'Web-based file manager with a clean interface.',
+        'filestash': 'Modern web client for SFTP, S3, FTP, WebDAV, Git, and more.',
+        'homepage': 'A highly customizable homepage for your server with service monitoring.',
+        'hoarder': 'Media server and content management system for your digital collections.',
+        'wud': 'Watch your Docker containers and update them when new images are available.',
+        'watchyourlan': 'Tool to monitor your local network and alert on new devices.',
+        'webdock': 'Docker container management interface with a clean and simple UI.',
+        // Füge hier weitere Container-Beschreibungen hinzu
+    };
+    
+    return descriptions[containerName] || 'Docker container management.';
+}
+
 // Globale closeModal Funktion
 function closeModal() { 
     // Suche nach allen modalen Dialogen
@@ -1524,14 +1548,50 @@ async function showInstallModal(containerName) {
                     <h3 style="margin-bottom: 15px;">WatchYourLAN Settings</h3>
                     <div class="form-group">
                         <label for="network-interface">Network Interface</label>
-                        <input type="text" id="network-interface" name="network-interface" placeholder="Enter network interface" class="form-control">
+                        <input type="text" id="network-interface" name="network-interface" placeholder="Loading..." class="form-control">
+                        ${getEnvDescription('NETWORK_INTERFACE')}
                     </div>
                     <div class="form-group">
-                        <label for="ip-address">IP Address</label>
-                        <input type="text" id="ip-address" name="ip-address" placeholder="Enter IP address" class="form-control">
+                        <label for="ip-range">IP Range</label>
+                        <input type="text" id="ip-range" name="ip-range" placeholder="Loading..." class="form-control">
+                        ${getEnvDescription('IP_RANGE')}
                     </div>
                 </div>
             `;
+            
+            // Hole Netzwerkinformationen vom Server
+            setTimeout(() => {
+                fetch('/api/network-info')
+                    .then(response => response.json())
+                    .then(data => {
+                        const interfaceInput = document.getElementById('network-interface');
+                        const ipRangeInput = document.getElementById('ip-range');
+                        
+                        if (interfaceInput && data.interface) {
+                            interfaceInput.value = data.interface;
+                            interfaceInput.placeholder = "Enter network interface";
+                        }
+                        
+                        if (ipRangeInput && data.ip_range) {
+                            ipRangeInput.value = data.ip_range;
+                            ipRangeInput.placeholder = "Enter IP range";
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error fetching network info:', error);
+                        // Setze Platzhalter zurück
+                        const interfaceInput = document.getElementById('network-interface');
+                        const ipRangeInput = document.getElementById('ip-range');
+                        
+                        if (interfaceInput) {
+                            interfaceInput.placeholder = "Enter network interface";
+                        }
+                        
+                        if (ipRangeInput) {
+                            ipRangeInput.placeholder = "Enter IP range";
+                        }
+                    });
+            }, 100);
         }
         // Prometheus
         else if (containerName === 'prometheus') {
@@ -1655,7 +1715,16 @@ function getEnvDescription(key) {
     const descriptions = {
         'TZ': '<small class="hint">Timezone for the container</small>',
         'PUID': '<small class="hint">User ID for container permissions</small>',
-        'PGID': '<small class="hint">Group ID for container permissions</small>'
+        'PGID': '<small class="hint">Group ID for container permissions</small>',
+        // WatchYourLAN-spezifische Beschreibungen
+        'NETWORK_INTERFACE': '<small class="hint">The network interface to monitor (e.g., eth0, wlan0). Use "ip addr" command to find your interface.</small>',
+        'IP_RANGE': '<small class="hint">The IP range to scan (e.g., 192.168.1.0/24). Use your local network range.</small>',
+        'SCAN_INTERVAL': '<small class="hint">Interval in seconds between network scans (default: 300)</small>',
+        'NOTIFICATION_INTERVAL': '<small class="hint">Interval in seconds between notifications (default: 14400)</small>',
+        'NOTIFICATION_TITLE': '<small class="hint">Title for notifications (default: "WatchYourLAN")</small>',
+        'NOTIFICATION_BODY': '<small class="hint">Body text for notifications (default: "New device found on network: {NAME} ({IP})")</small>',
+        // Filestash-spezifische Beschreibungen
+        'APPLICATION_URL': '<small class="hint">The URL where Filestash will be accessible (e.g., http://your-server-ip:8334)</small>'
     };
     return descriptions[key] || '';
 }
@@ -1779,14 +1848,14 @@ log_dest file /mosquitto/log/mosquitto.log
                 './data:/app/data'
             ];
             
-            // Set environment variables
-            installData.env = {
-                'WUD_SERVER_PORT': '3000',
-                'WUD_WATCHER_DOCKER': 'true',
-                'WUD_WATCHER_DOCKER_WATCHALL': 'true',
-                'WUD_WATCHER_LOCAL_WATCHALL': 'true',
-                'WUD_REGISTRY_HUB_PUBLIC': 'true'
-            };
+            // Entferne die Umgebungsvariablen, da sie nicht funktionieren
+            // installData.env = {
+            //     'WUD_SERVER_PORT': '3000',
+            //     'WUD_WATCHER_DOCKER': 'true',
+            //     'WUD_WATCHER_DOCKER_WATCHALL': 'true',
+            //     'WUD_WATCHER_LOCAL_WATCHALL': 'true',
+            //     'WUD_REGISTRY_HUB_PUBLIC': 'true'
+            // };
             
             console.debug('WUD configuration:', installData);
         }
@@ -1806,33 +1875,20 @@ log_dest file /mosquitto/log/mosquitto.log
                 `./data:/data`
             ];
             
-            // Hole Netzwerkschnittstelle und IP-Adresse
+            // Hole Netzwerkschnittstelle und IP-Range
             const networkInterface = document.getElementById('network-interface')?.value || 'eth0';
+            const ipRange = document.getElementById('ip-range')?.value || '192.168.1.0/24';
             
-            // Hole die IP-Adresse des Hosts
-            let ipAddress = document.getElementById('ip-address')?.value || '';
-            if (!ipAddress) {
-                // Versuche die IP-Adresse automatisch zu ermitteln
-                try {
-                    const response = await fetch('/api/system/info');
-                    const systemInfo = await response.json();
-                    ipAddress = systemInfo.ip_address || window.location.hostname;
-                } catch (error) {
-                    console.error('Error getting IP address:', error);
-                    ipAddress = window.location.hostname;
-                }
-            }
-            
-            // Füge WatchYourLAN-spezifische Konfiguration hinzu
-            installData.watchyourlan = {
-                interface: networkInterface,
-                ip_address: ipAddress
+            // Setze Umgebungsvariablen für WatchYourLAN
+            installData.env = {
+                'NETWORK_INTERFACE': networkInterface,
+                'IP_RANGE': ipRange
             };
             
             // Debug-Logging
             console.log('=== WatchYourLAN Installation Config ===');
             console.log('Network Interface:', networkInterface);
-            console.log('IP Address:', ipAddress);
+            console.log('IP Range:', ipRange);
         }
         // Scrypted-spezifische Konfiguration
         else if (containerName === 'scrypted') {
@@ -1861,9 +1917,17 @@ log_dest file /mosquitto/log/mosquitto.log
                 `./data:/prometheus`
             ];
             
+            // Ermittle die Host-IP-Adresse für Prometheus
+            const hostIP = window.location.hostname;
+            
+            // Füge die Host-IP-Adresse zur Konfiguration hinzu
+            installData.prometheus = {
+                host_ip: hostIP
+            };
+            
             // Debug-Logging
             console.log('=== Prometheus Installation Config ===');
-            console.log('Note: Prometheus configuration files will be created automatically');
+            console.log('Host IP:', hostIP);
         }
         // Standard-Volumes für andere Container
         else {
@@ -2076,42 +2140,28 @@ function getContainerLogo(containerName) {
         'heimdall': 'heimdall.png',
         'prometheus': 'prometheus.png',
         'homebridge': 'homebridge.png',
-        'influxdb': 'influxdb.png',
-        'influxdb-arm': 'influxdb.png',
-        'influxdb-x86': 'influxdb.png',
-        'nodeexporter': 'nodeexporter.png',
-        'webdock-ui': 'webdock.png',
-        'bangertech-ui': 'bangertech.png',
-        'frontail': 'bangertech.png',
-        'bambucam': 'bambucam.png',
-        'scrypted': 'scrypted.png',
-        'spoolman': 'spoolman.png',
-        'backuppro': 'backuppro.png',
-        'watchyourlan': 'watchyourlan.png',
-        'watchyourlanarm': 'watchyourlan.png'
+        'hoarder': 'hoarder.png',
+        'homepage': 'homepage.png',
     };
     
-    // Bestimme den Dateinamen des Logos
-    const logoFile = logoMapping[containerName] || 'bangertech.png';
-    
-    // Debug-Logging
-    console.debug(`Container logo for ${containerName}: ${logoFile}`);
-    
+    // Wenn ein Mapping existiert, verwende es, ansonsten verwende den Container-Namen
+    const logoFile = logoMapping[containerName] || `${containerName}.png`;
     return `/static/img/icons/${logoFile}`;
 }
 
 function createContainerCard(container) {
     const logoUrl = getContainerLogo(container.name);
+    const description = getContainerDescription(container.name);
     return `
         <div class="container-card">
             <div class="status-indicator ${container.status}"></div>
-            <div class="container-logo">
+            <div class="container-logo tooltip-trigger" data-tooltip="${description}">
                 <img src="${logoUrl}" 
                      alt="${container.name} logo" 
                      onerror="this.src='/static/img/icons/bangertech.png'">
             </div>
             <div class="name-with-settings">
-                <h3>${container.name}</h3>
+                <h3 class="tooltip-trigger" data-tooltip="${description}">${container.name}</h3>
                 ${container.installed ? `
                     <button class="info-btn" onclick="openInfo('${container.name}')" title="Container Information">
                         <i class="fa fa-info-circle"></i>
@@ -2148,29 +2198,31 @@ async function openInfo(containerName) {
     try {
         // Hole Container-Informationen
         const response = await fetch(`/api/container/${containerName}/info`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
         const info = await response.json();
         
-        // Debug-Ausgabe
-        console.log('Container Info:', info);
-        
-        // Hole aktuelle docker-compose.yml
-        const configResponse = await fetch(`/api/container/${containerName}/config`);
-        console.log('Config Response:', configResponse);
-        if (!configResponse.ok) {
-            throw new Error(`Failed to load config: ${configResponse.status} ${configResponse.statusText}`);
-        }
-        const config = await configResponse.json();
-        console.log('Config Data:', JSON.stringify(config, null, 2));
-        
-        // Überprüfe ob die YAML-Daten vorhanden sind
-        if (!config || !config.yaml) {
-            console.error('Missing YAML data in config:', config);
-            throw new Error('No YAML configuration found');
+        // Hole zusätzliche Konfigurationsdateien
+        let configFiles = [];
+        try {
+            const configResponse = await fetch(`/api/container/${containerName}/config-files`);
+            if (configResponse.ok) {
+                const configData = await configResponse.json();
+                configFiles = configData.config_files || [];
+            }
+        } catch (error) {
+            console.error('Error loading config files:', error);
         }
         
         // Erstelle Modal
         const modal = document.createElement('div');
         modal.className = 'modal';
+        modal.id = 'infoModal';
+        
+        // Bestimme, ob der Advanced-Tab angezeigt werden soll
+        const showAdvancedTab = configFiles.length > 0;
+        
         modal.innerHTML = `
             <div class="modal-content">
                 <div class="modal-header">
@@ -2181,6 +2233,7 @@ async function openInfo(containerName) {
                     <div class="info-tabs">
                         <button class="tab-btn active" data-tab="info">Information</button>
                         <button class="tab-btn" data-tab="config">Configuration</button>
+                        ${showAdvancedTab ? `<button class="tab-btn" data-tab="advanced">Advanced</button>` : ''}
                     </div>
                     
                     <div class="tab-content active" id="info-tab">
@@ -2235,7 +2288,7 @@ async function openInfo(containerName) {
                         </div>
                         <form id="settings-form">
                             <div class="form-group">
-                                <textarea id="compose-config" rows="20" spellcheck="false">${config.yaml}</textarea>
+                                <textarea id="compose-config" rows="20" spellcheck="false">${info.compose || ''}</textarea>
                             </div>
                             <div class="form-actions">
                                 <button type="button" onclick="saveSettings('${containerName}')" class="save-btn">
@@ -2244,6 +2297,39 @@ async function openInfo(containerName) {
                             </div>
                         </form>
                     </div>
+                    
+                    ${showAdvancedTab ? `
+                        <div class="tab-content hidden" id="advanced-tab">
+                            <div class="config-files-tabs">
+                                ${configFiles.map((file, index) => `
+                                    <button class="config-file-tab ${index === 0 ? 'active' : ''}" 
+                                            data-file-index="${index}">
+                                        ${file.name}
+                                    </button>
+                                `).join('')}
+                            </div>
+                            <div class="config-files-content">
+                                ${configFiles.map((file, index) => `
+                                    <div class="config-file-content ${index === 0 ? 'active' : 'hidden'}" 
+                                         id="config-file-${index}">
+                                        <div class="form-group">
+                                            <textarea class="config-file-editor" 
+                                                      data-file-path="${file.path}"
+                                                      rows="20" 
+                                                      spellcheck="false">${file.content || ''}</textarea>
+                                        </div>
+                                        <div class="form-actions">
+                                            <button type="button" 
+                                                    onclick="saveConfigFile('${containerName}', '${file.path}')" 
+                                                    class="save-btn">
+                                                <i class="fa fa-save"></i> Save & Restart
+                                            </button>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
                 </div>
             </div>
         `;
@@ -2262,6 +2348,19 @@ async function openInfo(containerName) {
             });
         });
         
+        // Config-File-Tab-Funktionalität
+        if (showAdvancedTab) {
+            modal.querySelectorAll('.config-file-tab').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    modal.querySelectorAll('.config-file-tab').forEach(b => b.classList.remove('active'));
+                    modal.querySelectorAll('.config-file-content').forEach(c => c.classList.add('hidden'));
+                    btn.classList.add('active');
+                    const fileIndex = btn.dataset.fileIndex;
+                    document.getElementById(`config-file-${fileIndex}`).classList.remove('hidden');
+                });
+            });
+        }
+        
         // Schließen-Funktionalität
         modal.querySelector('.close-modal').addEventListener('click', closeModal);
         modal.addEventListener('click', (e) => {
@@ -2271,52 +2370,59 @@ async function openInfo(containerName) {
         console.error('Error:', error);
         showNotification('error', `Error loading info for ${containerName}`);
     }
-} 
+}
 
 async function saveSettings(containerName) {
-    const config = document.getElementById('compose-config').value;
-    const saveBtn = document.querySelector('.save-btn');
-    
     try {
-        saveBtn.disabled = true;
-        saveBtn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Saving...';
+        const textarea = document.getElementById('compose-config');
+        if (!textarea) {
+            throw new Error('Config textarea not found');
+        }
         
+        const content = textarea.value;
+        
+        // Deaktiviere den Save-Button und zeige Ladeindikator
+        const saveBtn = document.querySelector('.save-btn');
+        const originalBtnText = saveBtn.innerHTML;
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Restarting...';
+        
+        // Sende Anfrage zum Speichern der Konfiguration
         const response = await fetch(`/api/container/${containerName}/config`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ yaml: config })
+            body: JSON.stringify({
+                yaml: content
+            })
         });
         
-        const data = await response.json();
-        if (data.status === 'success') {
-            showNotification('success', 'Settings saved successfully');
-            
-            // Starte Container neu
-            const restartResponse = await fetch(`/api/container/${containerName}/restart`, {
-                method: 'POST'
-            });
-            
-            if (restartResponse.ok) {
-                showNotification('success', 'Container restarted successfully');
-            }
-            
-            closeModal();
+        const result = await response.json();
+        
+        if (response.ok) {
+            showNotification('success', 'Configuration saved and container restarted');
+            // Aktualisiere Container-Status
             updateContainerStatus();
         } else {
-            throw new Error(data.message || 'Failed to save settings');
+            throw new Error(result.error || 'Failed to save configuration');
         }
+        
+        // Aktiviere den Save-Button wieder und entferne Ladeindikator
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = originalBtnText;
     } catch (error) {
-        console.error('Error:', error);
-        showNotification('error', `Error saving settings: ${error.message}`);
-    } finally {
+        console.error('Error saving settings:', error);
+        showNotification('error', `Error: ${error.message}`);
+        
+        // Stelle sicher, dass der Button wieder aktiviert wird
+        const saveBtn = document.querySelector('.save-btn');
         if (saveBtn) {
             saveBtn.disabled = false;
             saveBtn.innerHTML = '<i class="fa fa-save"></i> Save & Restart';
         }
     }
-} 
+}
 
 function debounce(func, wait) {
     let timeout;
@@ -3056,26 +3162,44 @@ function addContainerEventListeners() {
     // Event-Listener für Install-Buttons
     document.querySelectorAll('.install-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
-            const containerName = e.target.closest('.container-card').querySelector('h3').textContent;
-            installContainer(containerName);
+            const containerCard = e.target.closest('.container-card');
+            if (containerCard) {
+                const containerNameElement = containerCard.querySelector('h3');
+                if (containerNameElement) {
+                    const containerName = containerNameElement.textContent;
+                    installContainer(containerName);
+                }
+            }
         });
     });
     
     // Event-Listener für Status-Buttons
     document.querySelectorAll('.status-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
-            const containerName = e.target.closest('.container-card').querySelector('h3').textContent;
-            toggleContainer(containerName);
+            const containerCard = e.target.closest('.container-card');
+            if (containerCard) {
+                const containerNameElement = containerCard.querySelector('h3');
+                if (containerNameElement) {
+                    const containerName = containerNameElement.textContent;
+                    toggleContainer(containerName);
+                }
+            }
         });
     });
     
     // Event-Listener für Container-Karten (falls vorhanden)
     document.querySelectorAll('.container-card').forEach(card => {
         card.addEventListener('click', function(e) {
-            // Nur reagieren wenn nicht auf einen Button geklickt wurde
-            if (!e.target.closest('button')) {
-                const containerName = this.querySelector('h3').textContent;
-                showContainerDetails(containerName);
+            // Verhindere, dass der Click-Event auf Buttons weitergeleitet wird
+            if (e.target.tagName === 'BUTTON' || e.target.closest('button')) {
+                return;
+            }
+            
+            const containerNameElement = this.querySelector('h3');
+            if (containerNameElement) {
+                const containerName = containerNameElement.textContent;
+                // Hier können Sie eine Aktion für den Klick auf die Karte definieren
+                // z.B. openInfo(containerName);
             }
         });
     });
@@ -3395,4 +3519,58 @@ function generateConfigFields(containerConfig, container) {
             </div>
         </div>
     `;
+}
+
+// Funktion zum Speichern einer Konfigurationsdatei
+async function saveConfigFile(containerName, filePath) {
+    try {
+        const textarea = document.querySelector(`.config-file-editor[data-file-path="${filePath}"]`);
+        if (!textarea) {
+            throw new Error('Config file editor not found');
+        }
+        
+        const content = textarea.value;
+        
+        // Deaktiviere den Save-Button und zeige Ladeindikator
+        const saveBtn = textarea.closest('.config-file-content').querySelector('.save-btn');
+        const originalBtnText = saveBtn.innerHTML;
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Restarting...';
+        
+        // Sende Anfrage zum Speichern der Konfigurationsdatei
+        const response = await fetch(`/api/container/${containerName}/save-config`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                path: filePath,
+                content: content
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            showNotification('success', 'Configuration saved and container restarted');
+            // Aktualisiere Container-Status
+            updateContainerStatus();
+        } else {
+            throw new Error(result.error || 'Failed to save configuration');
+        }
+        
+        // Aktiviere den Save-Button wieder und entferne Ladeindikator
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = originalBtnText;
+    } catch (error) {
+        console.error('Error saving config file:', error);
+        showNotification('error', `Error: ${error.message}`);
+        
+        // Stelle sicher, dass der Button wieder aktiviert wird
+        const saveBtn = document.querySelector('.save-btn');
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="fa fa-save"></i> Save & Restart';
+        }
+    }
 }

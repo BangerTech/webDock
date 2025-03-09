@@ -21,6 +21,12 @@ services:
       - COMPOSE_FILES_DIR=/app/docker-compose-files
       - COMPOSE_DATA_DIR=/home/webDock/docker-compose-data
     restart: unless-stopped
+    networks:
+      - webdock-network
 
 volumes:
   host-config:
+
+networks:
+  webdock-network:
+    external: true

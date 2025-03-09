@@ -1,6 +1,9 @@
 services:
   dockge:
     image: louislam/dockge:latest
+    container_name: dockge
+    networks:
+      - webdock-network
     restart: unless-stopped
     ports:
       # Host Port:Container Port
@@ -11,3 +14,6 @@ services:
 
     environment:
       # Tell Dockge where is your stacks directory
+networks:
+  webdock-network:
+    external: true

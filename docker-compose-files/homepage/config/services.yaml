@@ -1,0 +1,337 @@
+---
+# For configuration options and examples, please see:
+# https://gethomepage.dev/en/configs/services
+- Calendar:
+    - Calendar:
+        widget:
+            type: calendar
+            firstDayInWeek: monday # optional - defaults to monday
+            view: monthly # optional - possible values monthly, agenda
+            maxEvents: 10 # optional - defaults to 10
+            showTime: true # optional - show time for event happening today - defaults to false
+            timezone: Europe/Berlin # optional and only when timezone is not detected properly (slightly slower performance) - force timezone for ical events (if it's the same - no change, if missing or different in ical - will be converted to this timezone)
+            integrations: # optional
+              - type: ical # active widget type that is currently enabled on homepage - possible values: radarr, sonarr, lidarr, readarr, ical
+                url: https://calendar.google.com/calendar/ical/bangertech.de%40gmail.com/private-6a477886e52ec115c55cb79b19fae9a7/basic.ics # group name where widget exists
+                name: Termin # service name for that widget
+                color: teal # optional - defaults to pre-defined color for the service (teal for sonarr)
+                params: # optional - additional params for the service
+                  showName: true
+ 
+- SmartHome:
+    - openHAB:
+        id: col-big
+        icon: openhab.png
+        href: http://192.168.2.193:8080
+
+    - Zigbee2MQTT:
+        icon: zigbee2mqtt.png
+        href: http://192.168.2.109:7000
+
+
+    - RaspberryMatic:
+        icon: raspberry-pi.png
+        href: http://192.168.2.24:8080
+
+    - Homebridge:
+        icon: homebridge.png
+        href: http://192.168.2.193:8581
+
+    - HomeAssistant:
+        icon: home-assistant.png
+        href: http://192.168.2.107:8123
+
+    - Energy Dashboard:
+        icon: sh-conduit.png
+        href: http://192.168.2.193:3000/d/GW05tggRk/smart-meter-auswertung-blog?orgId=1&refresh=5s
+
+- Network:
+
+    - opnsense:
+        id: col-big
+        icon: opnsense.png
+        href: http://192.168.2.1
+        widget:
+          type: opnsense
+          url: https://192.168.2.1:444
+          username: I7fVYxeH2orcqw96xY4v9QpcrBqHQXr+TnNX2fFMm4uNuVwqE5m0UWDV+fTYpTYo29xaMZ+PC1+7TPkY
+          password: wDapPjTSuBczFXx5pdt4c7zsx4I8aCerd5ovfuwqxsSgAfKT41D7FgNN9MiIUylvfw55QYKPXCyxQpai
+          wan: wan
+
+
+    - piHole:
+        id: col-big
+        icon: pi-hole.png
+        href: http://192.168.2.182:8033/admin
+        widget:
+          type: pihole
+          url: http://192.168.2.182:8033
+          version: 6
+          key: Clothing04
+
+    - Speedtest:
+        id: col-big
+        icon: tautulli.png
+        href: http://192.168.2.55:8765
+        widget: 
+          type: speedtest
+          url: http://192.168.2.55:8765
+
+    - upTime Kuma:
+        id: col-big
+        icon: uptime-kuma.png
+        href: http://192.168.2.55:75
+        widget:
+          type: uptimekuma
+          url: http://192.168.2.55:75
+          slug: bangertech
+
+    - traefik:
+        id: col-big
+        icon: traefik.png
+        href: https://traefik.server24-7.net
+        widget:
+          type: traefik
+          url: https://traefik.server24-7.net
+          username: bangertech
+          password: Sentshuas04
+
+    - pi-alert:
+        id: col-big
+        icon: pi-alert.png
+        href: http://192.168.2.182:20211
+        widget:
+          type: pialert
+          url: http://192.168.2.182:20211
+
+    - Unifi Controller:
+        id: col-big
+        icon: unifi.png
+        href: https://192.168.2.182:8443
+
+- Docker: 
+
+    - Portainer: 
+        icon: portainer.png
+        href: http://192.168.2.55:8999
+        container: portainer
+        widget:
+          type: portainer
+          url: http://192.168.2.55:8999
+          env: 2
+          key: ptr_E/fR1pK1dzCEWGWl8PivAhRAkudPTNJauRLQVFqOtuw=
+
+    - Grafana: 
+        icon: grafana.png
+        href: http://192.168.2.55:3000
+        widget: 
+          type: grafana
+          url: http://192.168.2.55:3000
+          username: admin
+          password: Sentshuas04
+
+    - Bitwarden: 
+        icon: bitwarden.png
+        href: https://bitwarden.server24-7.net
+
+    - Prometheus: 
+        icon: prometheus.png
+        href: http://192.168.2.55:9090
+    - Dockge:
+        icon: docker.png
+        href: http://192.168.2.55:5001
+    - Nextcloud:
+        icon: nextcloud.png
+        href: http://192.168.2.55:8015
+
+
+- Storage: 
+   
+     - TrueNAS Server: 
+         icon: truenas.png
+         href: http://192.168.2.9 
+         widget:
+           type: truenas
+           url: http://192.168.2.9
+           username: root # not required if using api key
+           password: clothing04 # not required if using api key
+
+     - TrueNAS NAS:
+         icon: truenas.png
+         href: http://192.168.2.65
+
+
+
+     - Syncthing TrueNAS Server:
+         icon: syncthing.png
+         href: http://192.168.2.55:8384
+
+     - Syncthing TrueNAS NAS:
+         icon: syncthing.png
+         href: http://192.168.2.211/syncthing
+
+
+
+- Server: 
+
+      - Proxmox: 
+          icon: proxmox.png
+          href: https://192.168.2.77:8006
+          widget:
+            type: proxmox
+            url: https://192.168.2.77:8006
+            username: api@pam!homepage
+            password: fc1deb35-f522-40ef-83a1-0f63cfe71675
+      - Fluidd:
+          icon: https://static-00.iconduck.com/assets.00/fluidd-icon-1779x2048-zuwya8kq.png
+          href: http://192.168.2.240:4408
+          widget:
+            type: moonraker
+            url: http://192.168.2.240:4408
+      - ESPresence Companion:
+          icon: dopplertask.png
+          href: http://192.168.2.55:8267
+      - UPS-Battery:
+          icon: dopplertask.png
+          href: http://192.168.2.203/cgi-bin/nut/upsstats.cgi
+          
+      - NSPanel-Manager:
+          icon: https://www.freeiconspng.com/uploads/android-tablet-png-30.png
+          href: http://192.168.2.182:8555
+
+
+- Controller: 
+
+      - ESP32 Bezug:
+          icon: dopplertask.png
+          href: http://192.168.2.221
+
+      - ESP32 EigenStrom: 
+          icon: dopplertask.png
+          href: http://192.168.2.163
+   
+      - ESP32 Switchbot:
+          icon: dopplertask.png
+          href: http://192.168.2.208
+
+      - D1 Mini TouchModule: 
+          icon: watchyourlan.png
+          href: http://192.168.2.69
+      - D1 Mini Touch Bett:
+          icon: watchyourlan.png
+          href: http://192.168.2.69
+      - D1 Mini Treppe:
+          icon: watchyourlan.png
+          href: http://192.168.2.116
+      - WLED Links: 
+          icon: hyperion.png
+          href: http://192.168.2.57
+      - WLED Rechts:
+          icon: hyperion.png
+          href: http://192.168.2.49
+      - ESPresence Office 1:
+          icon: watchyourlan.png
+          href: http://192.168.2.11
+      - ESPresence OG 2:
+          icon: watchyourlan.png
+          href: http://192.168.2.151
+      - ESPresence Küche 3:
+          icon: watchyourlan.png
+          href: http://192.168.2.108
+      - ESPresence Werkstatt 4:
+          icon: watchyourlan.png
+          href: http://192.168.2.19
+      - ESPresence Living 5:
+          icon: watchyourlan.png
+          href: http://192.168.2.85
+      - ESPresence Bad 6:
+          icon: watchyourlan.png
+          href: http://192.168.2.53
+      - TasmoAdmin:
+          icon: watchyourlan.png
+          href: http://192.168.2.55:8223
+
+
+- Devices:
+   
+
+
+      - Shelly 1PM Büro:
+          icon: shelly.png
+          href: http://192.168.2.58
+      - Smart Stecker Blitz Büro:
+          icon: tasmota-light.png
+          href: http://192.168.2.88
+      - Smart Stecker Jarvis:
+          icon: tasmota-light.png
+          href: http://192.168.2.72
+      - Sonoff Mini Speise:
+          icon: tasmota-light.png
+          href: http://192.168.2.35
+      - Sonoff NS Panel Pro:
+          icon: tasmota-light.png
+          href: http://192.168.2.121
+      - Sonoff Pow Elite: 
+          icon: tasmota-light.png
+          href: http://192.168.2.13
+      - Sonoff TH Elite:
+          icon: tasmota-light.png
+          href: http://192.168.2.15
+      - Sonoff Büro Spot L:
+          icon: tasmota-light.png
+          href: http://192.168.2.20
+      - Sonoff Büro Spot R:
+          icon: tasmota-light.png
+          href: http://192.168.2.44
+      - Sonoff P2 TV: 
+          icon: tasmota-light.png
+          href: http://192.168.2.47
+      - Sonoff P3 Wahing:
+          icon: tasmota-light.png
+          href: http://192.168.2.41
+      - Sonoff P4 Fridge:
+          icon: tasmota-light.png
+          href: http://192.168.2.50
+      - Sonoff Plug Biqu:
+          icon: tasmota-light.png
+          href: http://192.168.2.12
+      - Sonoff Plug Chiron:
+          icon: tasmota-light.png
+          href: http://192.168.2.14
+      - Sonoff Plug Heatpress:
+          icon: tasmota-light.png
+          href: http://192.168.2.19
+      - Sonoff T1 Küche:
+          icon: tasmota-light.png
+          href: http://192.168.2.204
+      - Sonoff T3 Treppe R:
+          icon: tasmota-light.png
+          href: http://192.168.2.59
+      - Sonoff T5 Sofa:
+          icon: tasmota-light.png
+          href: http://192.168.2.216
+
+      - Sonoff Mini Werkstatt: 
+          icon: tasmota-light.png
+          href: http://192.168.2.35
+
+
+
+- Camera:
+   
+
+
+      - Bullet:
+          icon: ispy.png
+          href: http://192.168.2.53
+          
+      - Scrypted Cams:
+          icon: sh-scrypted.png
+          href: https://192.168.2.55:10443
+
+
+
+
+
+
+

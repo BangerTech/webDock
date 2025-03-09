@@ -9,10 +9,4 @@ services:
     restart: unless-stopped
     volumes:
       - '/:/host:ro,rslave'
-    networks:
-      - default
-      - webdock
 
-networks:
-  webdock:
-    external: true

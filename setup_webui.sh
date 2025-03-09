@@ -94,6 +94,15 @@ if [ $MISSING_FILES -gt 0 ]; then
     exit 1
 fi
 
+# Erstelle Docker-Netzwerk für WebDock
+echo "=== Creating Docker network ==="
+if ! sudo docker network inspect webdock-network >/dev/null 2>&1; then
+    echo "Creating webdock-network..."
+    sudo docker network create webdock-network
+else
+    echo "webdock-network already exists"
+fi
+
 echo "=== Starting container ==="
 # Neustart des Containers
 cd "$BASE_DIR" || { echo "Error: Could not change to $BASE_DIR"; exit 1; }
