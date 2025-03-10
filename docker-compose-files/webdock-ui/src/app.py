@@ -2356,8 +2356,9 @@ def setup_watchyourlan(container_name, install_path, config_data):
         # Create directories
         config_dir = os.path.join(install_path, 'config')
         data_dir = os.path.join(install_path, 'data')
+        wyl_config_dir = os.path.join(data_dir, 'WatchYourLAN')
         
-        for dir_path in [config_dir, data_dir]:
+        for dir_path in [config_dir, data_dir, wyl_config_dir]:
             os.makedirs(dir_path, exist_ok=True, mode=0o755)
         
         # Get environment variables from config data
@@ -2448,7 +2449,35 @@ networks:
     external: true
 """)
         
+        # Create the WatchYourLAN config_v2.yaml file
+        config_file = os.path.join(wyl_config_dir, 'config_v2.yaml')
+        with open(config_file, 'w') as f:
+            f.write(f"""arp_args: ""
+arp_strs: []
+arp_strs_joined: ""
+color: light
+hist_in_db: false
+host: 0.0.0.0
+ifaces: "{env_vars['NETWORK_INTERFACE']}"
+influx_addr: ""
+influx_bucket: ""
+influx_enable: false
+influx_org: ""
+influx_skip_tls: false
+influx_token: ""
+log_level: info
+nodepath: ""
+pg_connect: ""
+port: "{gui_port}"
+shoutrrr_url: ""
+theme: darkly
+timeout: 120
+trim_hist: 48
+use_db: sqlite
+""")
+        
         logger.info(f"Created docker-compose.yml for WatchYourLAN with network interface {env_vars['NETWORK_INTERFACE']} and IP range {env_vars['IP_RANGE']}")
+        logger.info(f"Created config_v2.yaml with network interface {env_vars['NETWORK_INTERFACE']}")
         logger.info(f"WatchYourLAN will use network_mode: host for proper network scanning")
         logger.info(f"Node-bootstrap will be available at port {bootstrap_port}, WatchYourLAN GUI at port {gui_port}")
         
