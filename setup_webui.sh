@@ -3,6 +3,7 @@
 # Definiere Verzeichnisse
 BASE_DIR="/home/webDock/docker-compose-data/webdock-ui"
 SRC_DIR="$BASE_DIR/src"
+CONFIG_DIR="/home/webDock/docker-compose-data/config"
 
 echo "=== Starting Web UI Setup ==="
 
@@ -19,6 +20,64 @@ if [ ! -d "/home/webDock" ]; then
     sudo chown -R $USER:$USER /home/webDock
 fi
 
+# Erstelle Scripts-Verzeichnis und Netzwerk-Erkennungsskript
+echo "=== Setting up network detection script ==="
+sudo mkdir -p /home/webDock/scripts
+sudo tee /home/webDock/scripts/detect_network.sh > /dev/null << 'EOF'
+#!/bin/bash
+
+# Skript zur Erkennung des Netzwerk-Interfaces und der IP-Adresse
+# Dieses Skript wird außerhalb des Containers ausgeführt
+
+# Ausgabedatei
+OUTPUT_FILE="/home/webDock/docker-compose-data/config/network_info.json"
+
+# Verzeichnis erstellen, falls es nicht existiert
+mkdir -p "$(dirname "$OUTPUT_FILE")"
+
+# Ermittle das aktive Netzwerk-Interface (ohne lo, docker, veth, br-)
+INTERFACES=$(ip a | grep -E "^[0-9]" | grep -v "lo:" | grep "state UP" | awk -F': ' '{print $2}' | grep -v -E '^(docker|veth|br-)')
+MAIN_INTERFACE=$(echo "$INTERFACES" | head -n 1)
+
+if [ -z "$MAIN_INTERFACE" ]; then
+    # Fallback: Verwende das erste Interface, das nicht lo ist
+    MAIN_INTERFACE=$(ip a | grep -E "^[0-9]" | grep -v "lo:" | awk -F': ' '{print $2}' | head -n 1)
+fi
+
+# Ermittle die IP-Adresse des Interfaces
+IP_ADDRESS=$(ip addr show $MAIN_INTERFACE | grep "inet " | awk '{print $2}' | cut -d/ -f1)
+SUBNET_MASK=$(ip addr show $MAIN_INTERFACE | grep "inet " | awk '{print $2}' | cut -d/ -f2)
+
+# Berechne den IP-Bereich
+IP_PARTS=(${IP_ADDRESS//./ })
+IP_RANGE="${IP_PARTS[0]}.${IP_PARTS[1]}.${IP_PARTS[2]}.0/24"
+
+# Schreibe die Informationen in die Ausgabedatei
+echo "{
+  \"interface\": \"$MAIN_INTERFACE\",
+  \"ip_address\": \"$IP_ADDRESS\",
+  \"subnet_mask\": \"$SUBNET_MASK\",
+  \"ip_range\": \"$IP_RANGE\"
+}" > "$OUTPUT_FILE"
+
+echo "Netzwerkinformationen wurden in $OUTPUT_FILE gespeichert:"
+cat "$OUTPUT_FILE"
+
+# Setze die Berechtigungen, damit der Container die Datei lesen kann
+chmod 644 "$OUTPUT_FILE"
+EOF
+
+# Mache das Skript ausführbar
+sudo chmod +x /home/webDock/scripts/detect_network.sh
+
+# Führe das Skript aus, um die Netzwerkinformationen zu ermitteln
+echo "=== Detecting network information ==="
+sudo /home/webDock/scripts/detect_network.sh
+
+# Füge einen Cron-Job hinzu, um die Netzwerkinformationen regelmäßig zu aktualisieren
+echo "=== Setting up cron job for network detection ==="
+(crontab -l 2>/dev/null | grep -v "detect_network.sh"; echo "*/5 * * * * /home/webDock/scripts/detect_network.sh > /dev/null 2>&1") | crontab -
+
 # Lösche altes Verzeichnis falls vorhanden
 if [ -d "$BASE_DIR" ]; then
     echo "Removing old installation..."
@@ -33,6 +92,7 @@ sudo mkdir -p "$SRC_DIR/static/img"
 sudo mkdir -p "$SRC_DIR/static/img/icons"  # Erstelle icons Verzeichnis
 sudo mkdir -p "$SRC_DIR/templates"
 sudo mkdir -p "$SRC_DIR/config"
+sudo mkdir -p "$CONFIG_DIR"
 
 echo "Copying files..."
 # Kopiere Basis-Dateien

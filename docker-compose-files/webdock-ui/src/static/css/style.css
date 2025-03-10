@@ -2361,3 +2361,22 @@ main > .tab-content.active {
     border-color: var(--color-primary);
     box-shadow: 0 0 0 2px rgba(0, 130, 201, 0.2);
 }
+
+.container-card h3[onclick] {
+    cursor: pointer;
+    color: var(--link-color);
+    transition: color 0.2s;
+}
+
+.container-card h3[onclick]:hover {
+    color: var(--link-hover-color);
+    text-decoration: underline;
+}
+
+.modal-header h2 img {
+    height: 24px;
+    width: 24px;
+    margin-right: 8px;
+    vertical-align: middle;
+    border-radius: 4px;
+}

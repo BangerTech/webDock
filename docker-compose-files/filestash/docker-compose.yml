@@ -1,3 +1,4 @@
+version: '3'
 services:
   app:
     container_name: filestash
@@ -6,15 +7,15 @@ services:
       - webdock-network
     restart: always
     environment:
-    - APPLICATION_URL=
-    - GDRIVE_CLIENT_ID=<gdrive_client>
-    - GDRIVE_CLIENT_SECRET=<gdrive_secret>
-    - DROPBOX_CLIENT_ID=<dropbox_key>
-    - ONLYOFFICE_URL=http://onlyoffice
+      - APPLICATION_URL=
+      - GDRIVE_CLIENT_ID=<gdrive_client>
+      - GDRIVE_CLIENT_SECRET=<gdrive_secret>
+      - DROPBOX_CLIENT_ID=<dropbox_key>
+      - ONLYOFFICE_URL=http://onlyoffice
     ports:
-    - "8334:8334"
+      - "8334:8334"
     volumes:
-    - ./data:/app/data/state
+      - ./data:/app/data/state
   onlyoffice:
     container_name: filestash_oods
     image: onlyoffice/documentserver

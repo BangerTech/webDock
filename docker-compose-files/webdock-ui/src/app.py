@@ -153,9 +153,23 @@ def _extract_port(ports):
         if isinstance(ports, list):
             for port in ports:
                 if isinstance(port, str) and ':' in port:
-                    return port.split(':')[0]  # Nimm den Host-Port
+                    # Extrahiere den Host-Port (vor dem Doppelpunkt)
+                    host_port = port.split(':')[0].strip('"\'')
+                    # Entferne IP-Adresse, falls vorhanden (z.B. "127.0.0.1:8080:80")
+                    if '.' in host_port:
+                        parts = host_port.split(':')
+                        if len(parts) > 1:
+                            host_port = parts[1]
+                        else:
+                            continue  # Ungültiges Format, versuche den nächsten Port
+                    return host_port
                 elif isinstance(port, (int, str)):
                     return str(port)
+        elif isinstance(ports, dict):
+            # Für den Fall, dass Ports als Dictionary definiert sind
+            for container_port, host_port in ports.items():
+                if host_port:
+                    return str(host_port)
         return None
     except Exception as e:
         logger.error(f"Error extracting port: {e}")
@@ -729,38 +743,78 @@ def get_containers():
                 elif dirname == 'nodeexporter':
                     port = '9100'
                 elif dirname == 'wud':
-                    port = '3004'
+                    port = '3004'  # Standardwert
                 elif dirname == 'scrypted':
                     port = '10443'
+                elif dirname == 'homeassistant':
+                    port = '8123'
+                elif dirname == 'openhab':
+                    port = '8080'
+                elif dirname == 'bambucam':
+                    port = '80'
+                elif dirname == 'watchyourlan' or dirname == 'watchyourlanarm':
+                    # Lese den GUI-Port dynamisch aus der docker-compose.yml
+                    try:
+                        with open(compose_file, 'r') as f:
+                            compose_data = yaml.safe_load(f)
+                            if compose_data and 'services' in compose_data:
+                                # Suche nach dem WatchYourLAN-Service
+                                for service_name, service in compose_data['services'].items():
+                                    if service_name == 'watchyourlan':
+                                        # Prüfe, ob GUIPORT in den Umgebungsvariablen gesetzt ist
+                                        if 'environment' in service and 'GUIPORT' in service['environment']:
+                                            port = service['environment']['GUIPORT']
+                                            break
+                        # Fallback auf Standardwert, wenn kein Port gefunden wurde
+                        if not port:
+                            port = '8840'
+                    except Exception as e:
+                        logger.error(f"Error reading WatchYourLAN port: {str(e)}")
+                        port = '8840'  # Fallback auf Standardwert
                 else:
                     with open(compose_file, 'r') as f:
                         compose_data = yaml.safe_load(f)
                         if compose_data and 'services' in compose_data:
-                            for service_name, service_data in compose_data['services'].items():
-                                if 'ports' in service_data:
-                                    port = _extract_port(service_data['ports'])
-                                    break
+                            service_name = list(compose_data['services'].keys())[0]
+                            service = compose_data['services'][service_name]
+                            if 'ports' in service:
+                                port = _extract_port(service['ports'])
             except Exception as e:
-                logger.warning(f"Could not extract port for {dirname}: {e}")
+                logger.error(f"Error extracting port for {dirname}: {str(e)}")
             
-            # Prüfe auf Updates
-            has_update = check_for_updates(dirname) if status == "running" else False
+            # Hole das Icon für den Container
+            icon = get_container_icon(dirname)
             
-            # Füge Container zur Gruppe hinzu
+            # Füge den Container zur entsprechenden Kategorie hinzu
+            container_info = {
+                'name': dirname,
+                'status': status,
+                'installed': is_installed,
+                'port': port,
+                'icon': icon
+            }
+            
             if category_name in grouped_containers:
-                grouped_containers[category_name]['containers'].append({
-                    'name': dirname,
-                    'status': status,
-                    'installed': is_installed,
-                    'description': f'Container: {dirname}',
-                    'port': port,
-                    'has_update': has_update,
-                    'icon': get_container_icon(dirname)  # Verwende die neue Funktion
-                })
+                grouped_containers[category_name]['containers'].append(container_info)
+            else:
+                # Fallback für unbekannte Kategorien
+                if 'Other' not in grouped_containers:
+                    grouped_containers['Other'] = {
+                        'name': 'Other',
+                        'icon': 'fa-cube',
+                        'containers': []
+                    }
+                grouped_containers['Other']['containers'].append(container_info)
         
-        return jsonify(grouped_containers)
+        # Konvertiere das Dictionary in eine Liste für die Antwort
+        result = []
+        for category_name, category_data in grouped_containers.items():
+            if category_data['containers']:  # Nur Kategorien mit Containern hinzufügen
+                result.append(category_data)
+        
+        return jsonify(result)
     except Exception as e:
-        logger.exception(f"Error getting containers: {e}")
+        logger.exception(f"Error getting containers: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/install', methods=['POST'])
@@ -900,7 +954,24 @@ def install_container():
             
             if result.returncode != 0:
                 logger.error(f"Error starting container: {result.stderr}")
-                raise Exception(f"Failed to start container: {result.stderr}")
+                
+                # Prüfe auf spezifische Fehler und gib benutzerfreundliche Meldungen zurück
+                if "port is already allocated" in result.stderr:
+                    # Extrahiere den Port aus der Fehlermeldung
+                    port_match = re.search(r'Bind for 0.0.0.0:(\d+) failed: port is already allocated', result.stderr)
+                    if port_match:
+                        port = port_match.group(1)
+                        error_msg = f"Port {port} is already in use. Please try again with a different port."
+                    else:
+                        error_msg = "One or more ports are already in use. Please try again with different port settings."
+                    
+                    logger.error(error_msg)
+                    return jsonify({
+                        'status': 'error',
+                        'message': error_msg
+                    }), 400
+                else:
+                    raise Exception(f"Failed to start container: {result.stderr}")
             
             logger.info(f"Started container: {container_name}")
             
@@ -911,11 +982,17 @@ def install_container():
             
         except Exception as e:
             logger.error(f"Error starting container: {str(e)}")
-            return jsonify({'error': f"Error starting container: {str(e)}"}), 500
+            return jsonify({
+                'status': 'error',
+                'message': f"Error starting container: {str(e)}"
+            }), 500
             
     except Exception as e:
         logger.exception(f"Error installing container: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
 
 def get_docker_compose_cmd():
     """Gibt den korrekten docker-compose Befehl zurück"""
@@ -1972,7 +2049,7 @@ def setup_grafana(container_name, install_path, config_data=None):
     try:
         # Erstelle Verzeichnisse
         data_dir = os.path.join(install_path, 'data')
-        os.makedirs(data_dir, exist_ok=True, mode=0o755)
+        os.makedirs(data_dir, exist_ok=True, mode=0o777)  # Setze Berechtigungen auf 777, damit Grafana schreiben kann
         
         # Erstelle env.grafana Datei
         env_file = os.path.join(data_dir, 'env.grafana')
@@ -2006,12 +2083,18 @@ services:
     networks:
       - webdock-network
     restart: unless-stopped
+    user: "0:0"  # Führe als root aus, um Berechtigungsprobleme zu vermeiden
     ports:
       - "{port}:3000"
     volumes:
       - ./data:/var/lib/grafana
     env_file:
       - ./data/env.grafana
+    environment:
+      - GF_PATHS_PROVISIONING=/var/lib/grafana/provisioning
+      - GF_PATHS_PLUGINS=/var/lib/grafana/plugins
+      - GF_PATHS_LOGS=/var/lib/grafana/logs
+      - GF_PATHS_DATA=/var/lib/grafana
 
 networks:
   webdock-network:
@@ -2019,6 +2102,15 @@ networks:
 """)
         
         logger.info(f"Created Grafana docker-compose.yml with port {port}")
+        
+        # Erstelle Verzeichnisse für Grafana
+        provisioning_dir = os.path.join(data_dir, 'provisioning')
+        plugins_dir = os.path.join(data_dir, 'plugins')
+        logs_dir = os.path.join(data_dir, 'logs')
+        
+        for dir_path in [provisioning_dir, plugins_dir, logs_dir]:
+            os.makedirs(dir_path, exist_ok=True, mode=0o777)  # Setze Berechtigungen auf 777
+            logger.info(f"Created directory with full permissions: {dir_path}")
         
         return True
     except Exception as e:
@@ -2121,50 +2213,46 @@ def setup_dockge(container_name, install_path, config_data=None):
         data_dir = os.path.join(install_path, 'data')
         os.makedirs(data_dir, exist_ok=True, mode=0o755)
         
-        # Standardwerte
-        stacks_dir = "/home/webDock/docker-compose-data"
+        # Hole die Port-Konfiguration
+        port = "5001"  # Standardwert
+        if config_data and 'ports' in config_data:
+            ports = config_data.get('ports', {})
+            if ports and '5001' in ports:
+                port = ports['5001']
         
-        # Prüfe, ob ein benutzerdefiniertes Stacks-Verzeichnis angegeben wurde
-        if config_data and 'dockge' in config_data:
-            dockge_config = config_data.get('dockge', {})
-            stacks_dir = dockge_config.get('stacks_dir', stacks_dir)
+        # Hole die Umgebungsvariablen aus den Konfigurationsdaten
+        env_vars = config_data.get('env', {}) if config_data else {}
         
-        # Erstelle die docker-compose.yml neu, um sicherzustellen, dass alle erforderlichen Volumes und Umgebungsvariablen vorhanden sind
+        # Setze Standardwert für DOCKGE_STACKS_DIR, wenn nicht angegeben
+        if 'DOCKGE_STACKS_DIR' not in env_vars or not env_vars['DOCKGE_STACKS_DIR']:
+            env_vars['DOCKGE_STACKS_DIR'] = './data/stacks'
+            logger.info("Using default DOCKGE_STACKS_DIR for Dockge")
+        
+        # Erstelle die docker-compose.yml
         compose_file = os.path.join(install_path, 'docker-compose.yml')
-        
-        # Kopiere die Original-Datei, falls sie existiert
-        original_content = None
-        if os.path.exists(compose_file):
-            with open(compose_file, 'r') as f:
-                original_content = f.read()
-        
-        # Erstelle die docker-compose.yml mit den erforderlichen Volumes und Umgebungsvariablen
         with open(compose_file, 'w') as f:
             f.write(f"""version: '3'
 services:
   dockge:
-    container_name: dockge
     image: louislam/dockge:latest
+    container_name: dockge
     restart: unless-stopped
     networks:
       - webdock-network
     ports:
-      - "5001:5001"
+      - "{port}:5001"
     volumes:
-      - ./data:/app/data
       - /var/run/docker.sock:/var/run/docker.sock
-      - {stacks_dir}:{stacks_dir}
+      - ./data:/app/data
     environment:
-      - DOCKGE_STACKS_DIR={stacks_dir}
+      - DOCKGE_STACKS_DIR={env_vars.get('DOCKGE_STACKS_DIR', './data/stacks')}
 
 networks:
   webdock-network:
     external: true
 """)
         
-        logger.info(f"Created Dockge docker-compose.yml with stacks directory: {stacks_dir}")
-        logger.info(f"Added Docker socket volume and DOCKGE_STACKS_DIR environment variable")
-        logger.info(f"Added webdock-network configuration")
+        logger.info(f"Created Dockge docker-compose.yml with port: {port} and added to webdock-network")
         
         return True
     except Exception as e:
@@ -2172,79 +2260,24 @@ networks:
         return False
 
 def setup_filestash(container_name, install_path, config_data=None):
-    """Setup für Filestash"""
+    """Setup for Filestash"""
     try:
-        # Erstelle Verzeichnisse
+        # Create directories
         data_dir = os.path.join(install_path, 'data')
         os.makedirs(data_dir, exist_ok=True, mode=0o755)
         
-        # Hole die Port-Konfiguration
-        port = "8334"  # Standardwert
+        # Get port configuration
+        port = "8334"  # Default value
         if config_data and 'ports' in config_data:
             ports = config_data.get('ports', {})
             if ports and '8334' in ports:
                 port = ports['8334']
         
-        # Ermittle die Server-IP-Adresse
-        server_ip = "localhost"
-        try:
-            # Versuche, die IP-Adresse über die Netzwerkschnittstelle zu ermitteln
-            default_interface = get_default_network_interface()
-            result = subprocess.run(
-                ['ip', 'addr', 'show', default_interface],
-                capture_output=True,
-                text=True
-            )
-            
-            if result.returncode == 0:
-                # Suche nach IPv4-Adressen
-                match = re.search(r'inet\s+(\d+\.\d+\.\d+\.\d+)', result.stdout)
-                if match:
-                    server_ip = match.group(1)
-                    logger.info(f"Detected server IP: {server_ip}")
-        except Exception as e:
-            logger.error(f"Error detecting server IP: {str(e)}")
-        
-        # Setze die APPLICATION_URL
-        application_url = f"http://{server_ip}:{port}"
-        
-        # Erstelle die docker-compose-before.yml für den ersten Schritt
-        compose_before_file = os.path.join(install_path, 'docker-compose-before.yml')
-        with open(compose_before_file, 'w') as f:
-            f.write(f"""services:
-  app:
-    container_name: filestash
-    image: machines/filestash
-    networks:
-      - webdock-network
-    restart: always
-    environment:
-    - APPLICATION_URL={application_url}
-    - GDRIVE_CLIENT_ID=<gdrive_client>
-    - GDRIVE_CLIENT_SECRET=<gdrive_secret>
-    - DROPBOX_CLIENT_ID=<dropbox_key>
-    - ONLYOFFICE_URL=http://onlyoffice
-    ports:
-    - "{port}:8334"
-#    volumes:
-#    - ./data:/app/data/state
-  onlyoffice:
-    container_name: filestash_oods
-    image: onlyoffice/documentserver
-    networks:
-      - webdock-network
-    restart: always
-    security_opt:
-      - seccomp:unconfined
-networks:
-  webdock-network:
-    external: true
-""")
-        
-        # Erstelle die endgültige docker-compose.yml für den zweiten Schritt
+        # Create docker-compose.yml
         compose_file = os.path.join(install_path, 'docker-compose.yml')
         with open(compose_file, 'w') as f:
-            f.write(f"""services:
+            f.write(f"""version: '3'
+services:
   app:
     container_name: filestash
     image: machines/filestash
@@ -2252,15 +2285,15 @@ networks:
       - webdock-network
     restart: always
     environment:
-    - APPLICATION_URL={application_url}
-    - GDRIVE_CLIENT_ID=<gdrive_client>
-    - GDRIVE_CLIENT_SECRET=<gdrive_secret>
-    - DROPBOX_CLIENT_ID=<dropbox_key>
-    - ONLYOFFICE_URL=http://onlyoffice
+      - APPLICATION_URL=
+      - GDRIVE_CLIENT_ID=<gdrive_client>
+      - GDRIVE_CLIENT_SECRET=<gdrive_secret>
+      - DROPBOX_CLIENT_ID=<dropbox_key>
+      - ONLYOFFICE_URL=http://onlyoffice
     ports:
-    - "{port}:8334"
+      - "{port}:8334"
     volumes:
-    - ./data:/app/data/state
+      - ./data:/app/data/state
   onlyoffice:
     container_name: filestash_oods
     image: onlyoffice/documentserver
@@ -2269,170 +2302,146 @@ networks:
     restart: always
     security_opt:
       - seccomp:unconfined
+
 networks:
   webdock-network:
     external: true
 """)
         
-        # Erstelle ein Setup-Skript, das den zweiten Schritt der Installation durchführt
-        setup_script = os.path.join(install_path, 'complete_setup.sh')
-        with open(setup_script, 'w') as f:
-            f.write(f"""#!/bin/bash
-echo "Completing Filestash setup..."
-echo "Stopping the temporary container..."
-docker-compose -f docker-compose-before.yml down
-
-echo "Copying the state directory from the container..."
-mkdir -p ./data
-docker cp filestash:/app/data/state ./data
-
-echo "Starting Filestash with the final configuration..."
-docker-compose up -d
-
-echo "Setup completed! Filestash is now available at {application_url}"
-""")
-        
-        # Setze die Ausführungsrechte für das Skript
-        os.chmod(setup_script, 0o755)
-        
-        logger.info(f"Created Filestash setup files with APPLICATION_URL: {application_url}")
-        logger.info(f"Created setup script: {setup_script}")
-        
-        # Starte den Container mit der docker-compose-before.yml
-        docker_compose_cmd = get_docker_compose_cmd()
-        result = subprocess.run(
-            f'{docker_compose_cmd} -f docker-compose-before.yml up -d',
-            shell=True,
-            capture_output=True,
-            text=True,
-            cwd=install_path
-        )
-        
-        if result.returncode != 0:
-            logger.error(f"Error starting Filestash container: {result.stderr}")
-            raise Exception(f"Failed to start Filestash container: {result.stderr}")
-        
-        logger.info(f"Started Filestash container with docker-compose-before.yml")
-        logger.info(f"Filestash is now available at {application_url} for initial setup")
+        logger.info(f"Created Filestash docker-compose.yml with port: {port}")
         
         return True
     except Exception as e:
         logger.error(f"Filestash setup failed: {str(e)}")
         return False
 
-def setup_watchyourlan(container_name, install_path, config_data):
-    """Setup für WatchYourLAN"""
+def setup_homeassistant(container_name, install_path, config_data=None):
+    """Setup for Home Assistant"""
     try:
-        # Erstelle Verzeichnisse
+        # Create directories
         config_dir = os.path.join(install_path, 'config')
         data_dir = os.path.join(install_path, 'data')
-        log_dir = os.path.join(install_path, 'log')
         
-        # Erstelle Verzeichnisse mit korrekten Berechtigungen
-        os.makedirs(config_dir, exist_ok=True)
-        os.makedirs(data_dir, exist_ok=True)
-        os.makedirs(log_dir, exist_ok=True)
+        for dir_path in [config_dir, data_dir]:
+            os.makedirs(dir_path, exist_ok=True, mode=0o755)
         
-        logger.info(f"Created and configured directory: {config_dir}")
-        logger.info(f"Created and configured directory: {data_dir}")
-        logger.info(f"Created and configured directory: {log_dir}")
+        # Home Assistant needs host network mode for proper functionality
+        # Create docker-compose.yml with host network
+        compose_file = os.path.join(install_path, 'docker-compose.yml')
+        with open(compose_file, 'w') as f:
+            f.write(f"""version: '3'
+services:
+  homeassistant:
+    container_name: homeassistant
+    image: "ghcr.io/home-assistant/home-assistant:stable"
+    volumes:
+      - ./config:/config
+      - ./data:/data
+      - /etc/localtime:/etc/localtime:ro
+    restart: unless-stopped
+    privileged: true
+    network_mode: host
+""")
         
-        # Ermittle das Standard-Netzwerkinterface
-        default_interface = get_default_network_interface()
-        logger.info(f"Detected default network interface: {default_interface}")
+        logger.info(f"Created Home Assistant docker-compose.yml with host network mode")
         
-        # Ermittle die IP-Adresse und den Netzwerkbereich
-        ip_range = "192.168.1.0/24"  # Standardwert
-        try:
-            # Hole die IP-Adresse des Interfaces
-            result = subprocess.run(
-                ['ip', 'addr', 'show', default_interface],
-                capture_output=True,
-                text=True
-            )
-            
-            if result.returncode == 0:
-                # Suche nach IPv4-Adressen
-                match = re.search(r'inet\s+(\d+\.\d+\.\d+\.\d+)/(\d+)', result.stdout)
-                if match:
-                    ip_addr = match.group(1)
-                    subnet = match.group(2)
-                    # Berechne den Netzwerkbereich
-                    ip_parts = ip_addr.split('.')
-                    ip_range = f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}.0/{subnet}"
-                    logger.info(f"Detected IP range: {ip_range}")
-        except Exception as e:
-            logger.error(f"Error detecting IP range: {str(e)}")
-            
-            # Versuche, den IP-Bereich aus der Client-IP zu ermitteln
-            if hasattr(request, 'remote_addr') and request.remote_addr:
-                client_ip = request.remote_addr
-                logger.info(f"Using client IP to determine network range: {client_ip}")
-                if client_ip and not client_ip.startswith('127.') and not client_ip == '::1':
-                    try:
-                        # Extrahiere die ersten drei Oktette der IP-Adresse
-                        client_ip_parts = client_ip.split('.')
-                        if len(client_ip_parts) == 4:
-                            ip_range = f"{client_ip_parts[0]}.{client_ip_parts[1]}.{client_ip_parts[2]}.0/24"
-                            logger.info(f"Determined IP range from client IP: {ip_range}")
-                    except Exception as e:
-                        logger.error(f"Error processing client IP: {str(e)}")
+        return True
+    except Exception as e:
+        logger.error(f"Home Assistant setup failed: {str(e)}")
+        return False
+
+def setup_watchyourlan(container_name, install_path, config_data):
+    """Setup for WatchYourLAN"""
+    try:
+        # Create directories
+        config_dir = os.path.join(install_path, 'config')
+        data_dir = os.path.join(install_path, 'data')
         
-        # Hole die Umgebungsvariablen aus den Konfigurationsdaten
+        for dir_path in [config_dir, data_dir]:
+            os.makedirs(dir_path, exist_ok=True, mode=0o755)
+        
+        # Get environment variables from config data
         env_vars = config_data.get('env', {})
         
-        # Setze Standardwerte, wenn nicht angegeben
+        # Set default values if not provided
         if 'NETWORK_INTERFACE' not in env_vars or not env_vars['NETWORK_INTERFACE']:
-            env_vars['NETWORK_INTERFACE'] = default_interface
-            logger.info(f"Using default network interface: {default_interface}")
-            
+            env_vars['NETWORK_INTERFACE'] = get_default_network_interface()
+            logger.info(f"Using default network interface: {env_vars['NETWORK_INTERFACE']}")
+        
         if 'IP_RANGE' not in env_vars or not env_vars['IP_RANGE']:
+            # Try to determine IP range from the network interface
+            ip_range = "192.168.1.0/24"  # Default value
+            try:
+                # Get IP address of the interface
+                result = subprocess.run(
+                    ['ip', 'addr', 'show', env_vars['NETWORK_INTERFACE']],
+                    capture_output=True,
+                    text=True
+                )
+                
+                if result.returncode == 0:
+                    # Search for IPv4 addresses
+                    match = re.search(r'inet\s+(\d+\.\d+\.\d+\.\d+)/(\d+)', result.stdout)
+                    if match:
+                        ip_addr = match.group(1)
+                        # Extract the first three octets
+                        ip_parts = ip_addr.split('.')
+                        ip_range = f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}.0/24"
+                        logger.info(f"Detected IP range: {ip_range}")
+            except Exception as e:
+                logger.error(f"Error detecting IP range: {str(e)}")
+            
             env_vars['IP_RANGE'] = ip_range
-            logger.info(f"Using detected IP range: {ip_range}")
+            logger.info(f"Using IP range: {ip_range}")
         
-        # Aktualisiere die Konfigurationsdaten
-        config_data['env'] = env_vars
+        # Get port configuration
+        bootstrap_port = "8850"  # Default value for node-bootstrap
+        gui_port = "8840"  # Default value for WatchYourLAN GUI
         
-        # Hole die Port-Konfiguration
-        port = "8840"  # Standardwert
         if config_data and 'ports' in config_data:
             ports = config_data.get('ports', {})
             if ports and '8840' in ports:
-                port = ports['8840']
-            # Prüfe auch auf Port 8850, falls dieser verwendet wird
-            elif ports and '8850' in ports:
-                port = ports['8850']
-                logger.info(f"Using port 8850 instead of 8840: {port}")
+                gui_port = ports['8840']
+            if ports and '8850' in ports:
+                bootstrap_port = ports['8850']
         
-        logger.info(f"Using port for WatchYourLAN: {port}")
-        
-        # Erstelle die docker-compose.yml mit den korrekten Einstellungen
-        compose_file = os.path.join(install_path, 'docker-compose.yml')
-        
-        # Bestimme das richtige Image basierend auf dem Container-Namen
+        # Determine the correct image based on architecture
         image = "aceberg/watchyourlan:latest"
         if container_name == 'watchyourlanarm':
             image = "aceberg/watchyourlan:latest-arm"
         
-        # Erstelle die docker-compose.yml
+        # Create the docker-compose.yml
+        compose_file = os.path.join(install_path, 'docker-compose.yml')
         with open(compose_file, 'w') as f:
             f.write(f"""version: '3'
 services:
+  node-bootstrap:
+    image: aceberg/node-bootstrap:latest
+    container_name: watchyourlan-bootstrap
+    restart: unless-stopped
+    network_mode: "host"
+    ports:
+      - "{bootstrap_port}:8850"
   watchyourlan:
     image: {image}
     container_name: watchyourlan
     restart: unless-stopped
-    networks:
-      - webdock-network
-    ports:
-      - "{port}:8840"
+    network_mode: "host"
+    depends_on:
+      - node-bootstrap
     volumes:
-      - ./config:/config
       - ./data:/data
+      - ./config:/config
     environment:
-      - TZ=Europe/Berlin
-      - NETWORK_INTERFACE={env_vars['NETWORK_INTERFACE']}
-      - IP_RANGE={env_vars['IP_RANGE']}
+      TZ: Europe/Berlin
+      DBPATH: "/data/db.sqlite"
+      GUIPORT: "{gui_port}"
+      TIMEOUT: "120"
+      SHOUTRRR_URL: ""
+      THEME: "darkly"
+      IGNOREIP: "no"
+      NETWORK_INTERFACE: "{env_vars['NETWORK_INTERFACE']}"
+      IP_RANGE: "{env_vars['IP_RANGE']}"
 
 networks:
   webdock-network:
@@ -2440,7 +2449,8 @@ networks:
 """)
         
         logger.info(f"Created docker-compose.yml for WatchYourLAN with network interface {env_vars['NETWORK_INTERFACE']} and IP range {env_vars['IP_RANGE']}")
-        logger.info(f"Added webdock-network configuration")
+        logger.info(f"WatchYourLAN will use network_mode: host for proper network scanning")
+        logger.info(f"Node-bootstrap will be available at port {bootstrap_port}, WatchYourLAN GUI at port {gui_port}")
         
         return True
     except Exception as e:
@@ -2462,8 +2472,9 @@ def get_default_network_interface():
             if result.returncode == 0 and result.stdout:
                 # Parse die Ausgabe, um das Interface zu extrahieren
                 # Format: default via 192.168.1.1 dev eth0 ...
-                match = re.search(r'dev\s+(\w+)', result.stdout)
+                match = re.search(r'dev\s+(\S+)', result.stdout)
                 if match:
+                    logger.info(f"Found default interface via ip route: {match.group(1)}")
                     return match.group(1)
             
             # Fallback: Liste alle Interfaces auf und wähle das erste nicht-lo Interface
@@ -2475,10 +2486,11 @@ def get_default_network_interface():
             
             if result.returncode == 0:
                 # Parse die Ausgabe, um alle Interfaces zu extrahieren
-                interfaces = re.findall(r'\d+:\s+(\w+):', result.stdout)
-                # Filtere lo (loopback) aus
-                non_lo_interfaces = [iface for iface in interfaces if iface != 'lo']
+                interfaces = re.findall(r'\d+:\s+(\S+):', result.stdout)
+                # Filtere lo (loopback) und docker-Interfaces aus
+                non_lo_interfaces = [iface for iface in interfaces if iface != 'lo' and not iface.startswith('docker') and not iface.startswith('veth') and not iface.startswith('br-')]
                 if non_lo_interfaces:
+                    logger.info(f"Found interfaces: {non_lo_interfaces}, using {non_lo_interfaces[0]}")
                     return non_lo_interfaces[0]
         except FileNotFoundError:
             # 'ip' Befehl nicht verfügbar, versuche alternative Methoden
@@ -2490,6 +2502,7 @@ def get_default_network_interface():
                     for line in f.readlines()[1:]:  # Überspringe die Kopfzeile
                         parts = line.strip().split()
                         if parts[1] == '00000000':  # Default-Route
+                            logger.info(f"Found default interface via /proc/net/route: {parts[0]}")
                             return parts[0]  # Interface-Name
             except Exception as e:
                 logger.error(f"Error reading /proc/net/route: {str(e)}")
@@ -2504,15 +2517,32 @@ def get_default_network_interface():
                 
                 if result.returncode == 0:
                     # Parse die Ausgabe, um alle Interfaces zu extrahieren
-                    interfaces = re.findall(r'^(\w+):', result.stdout, re.MULTILINE)
-                    # Filtere lo (loopback) aus
-                    non_lo_interfaces = [iface for iface in interfaces if iface != 'lo']
+                    interfaces = re.findall(r'^(\S+):', result.stdout, re.MULTILINE)
+                    # Filtere lo (loopback) und docker-Interfaces aus
+                    non_lo_interfaces = [iface for iface in interfaces if iface != 'lo' and not iface.startswith('docker') and not iface.startswith('veth') and not iface.startswith('br-')]
                     if non_lo_interfaces:
+                        logger.info(f"Found interfaces via ifconfig: {non_lo_interfaces}, using {non_lo_interfaces[0]}")
                         return non_lo_interfaces[0]
             except FileNotFoundError:
                 logger.warning("'ifconfig' command not found")
         
+        # Wenn alles fehlschlägt, versuche spezifische Interfaces zu prüfen
+        common_interfaces = ["ens18", "ens160", "eth0", "enp0s3", "wlan0"]
+        for iface in common_interfaces:
+            try:
+                result = subprocess.run(
+                    ['ip', 'addr', 'show', iface],
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode == 0 and "state UP" in result.stdout:
+                    logger.info(f"Found active interface by checking common names: {iface}")
+                    return iface
+            except:
+                pass
+                
         # Wenn alles fehlschlägt, verwende den Standardwert
+        logger.warning("Could not detect network interface, using fallback value eth0")
         return "eth0"  # Fallback-Wert
     except Exception as e:
         logger.error(f"Error detecting default network interface: {str(e)}")
@@ -4199,10 +4229,13 @@ def setup_codeserver(container_name, install_path, config_data=None):
         # Erstelle die docker-compose.yml
         compose_file = os.path.join(install_path, 'docker-compose.yml')
         with open(compose_file, 'w') as f:
-            f.write(f"""services:
+            f.write(f"""version: '3'
+services:
   code-server:
     image: lscr.io/linuxserver/code-server:latest
     container_name: code-server
+    networks:
+      - webdock-network
     environment:
       - PUID={env_vars.get('PUID', '1000')}
       - PGID={env_vars.get('PGID', '1000')}
@@ -4214,22 +4247,214 @@ def setup_codeserver(container_name, install_path, config_data=None):
     ports:
       - {port}:8443
     restart: unless-stopped
+
+networks:
+  webdock-network:
+    external: true
 """)
         
-        logger.info(f"Created Code-Server docker-compose.yml with port: {port}")
+        logger.info(f"Created Code-Server docker-compose.yml with port: {port} and added to webdock-network")
         
         return True
     except Exception as e:
         logger.error(f"Code-Server setup failed: {str(e)}")
         return False
 
+def setup_scrypted(container_name, install_path, config_data=None):
+    """Setup für Scrypted"""
+    try:
+        # Erstelle Verzeichnisse
+        data_dir = os.path.join(install_path, 'data')
+        os.makedirs(data_dir, exist_ok=True, mode=0o755)
+        
+        # Hole die Port-Konfiguration
+        port = "10443"  # Standardwert
+        if config_data and 'ports' in config_data:
+            ports = config_data.get('ports', {})
+            if ports and '10443' in ports:
+                port = ports['10443']
+        
+        # Scrypted benötigt Zugriff auf das Host-Netzwerk für bestimmte Funktionen
+        # Wir erstellen zwei Versionen der docker-compose.yml:
+        # 1. Mit network_mode: host (Standard)
+        # 2. Mit webdock-network (als Alternative)
+        
+        # Erstelle die docker-compose.yml mit host-Netzwerk
+        compose_file = os.path.join(install_path, 'docker-compose.yml')
+        with open(compose_file, 'w') as f:
+            f.write(f"""version: '3'
+services:
+  scrypted:
+    image: ghcr.io/koush/scrypted:latest
+    container_name: scrypted
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./data:/server/volume
+    # logging is noisy and will unnecessarily wear on flash storage.
+    # scrypted has per device in memory logging that is preferred.
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "10"
+""")
+        
+        # Erstelle eine alternative docker-compose.yml mit webdock-network
+        alt_compose_file = os.path.join(install_path, 'docker-compose-network.yml')
+        with open(alt_compose_file, 'w') as f:
+            f.write(f"""version: '3'
+services:
+  scrypted:
+    image: ghcr.io/koush/scrypted:latest
+    container_name: scrypted
+    restart: unless-stopped
+    networks:
+      - webdock-network
+    ports:
+      - "{port}:10443"
+    volumes:
+      - ./data:/server/volume
+    # logging is noisy and will unnecessarily wear on flash storage.
+    # scrypted has per device in memory logging that is preferred.
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "10"
+
+networks:
+  webdock-network:
+    external: true
+""")
+        
+        # Erstelle ein Skript zum Umschalten zwischen den Netzwerkmodi
+        switch_script = os.path.join(install_path, 'switch-network-mode.sh')
+        with open(switch_script, 'w') as f:
+            f.write(f"""#!/bin/bash
+echo "Switching Scrypted network mode..."
+echo "Current mode: $(grep -A 1 'network_mode' docker-compose.yml || echo 'Using webdock-network')"
+echo ""
+
+if grep -q 'network_mode: host' docker-compose.yml; then
+    echo "Switching to webdock-network mode..."
+    docker-compose down
+    cp docker-compose-network.yml docker-compose.yml
+    docker-compose up -d
+    echo "Scrypted is now using webdock-network. Some features might not work properly."
+else
+    echo "Switching to host network mode..."
+    docker-compose down
+    cat > docker-compose.yml << EOF
+version: '3'
+services:
+  scrypted:
+    image: ghcr.io/koush/scrypted:latest
+    container_name: scrypted
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./data:/server/volume
+    # logging is noisy and will unnecessarily wear on flash storage.
+    # scrypted has per device in memory logging that is preferred.
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "10"
+EOF
+    docker-compose up -d
+    echo "Scrypted is now using host network mode."
+fi
+""")
+        
+        # Setze Ausführungsrechte für das Skript
+        os.chmod(switch_script, 0o755)
+        
+        logger.info(f"Created Scrypted docker-compose.yml with host network mode")
+        logger.info(f"Created alternative docker-compose-network.yml with webdock-network")
+        logger.info(f"Created switch-network-mode.sh script to switch between network modes")
+        
+        return True
+    except Exception as e:
+        logger.error(f"Scrypted setup failed: {str(e)}")
+        return False
+
 @app.route('/api/network-info')
 def get_network_info():
     """Gibt Informationen über das Netzwerk zurück"""
     try:
+        # Versuche zuerst, die Netzwerkinformationen aus der JSON-Datei zu lesen
+        network_info_file = os.path.join(app.config.get('CONFIG_DIR', '/app/config'), 'network_info.json')
+        logger.info(f"Looking for network info file at: {network_info_file}")
+        
+        if os.path.exists(network_info_file):
+            try:
+                with open(network_info_file, 'r') as f:
+                    network_info = json.load(f)
+                    logger.info(f"Loaded network info from file: {network_info}")
+                    
+                    # Extrahiere die Informationen
+                    default_interface = network_info.get('interface', 'eth0')
+                    ip_addr = network_info.get('ip_address')
+                    ip_range = network_info.get('ip_range', '192.168.1.0/24')
+                    
+                    logger.info(f"Using interface from file: {default_interface}")
+                    logger.info(f"Using IP range from file: {ip_range}")
+                    
+                    # Versuche, die Client-IP-Adresse zu erhalten
+                    client_ip = request.remote_addr
+                    logger.info(f"Client IP address: {client_ip}")
+                    
+                    return jsonify({
+                        'interface': default_interface,
+                        'ip_address': ip_addr,
+                        'ip_range': ip_range,
+                        'client_ip': client_ip
+                    })
+            except Exception as e:
+                logger.error(f"Error reading network info file: {str(e)}")
+                logger.exception(e)  # Log the full exception with traceback
+        else:
+            logger.warning(f"Network info file not found at: {network_info_file}")
+        
+        # Fallback: Verwende die alte Methode
+        logger.info("Network info file not found or error reading it, using fallback method")
+        
+        # Rest der Funktion bleibt unverändert...
+        
         # Ermittle das Standard-Netzwerkinterface
         default_interface = get_default_network_interface()
         logger.info(f"Detected default network interface: {default_interface}")
+        
+        # Versuche, alle Netzwerkinterfaces mit dem Befehl 'ip a' zu ermitteln
+        try:
+            # Verwende den Befehl 'ip a | grep -E "^[0-9]" | grep -v "lo:" | cat'
+            result = subprocess.run(
+                "ip a | grep -E '^[0-9]' | grep -v 'lo:' | cat",
+                shell=True,
+                capture_output=True,
+                text=True
+            )
+            
+            if result.returncode == 0 and result.stdout:
+                # Suche nach aktiven Interfaces (UP)
+                interfaces = []
+                for line in result.stdout.splitlines():
+                    match = re.search(r'^\d+:\s+(\S+):', line)
+                    if match and 'state UP' in line:
+                        iface = match.group(1)
+                        # Ignoriere Docker- und virtuelle Interfaces
+                        if not iface.startswith('docker') and not iface.startswith('veth') and not iface.startswith('br-'):
+                            interfaces.append(iface)
+                            logger.info(f"Found active interface: {iface}")
+                
+                # Wenn aktive Interfaces gefunden wurden, verwende das erste
+                if interfaces:
+                    default_interface = interfaces[0]
+                    logger.info(f"Using active interface: {default_interface}")
+        except Exception as e:
+            logger.error(f"Error detecting interfaces with 'ip a': {str(e)}")
         
         # Ermittle die IP-Adresse und den Netzwerkbereich
         ip_addr = None
@@ -4237,17 +4462,17 @@ def get_network_info():
         try:
             # Hole die IP-Adresse des Interfaces
             result = subprocess.run(
-                ['ip', 'addr', 'show', default_interface],
+                f"ip addr show {default_interface} | grep 'inet ' | awk '{{print $2}}'",
+                shell=True,
                 capture_output=True,
                 text=True
             )
             
-            if result.returncode == 0:
-                # Suche nach IPv4-Adressen
-                match = re.search(r'inet\s+(\d+\.\d+\.\d+\.\d+)/(\d+)', result.stdout)
-                if match:
-                    ip_addr = match.group(1)
-                    subnet = match.group(2)
+            if result.returncode == 0 and result.stdout:
+                # Extrahiere die IP-Adresse und das Subnetz
+                ip_cidr = result.stdout.strip()
+                if '/' in ip_cidr:
+                    ip_addr, subnet = ip_cidr.split('/')
                     # Berechne den Netzwerkbereich
                     ip_parts = ip_addr.split('.')
                     ip_range = f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}.0/{subnet}"
@@ -4272,6 +4497,23 @@ def get_network_info():
                         logger.info(f"Using client IP to determine network range: {ip_range}")
             except Exception as e:
                 logger.error(f"Error processing client IP: {str(e)}")
+        
+        # Wenn das Interface immer noch eth0 ist (Fallback), aber wir haben ens18 in der Umgebung,
+        # dann verwenden wir ens18
+        if default_interface == "eth0":
+            try:
+                # Prüfe, ob ens18 existiert
+                result = subprocess.run(
+                    "ls /sys/class/net | grep ens18",
+                    shell=True,
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode == 0 and "ens18" in result.stdout:
+                    default_interface = "ens18"
+                    logger.info(f"Overriding interface to ens18 based on system check")
+            except Exception as e:
+                logger.error(f"Error checking for ens18 interface: {str(e)}")
         
         return jsonify({
             'interface': default_interface,

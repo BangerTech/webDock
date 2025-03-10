@@ -1423,6 +1423,36 @@ async function showInstallModal(containerName) {
         // Normalisiere den Container-Namen für die API-Anfrage
         const apiContainerName = containerName === 'mosquitto' ? 'mosquitto-broker' : containerName;
         
+        // Hole Netzwerkinformationen für WatchYourLAN
+        let networkInterface = 'eth0';
+        let ipRange = '192.168.1.0/24';
+        
+        if (containerName === 'watchyourlan' || containerName === 'watchyourlanarm') {
+            try {
+                const networkResponse = await fetch('/api/network-info');
+                if (networkResponse.ok) {
+                    const networkData = await networkResponse.json();
+                    console.log("Network info from server:", networkData);
+                    
+                    if (networkData.interface) {
+                        networkInterface = networkData.interface;
+                    }
+                    
+                    if (networkData.ip_range) {
+                        ipRange = networkData.ip_range;
+                    } else if (networkData.client_ip && networkData.client_ip !== "127.0.0.1" && networkData.client_ip !== "::1") {
+                        // Verwende die Client-IP vom Server
+                        const ipParts = networkData.client_ip.split('.');
+                        if (ipParts.length === 4) {
+                            ipRange = `${ipParts[0]}.${ipParts[1]}.${ipParts[2]}.0/24`;
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error("Error fetching network info:", error);
+            }
+        }
+        
         // Hole Template-Konfiguration
         const response = await fetch(`/api/container/${apiContainerName}/config?template=true`);
         if (!response.ok) {
@@ -1458,241 +1488,71 @@ async function showInstallModal(containerName) {
         const ports = service.ports || [];
         const environment = service.environment || {};
         
-        // Spezielle Felder für verschiedene Container
-        let additionalFields = '';
-        
-        // Mosquitto-Broker
-        if (containerName === 'mosquitto-broker' || containerName === 'mosquitto') {
-            additionalFields = `
-                <div class="auth-section" style="margin-bottom: 20px; padding: 15px; background: var(--color-background-dark); border-radius: 8px;">
-                    <h3 style="margin-bottom: 15px;">Authentication Settings</h3>
-                    <div class="form-group">
-                        <label class="checkbox-label" style="display: flex; align-items: center; cursor: pointer;">
-                            <input type="checkbox" id="mqtt-auth" name="mqtt-auth" style="margin-right: 10px;">
-                            <span>Enable Authentication</span>
-                        </label>
-                    </div>
-                    <div class="auth-credentials" style="display: none; margin-top: 15px;">
-                        <div class="form-group">
-                            <label for="mqtt-username">MQTT Username</label>
-                            <input type="text" id="mqtt-username" name="mqtt-username" placeholder="Enter username" class="form-control">
-                        </div>
-                        <div class="form-group">
-                            <label for="mqtt-password">MQTT Password</label>
-                            <input type="password" id="mqtt-password" name="mqtt-password" placeholder="Enter password" class="form-control">
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
-        // InfluxDB
-        else if (containerName === 'influxdb' || containerName === 'influxdb-arm' || containerName === 'influxdb-x86') {
-            additionalFields = `
-                <div class="influxdb-section" style="margin-bottom: 20px; padding: 15px; background: var(--color-background-dark); border-radius: 8px;">
-                    <h3 style="margin-bottom: 15px;">Database Settings</h3>
-                    <div class="form-group">
-                        <label class="checkbox-label" style="display: flex; align-items: center; cursor: pointer;">
-                            <input type="checkbox" id="influxdb-create-db" name="influxdb-create-db" style="margin-right: 10px;">
-                            <span>Create Default Database</span>
-                        </label>
-                    </div>
-                    <div class="db-credentials" style="display: none; margin-top: 15px;">
-                        <div class="form-group">
-                            <label for="db-name">Database Name</label>
-                            <input type="text" id="db-name" name="db-name" value="database1" placeholder="Enter database name" class="form-control">
-                        </div>
-                        <div class="form-group">
-                            <label for="db-user">Database User</label>
-                            <input type="text" id="db-user" name="db-user" value="user1" placeholder="Enter username" class="form-control">
-                        </div>
-                        <div class="form-group">
-                            <label for="db-password">Database Password</label>
-                            <input type="password" id="db-password" name="db-password" value="pwd12345" placeholder="Enter password" class="form-control">
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
-        // Dockge
-        else if (containerName === 'dockge') {
-            additionalFields = `
-                <div class="dockge-section" style="margin-bottom: 20px; padding: 15px; background: var(--color-background-dark); border-radius: 8px;">
-                    <h3 style="margin-bottom: 15px;">Dockge Settings</h3>
-                    <div class="form-group">
-                        <label for="stacks-dir">Stacks Directory</label>
-                        <input type="text" id="stacks-dir" name="stacks-dir" value="/home/webDock/docker-compose-data" placeholder="Enter stacks directory path" class="form-control">
-                        <small class="hint">Directory where your docker-compose stacks are stored</small>
-                    </div>
-                </div>
-            `;
-        }
-        // Filestash
-        else if (containerName === 'filestash') {
-            additionalFields = `
-                <div class="filestash-section" style="margin-bottom: 20px; padding: 15px; background: var(--color-background-dark); border-radius: 8px;">
-                    <h3 style="margin-bottom: 15px;">Filestash Setup</h3>
-                    <div class="alert alert-info" style="padding: 10px; background-color: #d1ecf1; color: #0c5460; border-radius: 4px; margin-bottom: 15px;">
-                        <p><strong>Important:</strong> Filestash requires a two-step installation process:</p>
-                        <ol style="margin-left: 20px; margin-top: 10px;">
-                            <li>After clicking "Install", a temporary container will be started.</li>
-                            <li>Go to <strong>http://[your-ip]:8334</strong> to create an admin password.</li>
-                            <li>After creating the password, run the <code>complete_setup.sh</code> script in the installation directory to finalize the setup.</li>
-                        </ol>
-                    </div>
-                    <div class="alert alert-warning" style="padding: 10px; background-color: #fff3cd; color: #856404; border-radius: 4px; margin-top: 15px;">
-                        <p><strong>Note:</strong> The installation will not be complete until you run the <code>complete_setup.sh</code> script after creating your admin password!</p>
-                    </div>
-                </div>
-            `;
-        }
-        // WatchYourLAN
-        else if (containerName === 'watchyourlan' || containerName === 'watchyourlanarm') {
-            // Setze Standardwerte für Netzwerkinterface und IP-Bereich
-            const defaultInterface = "eth0";
-            const defaultIpRange = "192.168.1.0/24";
-            
-            // Versuche, die IP-Adresse aus der Browser-URL zu extrahieren
-            let clientIpRange = null;
-            try {
-                const hostAddress = window.location.hostname;
-                console.log("Host address from browser:", hostAddress);
-                
-                // Wenn es eine IP-Adresse ist, extrahiere die ersten drei Oktette
-                if (/^\d+\.\d+\.\d+\.\d+$/.test(hostAddress)) {
-                    const ipParts = hostAddress.split('.');
-                    clientIpRange = `${ipParts[0]}.${ipParts[1]}.${ipParts[2]}.0/24`;
-                    console.log("Detected IP range from browser:", clientIpRange);
-                }
-            } catch (error) {
-                console.error("Error extracting IP from browser URL:", error);
-            }
-            
-            additionalFields = `
-                <div class="watchyourlan-section" style="margin-bottom: 20px; padding: 15px; background: var(--color-background-dark); border-radius: 8px;">
-                    <h3 style="margin-bottom: 15px;">WatchYourLAN Settings</h3>
-                    <div class="form-group">
-                        <label for="network-interface">Network Interface</label>
-                        <input type="text" id="network-interface" name="network-interface" value="${defaultInterface}" placeholder="Enter network interface" class="form-control">
-                        <small class="hint">The network interface to monitor (e.g. eth0, wlan0)</small>
-                    </div>
-                    <div class="form-group">
-                        <label for="ip-range">IP Range</label>
-                        <input type="text" id="ip-range" name="ip-range" value="${clientIpRange || defaultIpRange}" placeholder="Enter IP range" class="form-control">
-                        <small class="hint">The IP range to scan (e.g. 192.168.1.0/24)</small>
-                    </div>
-                    <div class="form-group">
-                        <label for="wyl-port">Port</label>
-                        <input type="text" id="wyl-port" name="wyl-port" value="8840" placeholder="Enter port" class="form-control">
-                        <small class="hint">The port for WatchYourLAN web interface (default: 8840)</small>
-                    </div>
-                    <div class="alert alert-info" style="padding: 10px; background-color: #d1ecf1; color: #0c5460; border-radius: 4px; margin-top: 15px;">
-                        <p><strong>Note:</strong> The network interface and IP range are automatically detected. Please verify they are correct for your network.</p>
-                    </div>
-                </div>
-            `;
-            
-            // Hole Netzwerkinformationen vom Server
-            setTimeout(() => {
-                fetch('/api/network-info')
-                    .then(response => response.json())
-                    .then(data => {
-                        console.log("Network info from server:", data);
-                        const interfaceInput = document.getElementById('network-interface');
-                        const ipRangeInput = document.getElementById('ip-range');
-                        
-                        if (interfaceInput && data.interface) {
-                            interfaceInput.value = data.interface;
-                        }
-                        
-                        // Priorität für IP-Bereich:
-                        // 1. Browser-URL IP (wenn verfügbar)
-                        // 2. Client-IP vom Server
-                        // 3. Server-erkannter IP-Bereich
-                        if (ipRangeInput && !clientIpRange) {
-                            if (data.client_ip && data.client_ip !== "127.0.0.1" && data.client_ip !== "::1") {
-                                // Verwende die Client-IP vom Server
-                                const ipParts = data.client_ip.split('.');
-                                if (ipParts.length === 4) {
-                                    ipRangeInput.value = `${ipParts[0]}.${ipParts[1]}.${ipParts[2]}.0/24`;
-                                } else if (data.ip_range) {
-                                    ipRangeInput.value = data.ip_range;
-                                }
-                            } else if (data.ip_range) {
-                                ipRangeInput.value = data.ip_range;
-                            }
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error fetching network info:', error);
-                    });
-            }, 100);
-        }
-        // Prometheus
-        else if (containerName === 'prometheus') {
-            additionalFields = `
-                <div class="prometheus-section" style="margin-bottom: 20px; padding: 10px; background: var(--color-background-dark); border-radius: 8px;">
-                    <h3 style="margin-bottom: 15px;">Prometheus Setup</h3>
-                    <div class="alert alert-info" style="padding: 10px; background-color: #d1ecf1; color: #0c5460; border-radius: 4px; margin-bottom: 15px;">
-                        <p><strong>Note:</strong> Prometheus configuration files will be created automatically:</p>
-                        <ul style="margin-left: 20px; margin-top: 10px;">
-                            <li><code>prometheus.yml</code> - Main configuration file</li>
-                            <li><code>alert.yml</code> - Alert rules configuration</li>
-                        </ul>
-                        <p style="margin-top: 10px;">After installation, Prometheus will be available at <code>http://[your-ip]:9090</code></p>
-                    </div>
-                </div>
-            `;
-        }
-        // Standard-Volumes für andere Container
-        else {
-            additionalFields = `
-                <div class="config-section" style="margin-bottom: 20px; padding: 15px; background: var(--color-background-dark); border-radius: 8px;">
-                    <div class="section-header" onclick="toggleConfigSection(this)" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
-                        <h3 style="margin-bottom: 0;">Advanced Configuration</h3>
-                        <i class="fa fa-chevron-down"></i>
-                    </div>
-                    <div class="config-content" style="display: none; margin-top: 15px;">
-                        <div class="form-group">
-                            <label for="config-file">Configuration File</label>
-                            <input type="file" id="config-file" name="config-file" class="form-control">
-                            <small class="hint">Upload a custom configuration file (optional)</small>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
-
         // Erstelle Modal
         const modal = document.createElement('div');
         modal.className = 'modal';
-        modal.id = 'installModal';  // Add ID for easier reference
+        modal.id = 'installModal';
+        
+        // Bestimme, ob die Port-Konfiguration angezeigt werden soll
+        // Für WatchYourLAN nicht anzeigen, da wir spezifische Port-Felder haben
+        const showPortConfig = !(containerName === 'watchyourlan' || containerName === 'watchyourlanarm');
+        
+        // Spezielle Felder für verschiedene Container
+        let additionalFields = '';
+        
+        // Erstelle Modal-Inhalt
         modal.innerHTML = `
             <div class="modal-content">
                 <div class="modal-header">
-                    <h2>
-                        <img src="${getContainerLogo(containerName)}" 
-                             alt="${containerName} logo" 
-                             style="width: 24px; height: 24px; margin-right: 8px;">
-                        Install ${containerName}
-                    </h2>
-                    <button class="close-modal" onclick="closeModal()">&times;</button>
+                    <h2><i class="fa fa-download"></i> Install ${containerName}</h2>
+                    <button class="close-modal">&times;</button>
                 </div>
                 <div class="modal-body">
-                    <div class="section">
-                        <h3>Port Configuration</h3>
-                        <div class="port-mappings">
-                            ${createPortMappings(ports)}
+                    ${showPortConfig && ports.length > 0 ? `
+                        <div class="config-section" style="margin-bottom: 20px; padding: 15px; background: var(--color-background-dark); border-radius: 8px;">
+                            <h3 style="margin-bottom: 15px;">Port Configuration</h3>
+                            <div class="port-mappings">
+                                ${createPortMappings(ports)}
+                            </div>
                         </div>
-                    </div>
-                    ${environment && Object.keys(environment).length > 0 ? `
-                        <div class="section">
-                            <h3>Environment Variables</h3>
-                            <div class="environment-vars">
+                    ` : ''}
+                    ${Object.keys(environment).length > 0 ? `
+                        <div class="config-section" style="margin-bottom: 20px; padding: 15px; background: var(--color-background-dark); border-radius: 8px;">
+                            <h3 style="margin-bottom: 15px;">Environment Variables</h3>
+                            <div class="env-vars">
                                 ${createEnvironmentVars(environment)}
                             </div>
                         </div>
                     ` : ''}
-                    ${additionalFields}
+                    ${containerName === 'watchyourlan' || containerName === 'watchyourlanarm' ? `
+                        <div class="watchyourlan-section" style="margin-bottom: 20px; padding: 15px; background: var(--color-background-dark); border-radius: 8px;">
+                            <h3 style="margin-bottom: 15px;">WatchYourLAN Settings</h3>
+                            <div class="form-group">
+                                <label for="network-interface">Network Interface</label>
+                                <input type="text" id="network-interface" name="network-interface" value="${networkInterface}" placeholder="Enter network interface" class="form-control">
+                                <small class="hint">The network interface to monitor (e.g. eth0, ens18)</small>
+                            </div>
+                            <div class="form-group">
+                                <label for="ip-range">IP Range</label>
+                                <input type="text" id="ip-range" name="ip-range" value="${ipRange}" placeholder="Enter IP range" class="form-control">
+                                <small class="hint">The IP range to scan (e.g. 192.168.1.0/24)</small>
+                            </div>
+                            <div class="form-group">
+                                <label for="wyl-port">WatchYourLAN GUI Port</label>
+                                <input type="text" id="wyl-port" name="wyl-port" value="8840" placeholder="Enter port" class="form-control">
+                                <small class="hint">The port for WatchYourLAN web interface (default: 8840)</small>
+                            </div>
+                            <div class="form-group">
+                                <label for="bootstrap-port">Node-Bootstrap Port</label>
+                                <input type="text" id="bootstrap-port" name="bootstrap-port" value="8850" placeholder="Enter port" class="form-control">
+                                <small class="hint">The port for Node-Bootstrap service (default: 8850)</small>
+                            </div>
+                            <div class="alert alert-info" style="padding: 10px; background-color: #d1ecf1; color: #0c5460; border-radius: 4px; margin-top: 15px;">
+                                <p><strong>Note:</strong> The network interface and IP range are automatically detected. Please verify they are correct for your network.</p>
+                                <p><strong>Important:</strong> WatchYourLAN requires host network mode to properly scan your network. The main interface will be available at the GUI port specified above.</p>
+                            </div>
+                        </div>
+                    ` : ''}
                 </div>
                 <div class="modal-footer">
                     <button class="install-btn" onclick="executeInstall('${containerName}')">Install</button>
@@ -1728,7 +1588,6 @@ async function showInstallModal(containerName) {
         modal.addEventListener('click', (e) => {
             if (e.target === modal) closeModal();
         });
-        
     } catch (error) {
         console.error('Error:', error);
         showNotification('error', `Error preparing installation for ${containerName}`);
@@ -1904,24 +1763,31 @@ async function executeInstall(containerName) {
             // Hole Netzwerkschnittstelle und IP-Range
             const networkInterface = document.getElementById('network-interface')?.value || 'eth0';
             const ipRange = document.getElementById('ip-range')?.value || '192.168.1.0/24';
-            const port = document.getElementById('wyl-port')?.value || '8840';
+            const guiPort = document.getElementById('wyl-port')?.value || '8840';
+            const bootstrapPort = document.getElementById('bootstrap-port')?.value || '8850';
             
             // Setze Umgebungsvariablen für WatchYourLAN
             installData.env = {
                 'NETWORK_INTERFACE': networkInterface,
-                'IP_RANGE': ipRange
+                'IP_RANGE': ipRange,
+                'GUIPORT': guiPort  // Setze den GUI-Port auch als Umgebungsvariable
             };
             
-            // Setze den Port für WatchYourLAN
+            // Setze die Ports für WatchYourLAN
             installData.ports = {
-                '8840': port
+                '8840': guiPort,
+                '8850': bootstrapPort
             };
+            
+            // Speichere den dynamischen GUI-Port für die Anzeige auf der Karte
+            installData.port = guiPort;
             
             // Debug-Logging
             console.log('=== WatchYourLAN Installation Config ===');
             console.log('Network Interface:', networkInterface);
             console.log('IP Range:', ipRange);
-            console.log('Port:', port);
+            console.log('GUI Port:', guiPort);
+            console.log('Bootstrap Port:', bootstrapPort);
         }
         // Scrypted-spezifische Konfiguration
         else if (containerName === 'scrypted') {
@@ -2006,6 +1872,8 @@ async function executeInstall(containerName) {
         });
 
         const result = await response.json();
+        console.log('=== Installation Response ===');
+        console.log(JSON.stringify(result, null, 2));
 
         if (result.status === 'success') {
             // Spezielle Nachricht für Filestash
@@ -2022,12 +1890,42 @@ async function executeInstall(containerName) {
             // Aktualisiere die Container-Anzeige
             updateContainerStatus(true);
         } else {
-            throw new Error(result.message || 'Installation failed');
+            // Zeige die Fehlermeldung vom Server an
+            const errorMessage = result.message || 'Installation failed';
+            showNotification('error', errorMessage);
+            
+            // Wenn es sich um einen Port-Konflikt handelt, zeige eine spezielle Meldung im Modal an
+            if (errorMessage.includes('Port') && errorMessage.includes('already in use')) {
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'error-message';
+                errorDiv.innerHTML = `
+                    <div class="alert alert-danger" style="margin-top: 15px; padding: 10px; background-color: #f8d7da; color: #721c24; border-radius: 4px;">
+                        <strong>Error:</strong> ${errorMessage}
+                    </div>
+                `;
+                
+                // Füge die Fehlermeldung zum Modal hinzu
+                const modalFooter = document.querySelector('.modal .modal-footer');
+                if (modalFooter) {
+                    // Entferne vorherige Fehlermeldungen
+                    const previousError = document.querySelector('.modal .error-message');
+                    if (previousError) {
+                        previousError.remove();
+                    }
+                    
+                    modalFooter.parentNode.insertBefore(errorDiv, modalFooter);
+                }
+            } else {
+                // Bei anderen Fehlern schließe das Modal
+                closeModal();
+            }
         }
-
     } catch (error) {
         console.error('Installation error:', error);
         showNotification('error', error.message || 'Installation failed');
+        
+        // Schließe das Modal bei unerwarteten Fehlern
+        closeModal();
     } finally {
         // Verstecke Loading-Overlay
         if (loadingOverlay) {
@@ -2185,6 +2083,31 @@ function getContainerLogo(containerName) {
 function createContainerCard(container) {
     const logoUrl = getContainerLogo(container.name);
     const description = getContainerDescription(container.name);
+    
+    // Bestimme das richtige Protokoll (HTTP oder HTTPS)
+    const protocol = container.name === 'scrypted' ? 'https' : 'http';
+    
+    // Spezielle Anzeige für WatchYourLAN
+    let portDisplay = '';
+    if (container.name === 'watchyourlan' || container.name === 'watchyourlanarm') {
+        // Für WatchYourLAN zeigen wir den GUI-Port an (aus der Container-Konfiguration)
+        const guiPort = container.port || '8840'; // Verwende container.port oder Fallback auf 8840
+        portDisplay = `<p>Port: <a href="${protocol}://${window.location.hostname}:${guiPort}" 
+                        target="_blank" 
+                        class="port-link"
+                        title="Open WatchYourLAN interface"
+                    >${guiPort}</a></p>`;
+    } else {
+        // Standard-Port-Anzeige für andere Container
+        portDisplay = `<p>Port: ${container.port ? 
+            `<a href="${protocol}://${window.location.hostname}:${container.port}" 
+                target="_blank" 
+                class="port-link"
+                title="Open container interface"
+            >${container.port}</a>` 
+            : 'N/A'}</p>`;
+    }
+    
     return `
         <div class="container-card">
             <div class="status-indicator ${container.status}"></div>
@@ -2194,20 +2117,14 @@ function createContainerCard(container) {
                      onerror="this.src='/static/img/icons/bangertech.png'">
             </div>
             <div class="name-with-settings">
-                <h3 class="tooltip-trigger" data-tooltip="${description}">${container.name}</h3>
+                <h3 ${container.installed && container.port ? `onclick="window.open('${protocol}://${window.location.hostname}:${container.port}', '_blank')" style="cursor: pointer;"` : ''}>${container.name}</h3>
                 ${container.installed ? `
                     <button class="info-btn" onclick="openInfo('${container.name}')" title="Container Information">
                         <i class="fa fa-info-circle"></i>
                     </button>
                 ` : ''}
             </div>
-            <p>Port: ${container.port ? 
-                `<a href="http://${window.location.hostname}:${container.port}" 
-                    target="_blank" 
-                    class="port-link"
-                    title="Open container interface"
-                >${container.port}</a>` 
-                : 'N/A'}</p>
+            ${portDisplay}
             <p>${container.description || ''}</p>
             <div class="actions">
                 ${container.installed ? `
@@ -2248,6 +2165,9 @@ async function openInfo(containerName) {
             console.error('Error loading config files:', error);
         }
         
+        // Hole das Container-Logo
+        const logoUrl = getContainerLogo(containerName);
+        
         // Erstelle Modal
         const modal = document.createElement('div');
         modal.className = 'modal';
@@ -2259,7 +2179,10 @@ async function openInfo(containerName) {
         modal.innerHTML = `
             <div class="modal-content">
                 <div class="modal-header">
-                    <h2><i class="fa fa-info-circle"></i> ${containerName}</h2>
+                    <h2>
+                        <img src="${logoUrl}" alt="${containerName} logo" style="height: 24px; width: 24px; margin-right: 8px; vertical-align: middle;" onerror="this.src='/static/img/icons/bangertech.png'">
+                        ${containerName}
+                    </h2>
                     <button class="close-modal">&times;</button>
                 </div>
                 <div class="modal-body">
