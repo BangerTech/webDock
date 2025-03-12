@@ -364,35 +364,35 @@ def get_container_status(project_name):
         return []
 
 def setup_container_environment(container_name, install_path, config_data=None):
-    """Führt container-spezifische Setups durch"""
-    try:
-        logger.info(f"Setting up environment for {container_name} in {install_path}")
-        
-        # Container-spezifische Setups
-        if container_name == 'mosquitto-broker':
-            return setup_mosquitto(container_name, install_path)
-            
-        elif container_name == 'grafana':
-            return setup_grafana(container_name, install_path)
-            
-        elif container_name == 'influxdb-x86':
-            return setup_influxdb(container_name, install_path, config_data)
-            
-        elif container_name == 'dockge':
-            return setup_dockge(container_name, install_path, config_data)
-            
-        elif container_name == 'filestash':
-            return setup_filestash(container_name, install_path)
-            
-        elif container_name == 'watchyourlan':
-            return setup_watchyourlan(container_name, install_path, config_data)
-            
-        # Für Container ohne spezielle Setup-Anforderungen
+    """Setup container environment based on container type"""
+    if container_name == 'mosquitto':
+        return setup_mosquitto(container_name, install_path, config_data)
+    elif container_name == 'grafana':
+        return setup_grafana(container_name, install_path, config_data)
+    elif container_name == 'influxdb':
+        return setup_influxdb(container_name, install_path, config_data)
+    elif container_name == 'dockge':
+        return setup_dockge(container_name, install_path, config_data)
+    elif container_name == 'filestash':
+        return setup_filestash(container_name, install_path, config_data)
+    elif container_name == 'homeassistant':
+        return setup_homeassistant(container_name, install_path, config_data)
+    elif container_name in ['watchyourlan', 'watchyourlanarm']:
+        return setup_watchyourlan(container_name, install_path, config_data)
+    elif container_name == 'prometheus':
+        return setup_prometheus(container_name, install_path, config_data)
+    elif container_name == 'hoarder':
+        return setup_hoarder(container_name, install_path, config_data)
+    elif container_name == 'codeserver':
+        return setup_codeserver(container_name, install_path, config_data)
+    elif container_name == 'scrypted':
+        return setup_scrypted(container_name, install_path, config_data)
+    elif container_name == 'node-red':
+        return setup_nodered(container_name, install_path, config_data)
+    else:
+        # For other containers, just create the directory
+        os.makedirs(install_path, exist_ok=True)
         return True
-        
-    except Exception as e:
-        logger.error(f"Error in setup for {container_name}: {str(e)}")
-        return False
 
 def download_compose_files():
     """Lädt die docker-compose Files von GitHub herunter"""
@@ -4554,6 +4554,50 @@ def get_network_info():
     except Exception as e:
         logger.exception(f"Error getting network info: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+def setup_nodered(container_name, install_path, config_data=None):
+    """Setup for Node-RED"""
+    try:
+        # Create directories
+        data_dir = os.path.join(install_path, 'data')
+        os.makedirs(data_dir, exist_ok=True, mode=0o777)  # Set permissions to 777 to avoid permission issues
+        
+        # Get port configuration
+        port = "1880"  # Default port for Node-RED
+        
+        if config_data and 'ports' in config_data:
+            ports = config_data.get('ports', {})
+            if ports and '1880' in ports:
+                port = ports['1880']
+        
+        # Create the docker-compose.yml
+        compose_file = os.path.join(install_path, 'docker-compose.yml')
+        with open(compose_file, 'w') as f:
+            f.write(f"""services:
+  node-red:
+    image: nodered/node-red:latest
+    container_name: node-red
+    environment:
+      - TZ=Europe/Berlin
+    ports:
+      - "{port}:1880"
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+    networks:
+      - webdock-network
+
+networks:
+  webdock-network:
+    external: true
+""")
+        
+        logger.info(f"Created docker-compose.yml for Node-RED with port {port}")
+        logger.info(f"Set permissions for Node-RED data directory to 777")
+        return True
+    except Exception as e:
+        logger.error(f"Node-RED setup failed: {str(e)}")
+        return False
 
 if __name__ == '__main__':
     # Initialisiere die Anwendung

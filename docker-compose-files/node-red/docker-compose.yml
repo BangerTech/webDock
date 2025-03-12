@@ -1,0 +1,17 @@
+services:
+  node-red:
+    image: nodered/node-red:latest
+    container_name: node-red
+    networks:
+      - webdock-network
+    environment:
+      - TZ=Europe/Berlin
+    ports:
+      - "1880:1880"
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+
+networks:
+  webdock-network:
+    external: true

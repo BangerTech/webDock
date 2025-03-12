@@ -1553,6 +1553,20 @@ async function showInstallModal(containerName) {
                             </div>
                         </div>
                     ` : ''}
+                    ${containerName === 'node-red' ? `
+                        <div class="node-red-section" style="margin-bottom: 20px; padding: 15px; background: var(--color-background-dark); border-radius: 8px;">
+                            <h3 style="margin-bottom: 15px;">Node-RED Settings</h3>
+                            <div class="form-group">
+                                <label for="node-red-port">Node-RED Port</label>
+                                <input type="text" id="node-red-port" name="node-red-port" value="1880" placeholder="Enter port" class="form-control">
+                                <small class="hint">The port for Node-RED web interface (default: 1880)</small>
+                            </div>
+                            <div class="alert alert-info" style="padding: 10px; background-color: #d1ecf1; color: #0c5460; border-radius: 4px; margin-top: 15px;">
+                                <p><strong>Note:</strong> Node-RED is a powerful flow-based programming tool for connecting hardware devices, APIs and online services.</p>
+                                <p>After installation, you can access the Node-RED editor at <strong>http://your-server-ip:1880</strong></p>
+                            </div>
+                        </div>
+                    ` : ''}
                 </div>
                 <div class="modal-footer">
                     <button class="install-btn" onclick="executeInstall('${containerName}')">Install</button>
@@ -1788,6 +1802,32 @@ async function executeInstall(containerName) {
             console.log('IP Range:', ipRange);
             console.log('GUI Port:', guiPort);
             console.log('Bootstrap Port:', bootstrapPort);
+        }
+        // Node-RED-spezifische Konfiguration
+        else if (containerName === 'node-red') {
+            installData.volumes = [
+                `./data:/data`
+            ];
+            
+            // Hole den Node-RED Port
+            const nodeRedPort = document.getElementById('node-red-port')?.value || '1880';
+            
+            // Setze Umgebungsvariablen für Node-RED
+            installData.env = {
+                'TZ': 'Europe/Berlin'
+            };
+            
+            // Setze die Ports für Node-RED
+            installData.ports = {
+                '1880': nodeRedPort
+            };
+            
+            // Speichere den dynamischen Port für die Anzeige auf der Karte
+            installData.port = nodeRedPort;
+            
+            // Debug-Logging
+            console.log('=== Node-RED Installation Config ===');
+            console.log('Port:', nodeRedPort);
         }
         // Scrypted-spezifische Konfiguration
         else if (containerName === 'scrypted') {
