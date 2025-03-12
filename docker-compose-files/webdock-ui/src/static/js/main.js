@@ -30,7 +30,7 @@ function getContainerDescription(containerName) {
 }
 
 // Globale closeModal Funktion
-function closeModal() { 
+function closeModal(containerName = null) { 
     // Suche nach allen modalen Dialogen
     const modals = document.querySelectorAll('.modal');
     
@@ -48,8 +48,18 @@ function closeModal() {
         }, 300);
     });
     
+    // Wenn ein Container-Name angegeben wurde, setze dessen Install-Button zurück
+    if (containerName) {
+        const mainButton = document.querySelector(`[data-container="${containerName}"] .install-btn`);
+        if (mainButton) {
+            mainButton.disabled = false;
+            mainButton.classList.remove('loading');
+            mainButton.innerHTML = 'Install';
+        }
+    }
+    
     // Debug-Logging
-    console.log('Modal closed');
+    console.log('Modal closed for container:', containerName);
 }
 
 // Globale Variablen am Anfang der Datei
@@ -167,10 +177,10 @@ document.addEventListener('DOMContentLoaded', function() {
                             };
                         });
                         
-                        // Füge "Other" Kategorie hinzu
-                        groupedContainers['Other'] = {
-                            name: 'Other',
-                            icon: 'fa-cube',
+                        // Füge "Imported" Kategorie hinzu
+                        groupedContainers['Imported'] = {
+                            name: 'Imported',
+                            icon: 'fa-cloud-download-alt',
                             containers: []
                         };
                         
@@ -350,14 +360,282 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Aktualisiere die Log-Anzeige Funktion
-    function updateSystemLogs() {
+    function updateSystemLogs(filterLevel = null, filterSource = null, searchTerm = null) {
         fetch('/api/system/logs')
             .then(response => response.json())
-            .then(logs => {
+            .then(data => {
                 const logsContainer = document.getElementById('system-logs');
                 if (!logsContainer) return;
                 
-                logsContainer.innerHTML = logs.map(log => {
+                // Erstelle Filter-Kontrollen, wenn sie noch nicht existieren
+                const logsSection = logsContainer.closest('.section-content');
+                if (!document.getElementById('log-filter-controls') && logsSection) {
+                    const filterControls = document.createElement('div');
+                    filterControls.id = 'log-filter-controls';
+                    filterControls.className = 'log-filter-controls';
+                    filterControls.innerHTML = `
+                        <div class="filter-row">
+                            <div class="filter-group">
+                                <span>Level:</span>
+                                <button class="log-filter-btn active" data-filter="level" data-value="all">All</button>
+                                <button class="log-filter-btn" data-filter="level" data-value="info">Info</button>
+                                <button class="log-filter-btn" data-filter="level" data-value="warning">Warning</button>
+                                <button class="log-filter-btn" data-filter="level" data-value="error">Error</button>
+                            </div>
+                            <div class="filter-group">
+                                <span>Source:</span>
+                                <button class="log-filter-btn active" data-filter="source" data-value="all">All</button>
+                                <button class="log-filter-btn" data-filter="source" data-value="webdock-ui">WebDock</button>
+                                <button class="log-filter-btn" data-filter="source" data-value="docker">Docker</button>
+                                <button class="log-filter-btn" data-filter="source" data-value="system">System</button>
+                            </div>
+                        </div>
+                        <div class="filter-row">
+                            <div class="search-group">
+                                <input type="text" id="log-search" placeholder="Search logs..." class="form-control">
+                                <button id="log-search-btn"><i class="fa fa-search"></i></button>
+                            </div>
+                            <div class="actions-group">
+                                <button id="log-refresh-btn" title="Refresh logs"><i class="fa fa-refresh"></i></button>
+                                <button id="log-clear-filters-btn" title="Clear all filters"><i class="fa fa-times"></i></button>
+                                <button id="log-export-btn" title="Export logs"><i class="fa fa-download"></i></button>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // Füge vor dem Logs-Container ein
+                    logsSection.insertBefore(filterControls, logsContainer);
+                    
+                    // Event-Listener für Filter-Buttons
+                    document.querySelectorAll('.log-filter-btn').forEach(btn => {
+                        btn.addEventListener('click', () => {
+                            // Deaktiviere andere Buttons in derselben Gruppe
+                            const filterType = btn.dataset.filter;
+                            document.querySelectorAll(`.log-filter-btn[data-filter="${filterType}"]`).forEach(b => {
+                                b.classList.remove('active');
+                            });
+                            btn.classList.add('active');
+                            
+                            // Hole aktuelle Filter
+                            const currentLevelFilter = document.querySelector('.log-filter-btn[data-filter="level"].active').dataset.value;
+                            const currentSourceFilter = document.querySelector('.log-filter-btn[data-filter="source"].active').dataset.value;
+                            const currentSearchTerm = document.getElementById('log-search').value;
+                            
+                            // Aktualisiere Logs mit neuen Filtern
+                            updateSystemLogs(
+                                currentLevelFilter !== 'all' ? currentLevelFilter : null,
+                                currentSourceFilter !== 'all' ? currentSourceFilter : null,
+                                currentSearchTerm || null
+                            );
+                        });
+                    });
+                    
+                    // Event-Listener für Suche
+                    document.getElementById('log-search-btn').addEventListener('click', () => {
+                        const searchTerm = document.getElementById('log-search').value;
+                        const currentLevelFilter = document.querySelector('.log-filter-btn[data-filter="level"].active').dataset.value;
+                        const currentSourceFilter = document.querySelector('.log-filter-btn[data-filter="source"].active').dataset.value;
+                        
+                        updateSystemLogs(
+                            currentLevelFilter !== 'all' ? currentLevelFilter : null,
+                            currentSourceFilter !== 'all' ? currentSourceFilter : null,
+                            searchTerm || null
+                        );
+                    });
+                    
+                    // Event-Listener für Enter-Taste im Suchfeld
+                    document.getElementById('log-search').addEventListener('keyup', (e) => {
+                        if (e.key === 'Enter') {
+                            document.getElementById('log-search-btn').click();
+                        }
+                    });
+                    
+                    // Event-Listener für Refresh-Button
+                    document.getElementById('log-refresh-btn').addEventListener('click', () => {
+                        const currentLevelFilter = document.querySelector('.log-filter-btn[data-filter="level"].active').dataset.value;
+                        const currentSourceFilter = document.querySelector('.log-filter-btn[data-filter="source"].active').dataset.value;
+                        const currentSearchTerm = document.getElementById('log-search').value;
+                        
+                        updateSystemLogs(
+                            currentLevelFilter !== 'all' ? currentLevelFilter : null,
+                            currentSourceFilter !== 'all' ? currentSourceFilter : null,
+                            currentSearchTerm || null
+                        );
+                    });
+                    
+                    // Event-Listener für Clear-Filters-Button
+                    document.getElementById('log-clear-filters-btn').addEventListener('click', () => {
+                        // Setze alle Filter zurück
+                        document.querySelectorAll('.log-filter-btn[data-value="all"]').forEach(btn => {
+                            const filterType = btn.dataset.filter;
+                            document.querySelectorAll(`.log-filter-btn[data-filter="${filterType}"]`).forEach(b => {
+                                b.classList.remove('active');
+                            });
+                            btn.classList.add('active');
+                        });
+                        document.getElementById('log-search').value = '';
+                        
+                        // Aktualisiere Logs ohne Filter
+                        updateSystemLogs();
+                    });
+                    
+                    // Event-Listener für Export-Button
+                    document.getElementById('log-export-btn').addEventListener('click', () => {
+                        // Erstelle CSV aus aktuellen Logs
+                        const csvContent = 'data:text/csv;charset=utf-8,'
+                            + 'Timestamp,Level,Source,Message\n'
+                            + logs.map(log => {
+                                return `"${log.timestamp}","${log.level}","${log.source}","${log.message.replace(/"/g, '""')}"`;
+                            }).join('\n');
+                        
+                        const encodedUri = encodeURI(csvContent);
+                        const link = document.createElement('a');
+                        link.setAttribute('href', encodedUri);
+                        link.setAttribute('download', `webdock-logs-${new Date().toISOString().split('T')[0]}.csv`);
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                    });
+                    
+                    // Füge CSS für die neuen Elemente hinzu
+                    if (!document.getElementById('log-styles')) {
+                        const style = document.createElement('style');
+                        style.id = 'log-styles';
+                        style.textContent = `
+                            .log-filter-controls {
+                                margin-bottom: 15px;
+                                padding: 15px;
+                                background: var(--color-background-dark);
+                                border-radius: 8px;
+                                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                            }
+                            .filter-row {
+                                display: flex;
+                                justify-content: space-between;
+                                margin-bottom: 10px;
+                            }
+                            .filter-row:last-child {
+                                margin-bottom: 0;
+                            }
+                            .filter-group, .search-group, .actions-group {
+                                display: flex;
+                                align-items: center;
+                                gap: 10px;
+                            }
+                            .log-filter-btn {
+                                padding: 6px 12px;
+                                border: none;
+                                border-radius: 4px;
+                                background: var(--color-background);
+                                color: var(--color-text);
+                                cursor: pointer;
+                                transition: all 0.2s;
+                            }
+                            .log-filter-btn:hover {
+                                background: var(--color-background-light);
+                            }
+                            .log-filter-btn.active {
+                                background: var(--color-primary);
+                                color: white;
+                            }
+                            #log-search {
+                                width: 250px;
+                                border-radius: 4px;
+                                border: 1px solid var(--color-border);
+                                padding: 6px 12px;
+                            }
+                            #log-search-btn, #log-refresh-btn, #log-clear-filters-btn, #log-export-btn {
+                                padding: 6px 12px;
+                                border: none;
+                                border-radius: 4px;
+                                background: var(--color-primary);
+                                color: white;
+                                cursor: pointer;
+                                transition: all 0.2s;
+                            }
+                            #log-search-btn:hover, #log-refresh-btn:hover, #log-clear-filters-btn:hover, #log-export-btn:hover {
+                                background: var(--color-primary-dark);
+                            }
+                            #system-logs {
+                                max-height: 600px;
+                                overflow-y: auto;
+                                border-radius: 8px;
+                                border: 1px solid var(--color-border);
+                                background: var(--color-background);
+                                padding: 10px;
+                                font-family: monospace;
+                            }
+                            .log-entry {
+                                display: grid;
+                                grid-template-columns: 100px 80px 80px 1fr;
+                                gap: 10px;
+                                padding: 8px;
+                                border-bottom: 1px solid var(--color-border);
+                                align-items: center;
+                            }
+                            .log-time {
+                                color: var(--color-text-muted);
+                                font-size: 0.9em;
+                                white-space: nowrap;
+                            }
+                            .log-source {
+                                color: var(--color-text);
+                                font-size: 0.9em;
+                                white-space: nowrap;
+                            }
+                            .log-level {
+                                display: inline-flex;
+                                align-items: center;
+                                gap: 5px;
+                                font-size: 0.9em;
+                                white-space: nowrap;
+                            }
+                            .log-message {
+                                color: var(--color-text);
+                                line-height: 1.4;
+                                word-break: break-word;
+                            }
+                            .log-entry.info .log-level { color: #17a2b8; }
+                            .log-entry.warning .log-level { color: #ffc107; }
+                            .log-entry.error .log-level { color: #dc3545; }
+                            .log-entry.error .log-message {
+                                color: #dc3545;
+                            }
+                            .log-entry i {
+                                font-size: 12px;
+                                width: 14px;
+                                text-align: center;
+                            }
+                        `;
+                        document.head.appendChild(style);
+                    }
+                }
+                
+                // Hole die Logs aus der Response
+                const allLogs = data.logs || [];
+                
+                // Filtere Logs basierend auf den Filtern
+                const filteredLogs = allLogs.filter(log => {
+                    // Filter nach Level
+                    if (filterLevel && log.level.toLowerCase() !== filterLevel.toLowerCase()) {
+                        return false;
+                    }
+                    
+                    // Filter nach Source
+                    if (filterSource && log.source.toLowerCase() !== filterSource.toLowerCase()) {
+                        return false;
+                    }
+                    
+                    // Filter nach Suchbegriff
+                    if (searchTerm && !log.message.toLowerCase().includes(searchTerm.toLowerCase())) {
+                        return false;
+                    }
+                    
+                    return true;
+                });
+                
+                // Aktualisiere die Anzeige der gefilterten Logs
+                logsContainer.innerHTML = filteredLogs.map(log => {
                     const levelClass = log.level.toLowerCase();
                     const sourceIcon = {
                         'webdock-ui': 'fa-desktop',
@@ -367,14 +645,23 @@ document.addEventListener('DOMContentLoaded', function() {
                     
                     return `
                         <div class="log-entry ${levelClass}">
-                            <span class="log-time">${formatLogDate(log.timestamp)}</span>
-                            <span class="log-level">
-                                <i class="fa ${sourceIcon}"></i> ${log.level}
-                            </span>
+                            <span class="log-time">${log.timestamp}</span>
+                            <span class="log-source">${log.source || 'system'}</span>
+                            <span class="log-level">${log.level}</span>
                             <span class="log-message">${log.message}</span>
                         </div>
                     `;
                 }).join('');
+                
+                // Zeige eine Meldung, wenn keine Logs gefunden wurden
+                if (filteredLogs.length === 0) {
+                    logsContainer.innerHTML = `
+                        <div class="no-logs-message">
+                            <i class="fa fa-info-circle"></i>
+                            <p>Keine Logs gefunden, die den aktuellen Filtern entsprechen.</p>
+                        </div>
+                    `;
+                }
                 
                 // Scrolle zum neuesten Log
                 logsContainer.scrollTop = logsContainer.scrollHeight;
@@ -654,7 +941,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     categoryItem.dataset.id = id;
                     categoryItem.draggable = true;
                     
-                    const isOther = category.name === 'Other';
+                    const isImported = category.name === 'Imported';
                     
                     categoryItem.innerHTML = `
                         <div class="drag-handle">
@@ -665,17 +952,17 @@ document.addEventListener('DOMContentLoaded', function() {
                             <span>${category.name}</span>
                         </div>
                         <div class="category-actions">
-                            <button class="edit-category" ${isOther ? 'disabled title="Default category cannot be edited"' : ''}>
+                            <button class="edit-category" ${isImported ? 'disabled title="Default category cannot be edited"' : ''}>
                                 <i class="fa fa-edit"></i>
                             </button>
-                            <button class="delete-category" ${isOther ? 'disabled title="Default category cannot be deleted"' : ''}>
+                            <button class="delete-category" ${isImported ? 'disabled title="Default category cannot be deleted"' : ''}>
                                 <i class="fa fa-trash"></i>
                             </button>
                         </div>
                     `;
                     
-                    // Event-Listener nur hinzufügen, wenn es nicht die "Other" Kategorie ist
-                    if (!isOther) {
+                    // Event-Listener nur hinzufügen, wenn es nicht die "Imported" Kategorie ist
+                    if (!isImported) {
                         categoryItem.querySelector('.edit-category').addEventListener('click', () => editCategory(id));
                         categoryItem.querySelector('.delete-category').addEventListener('click', () => deleteCategory(id));
                     }
@@ -1023,12 +1310,15 @@ document.addEventListener('DOMContentLoaded', function() {
     // Drag & Drop Funktionen
     function handleDragStart(e) {
         e.target.classList.add('dragging');
-        e.dataTransfer.setData('text/plain', e.target.dataset.id);
+        e.dataTransfer.setData('application/json', JSON.stringify({
+            type: 'category',
+            id: e.target.dataset.id
+        }));
     }
 
     function handleDragEnd(e) {
         e.target.classList.remove('dragging');
-        document.querySelectorAll('.category-item').forEach(item => {
+        document.querySelectorAll('.category-item, .category').forEach(item => {
             item.classList.remove('drag-over');
         });
     }
@@ -1039,32 +1329,90 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function handleDragEnter(e) {
         e.preventDefault();
-        e.target.closest('.category-item')?.classList.add('drag-over');
+        const target = e.target.closest('.category-item') || e.target.closest('.category');
+        target?.classList.add('drag-over');
     }
 
     function handleDragLeave(e) {
-        e.target.closest('.category-item')?.classList.remove('drag-over');
+        const target = e.target.closest('.category-item') || e.target.closest('.category');
+        target?.classList.remove('drag-over');
+    }
+
+    function handleContainerDragStart(e, containerName, categoryId) {
+        e.dataTransfer.setData('application/json', JSON.stringify({
+            type: 'container',
+            name: containerName,
+            sourceCategoryId: categoryId
+        }));
+        e.target.classList.add('dragging');
+    }
+
+    function handleContainerDragEnd(e) {
+        e.target.classList.remove('dragging');
+        document.querySelectorAll('.category').forEach(category => {
+            category.classList.remove('drag-over');
+        });
+    }
+
+    async function moveContainer(containerName, sourceCategoryId, targetCategoryId) {
+        try {
+            const response = await fetch('/api/container/move', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    containerName: containerName,
+                    sourceCategory: sourceCategoryId,
+                    targetCategory: targetCategoryId
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to move container');
+            }
+
+            // Aktualisiere die Anzeige
+            updateContainerStatus(true);
+            showNotification('success', `Container ${containerName} wurde in die Kategorie ${targetCategoryId} verschoben`);
+        } catch (error) {
+            console.error('Error moving container:', error);
+            showNotification('error', `Fehler beim Verschieben des Containers: ${error.message}`);
+        }
     }
 
     function handleDrop(e) {
         e.preventDefault();
-        const draggedId = e.dataTransfer.getData('text/plain');
-        const dropTarget = e.target.closest('.category-item');
+        const data = e.dataTransfer.getData('application/json');
+        if (!data) return;
+
+        const droppedItem = JSON.parse(data);
         
-        if (dropTarget && draggedId !== dropTarget.dataset.id) {
-            const categoryList = document.querySelector('.category-list');
-            const items = Array.from(categoryList.children);
-            const draggedItem = items.find(item => item.dataset.id === draggedId);
-            const dropIndex = items.indexOf(dropTarget);
-            
-            categoryList.removeChild(draggedItem);
-            categoryList.insertBefore(draggedItem, dropTarget);
-            
-            // Speichere neue Reihenfolge
-            updateCategoryOrder();
+        if (droppedItem.type === 'category') {
+            const dropTarget = e.target.closest('.category-item');
+            if (dropTarget && droppedItem.id !== dropTarget.dataset.id) {
+                const categoryList = document.querySelector('.category-list');
+                const items = Array.from(categoryList.children);
+                const draggedItem = items.find(item => item.dataset.id === droppedItem.id);
+                const dropIndex = items.indexOf(dropTarget);
+                
+                categoryList.removeChild(draggedItem);
+                categoryList.insertBefore(draggedItem, dropTarget);
+                
+                // Speichere neue Reihenfolge
+                updateCategoryOrder();
+            }
+            dropTarget?.classList.remove('drag-over');
+        } else if (droppedItem.type === 'container') {
+            const dropZone = e.target.closest('.category');
+            if (dropZone) {
+                const targetCategoryId = dropZone.getAttribute('data-id');
+                if (droppedItem.sourceCategoryId !== targetCategoryId) {
+                    moveContainer(droppedItem.name, droppedItem.sourceCategoryId, targetCategoryId);
+                }
+                dropZone.classList.remove('drag-over');
+            }
         }
-        
-        dropTarget?.classList.remove('drag-over');
     }
 
     function updateCategoryOrder() {
@@ -1555,22 +1903,17 @@ async function showInstallModal(containerName) {
                     ` : ''}
                     ${containerName === 'node-red' ? `
                         <div class="node-red-section" style="margin-bottom: 20px; padding: 15px; background: var(--color-background-dark); border-radius: 8px;">
-                            <h3 style="margin-bottom: 15px;">Node-RED Settings</h3>
-                            <div class="form-group">
-                                <label for="node-red-port">Node-RED Port</label>
-                                <input type="text" id="node-red-port" name="node-red-port" value="1880" placeholder="Enter port" class="form-control">
-                                <small class="hint">The port for Node-RED web interface (default: 1880)</small>
-                            </div>
+                            <h3 style="margin-bottom: 15px;">Node-RED Information</h3>
                             <div class="alert alert-info" style="padding: 10px; background-color: #d1ecf1; color: #0c5460; border-radius: 4px; margin-top: 15px;">
                                 <p><strong>Note:</strong> Node-RED is a powerful flow-based programming tool for connecting hardware devices, APIs and online services.</p>
-                                <p>After installation, you can access the Node-RED editor at <strong>http://your-server-ip:1880</strong></p>
+                                <p>After installation, you can access the Node-RED editor at <strong>http://your-server-ip:[PORT]</strong>, where [PORT] is the value you specified in the Port Configuration section above.</p>
                             </div>
                         </div>
                     ` : ''}
                 </div>
                 <div class="modal-footer">
-                    <button class="install-btn" onclick="executeInstall('${containerName}')">Install</button>
-                    <button class="cancel-btn" onclick="closeModal()">Cancel</button>
+                    <button class="install-btn">Install</button>
+                    <button class="cancel-btn">Cancel</button>
                 </div>
             </div>
         `;
@@ -1597,10 +1940,21 @@ async function showInstallModal(containerName) {
             });
         }
         
+        // Event-Listener für Buttons
+        const installButton = modal.querySelector('.install-btn');
+        const cancelButton = modal.querySelector('.cancel-btn');
+        const closeButton = modal.querySelector('.close-modal');
+
+        // Install-Button Event-Listener
+        installButton.addEventListener('click', () => executeInstall(containerName));
+
         // Schließen-Funktionalität
-        modal.querySelector('.close-modal').addEventListener('click', closeModal);
+        const handleClose = () => closeModal(containerName);
+        
+        cancelButton.addEventListener('click', handleClose);
+        closeButton.addEventListener('click', handleClose);
         modal.addEventListener('click', (e) => {
-            if (e.target === modal) closeModal();
+            if (e.target === modal) handleClose();
         });
     } catch (error) {
         console.error('Error:', error);
@@ -1645,11 +1999,15 @@ async function executeInstall(containerName) {
         }
 
         // Deaktiviere den Install-Button und zeige Spinner
-        const installButton = document.querySelector('.modal .install-btn');
-        if (installButton) {
-            installButton.disabled = true;
-            installButton.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Installing...';
+        const mainInstallButton = document.querySelector(`[data-container="${containerName}"] .install-btn`);
+        if (mainInstallButton) {
+            mainInstallButton.disabled = true;
+            mainInstallButton.classList.add('loading');
+            mainInstallButton.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Installing...';
         }
+        
+        // Schließe das Modal ohne den Button zurückzusetzen
+        closeModal();
 
         // Sammle Formulardaten
         const installData = {
@@ -1809,8 +2167,10 @@ async function executeInstall(containerName) {
                 `./data:/data`
             ];
             
-            // Hole den Node-RED Port
-            const nodeRedPort = document.getElementById('node-red-port')?.value || '1880';
+            // Hole den Node-RED Port aus dem Port-Mapping-Feld
+            // Suche nach dem Port-Input für den internen Port 1880
+            const portInput = document.querySelector('input[data-internal-port="1880"]');
+            const nodeRedPort = portInput?.value || '1880';
             
             // Setze Umgebungsvariablen für Node-RED
             installData.env = {
@@ -2120,9 +2480,16 @@ function getContainerLogo(containerName) {
     return `/static/img/icons/${logoFile}`;
 }
 
-function createContainerCard(container) {
+function createContainerCard(container, categoryId) {
     const logoUrl = getContainerLogo(container.name);
-    const description = getContainerDescription(container.name);
+    const description = container.description || '';
+    
+    // Add drag & drop attributes for installed containers
+    const dragAttributes = container.installed ? `
+        draggable="true"
+        ondragstart="handleContainerDragStart(event, '${container.name}', '${categoryId}')"
+        ondragend="handleContainerDragEnd(event)"
+    ` : '';
     
     // Bestimme das richtige Protokoll (HTTP oder HTTPS)
     const protocol = container.name === 'scrypted' ? 'https' : 'http';
@@ -2149,7 +2516,7 @@ function createContainerCard(container) {
     }
     
     return `
-        <div class="container-card">
+        <div class="container-card"${dragAttributes}>
             <div class="status-indicator ${container.status}"></div>
             <div class="container-logo tooltip-trigger" data-tooltip="${description}">
                 <img src="${logoUrl}" 
@@ -3428,6 +3795,21 @@ function createEnvironmentVars(environment) {
 // CSS für die neuen Komponenten
 const style = document.createElement('style');
 style.textContent = `
+    .container-card.dragging {
+        opacity: 0.5;
+        cursor: move;
+    }
+
+    .category.drag-over {
+        background-color: var(--hover-bg-color);
+        border: 2px dashed var(--accent-color);
+    }
+
+    .category-item.drag-over {
+        background-color: var(--hover-bg-color);
+        border: 2px dashed var(--accent-color);
+    }
+
     .port-mapping, .env-var {
         margin-bottom: 15px;
     }

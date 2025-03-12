@@ -45,11 +45,13 @@ last_update = 0
 config_cache = {}
 
 # Konstanten und Konfiguration
-CONFIG_DIR = os.getenv('CONFIG_DIR', '/home/webDock/webdock-data')
+CONFIG_DIR = os.getenv('CONFIG_DIR', '/app/data/config')
+TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), 'config')
 CATEGORIES_FILE = os.path.join(CONFIG_DIR, 'categories.yaml')
 COMPOSE_DIR = os.path.join(CONFIG_DIR, 'compose-files')
-COMPOSE_FILES_DIR = os.getenv('COMPOSE_FILES_DIR', '/home/webDock/docker-compose-files')
-COMPOSE_DATA_DIR = os.getenv('COMPOSE_DATA_DIR', '/home/webDock/webdock-data/compose-files')
+COMPOSE_FILES_DIR = os.getenv('COMPOSE_FILES_DIR', '/app/docker-compose-files')
+WEBDOCK_BASE_PATH = os.getenv('WEBDOCK_BASE_PATH', '/app/webdock')
+COMPOSE_DATA_DIR = os.getenv('COMPOSE_DATA_DIR', os.path.join(WEBDOCK_BASE_PATH, 'docker-compose-data'))
 HOST_CONFIG_FILE = os.path.join(CONFIG_DIR, 'host_config.json')
 
 # SSH Verbindungen speichern
@@ -175,8 +177,19 @@ def _extract_port(ports):
         logger.error(f"Error extracting port: {e}")
         return None
 
+def load_template_categories():
+    """Lädt die Kategorien aus der Template-Datei"""
+    template_file = os.path.join(TEMPLATE_DIR, 'categories.yaml')
+    try:
+        with open(template_file, 'r') as f:
+            categories = yaml.safe_load(f)
+            return categories if categories else {'categories': {}}
+    except Exception as e:
+        logger.error(f"Error loading template categories from {template_file}: {e}")
+        return {'categories': {}}
+
 def load_categories():
-    """Lädt die Kategorien aus der YAML-Datei oder erstellt Standardkategorien"""
+    """Lädt die Kategorien aus der YAML-Datei oder erstellt Standardkategorien aus dem Template"""
     try:
         if os.path.exists(CATEGORIES_FILE):
             with open(CATEGORIES_FILE, 'r') as f:
@@ -198,47 +211,16 @@ def load_categories():
                 
                 return categories
         
-        # Wenn keine Datei existiert, erstelle Standardkategorien
-        default_categories = {
-            'categories': {
-                'smarthome': {
-                    'name': 'Smart Home',
-                    'icon': 'fa-home',
-                    'description': 'Home automation systems',
-                    'containers': ['openhab', 'homeassistant', 'raspberrymatic', 'bambucam', 'scrypted']
-                },
-                'bridge': {
-                    'name': 'Bridge',
-                    'icon': 'fa-exchange',
-                    'description': 'IoT bridges and communication',
-                    'containers': ['homebridge', 'mosquitto-broker', 'zigbee2mqtt']
-                },
-                'dashboard': {
-                    'name': 'Dashboard',
-                    'icon': 'fa-th-large',
-                    'description': 'Visualization and monitoring dashboards',
-                    'containers': ['heimdall', 'grafana']
-                },
-                'service': {
-                    'name': 'Service',
-                    'icon': 'fa-cogs',
-                    'description': 'System services and tools',
-                    'containers': ['codeserver', 'frontail', 'nodeexporter', 'portainer', 'dockge', 'prometheus']
-                },
-                'other': {
-                    'name': 'Other',
-                    'icon': 'fa-ellipsis-h',
-                    'description': 'Additional containers and tools',
-                    'containers': ['whatsupdocker', 'watchyourlan', 'webdock-ui', 'spoolman']
-                }
-            }
-        }
+        # Wenn keine Datei existiert, lade die Kategorien aus dem Template
+        default_categories = load_template_categories()
         
         # Füge plattformspezifische Container hinzu
         if SYSTEM_INFO['is_arm']:
-            default_categories['categories']['service']['containers'].append('filebrowser')
+            if 'system' in default_categories['categories']:
+                default_categories['categories']['system']['containers'].append('filebrowser')
         else:
-            default_categories['categories']['other']['containers'].append('filestash')
+            if 'development' in default_categories['categories'] and 'filestash' not in default_categories['categories']['development']['containers']:
+                default_categories['categories']['development']['containers'].append('filestash')
         
         return default_categories
         
@@ -785,26 +767,33 @@ def get_containers():
             # Hole das Icon für den Container
             icon = get_container_icon(dirname)
             
+            # Hole die Container-Beschreibung aus den Kategorien
+            description = ''
+            if category in categories and dirname in categories[category].get('containers', {}):
+                container_data = categories[category]['containers'][dirname]
+                description = container_data.get('description', '')
+            
             # Füge den Container zur entsprechenden Kategorie hinzu
             container_info = {
                 'name': dirname,
                 'status': status,
                 'installed': is_installed,
                 'port': port,
-                'icon': icon
+                'icon': icon,
+                'description': description
             }
             
             if category_name in grouped_containers:
                 grouped_containers[category_name]['containers'].append(container_info)
             else:
-                # Fallback für unbekannte Kategorien
-                if 'Other' not in grouped_containers:
-                    grouped_containers['Other'] = {
-                        'name': 'Other',
-                        'icon': 'fa-cube',
+                # Fallback für unbekannte Kategorien in die Imported Kategorie
+                if 'Imported' not in grouped_containers:
+                    grouped_containers['Imported'] = {
+                        'name': 'Imported',
+                        'icon': 'fa-cloud-download-alt',
                         'containers': []
                     }
-                grouped_containers['Other']['containers'].append(container_info)
+                grouped_containers['Imported']['containers'].append(container_info)
         
         # Konvertiere das Dictionary in eine Liste für die Antwort
         result = []
@@ -1205,95 +1194,137 @@ def get_system_logs():
     """Gibt die System-Logs zurück"""
     try:
         logs = []
+        current_time = datetime.now()
         
-        # 1. Hole Docker Container Logs
-        cmd = ["docker", "logs", "--tail", "50", "webdock-ui"]
+        def format_timestamp(dt):
+            """Formatiert einen Zeitstempel im einheitlichen Format"""
+            return dt.strftime('%d.%m.%Y, %H:%M:%S')
+        
+        def add_log(message, level='INFO', source='system', timestamp=None):
+            """Fügt einen Log-Eintrag mit einheitlichem Format hinzu"""
+            if timestamp is None:
+                timestamp = current_time
+            
+            # Standardisiere Level
+            level = level.upper()
+            if level not in ['INFO', 'WARNING', 'ERROR', 'STATUS']:
+                level = 'INFO'
+            
+            logs.append({
+                'timestamp': format_timestamp(timestamp),
+                'level': level,
+                'source': source,
+                'message': message.strip()
+            })
+        
+        # 1. Hole Docker Container Logs mit verbessertem Format
+        cmd = ["docker", "logs", "--tail", "50", "--timestamps", "webdock-ui"]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode == 0:
             for line in result.stdout.splitlines():
                 try:
-                    # Versuche das Standard-Log-Format zu parsen
-                    if " - " in line:
-                        parts = line.split(" - ", 3)
-                        if len(parts) >= 3:
-                            timestamp_str = parts[0].strip()
-                            try:
-                                timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S,%f')
-                                timestamp_iso = timestamp.isoformat()
-                            except ValueError:
-                                timestamp_iso = None
-                            
-                            logs.append({
-                                'timestamp': timestamp_iso,
-                                'level': parts[2].strip(),
-                                'message': parts[3].strip() if len(parts) > 3 else parts[-1].strip(),
-                                'source': 'webdock-ui'
-                            })
-                    else:
-                        # Fallback für nicht-standardisierte Log-Zeilen
-                        logs.append({
-                            'timestamp': datetime.now().isoformat(),
-                            'level': 'INFO',
-                            'message': line.strip(),
-                            'source': 'webdock-ui'
-                        })
+                    # Trenne Zeitstempel vom Rest der Nachricht
+                    if len(line) > 30:  # Mindestlänge für Zeitstempel + Nachricht
+                        timestamp_str = line[:30].strip()
+                        message = line[30:].strip()
+                        
+                        try:
+                            timestamp = datetime.strptime(timestamp_str, '%Y-%m-%dT%H:%M:%S.%fZ')
+                        except ValueError:
+                            timestamp = current_time
+                        
+                        # Bestimme Log-Level basierend auf Schlüsselwörtern
+                        level = 'INFO'
+                        if any(word in message.lower() for word in ['error', 'exception', 'fail', 'critical']):
+                            level = 'ERROR'
+                        elif any(word in message.lower() for word in ['warn', 'warning']):
+                            level = 'WARNING'
+                        
+                        add_log(message, level, 'webdock-ui', timestamp)
                 except Exception as e:
                     logger.error(f"Error parsing log line: {e}")
                     continue
-
-        # 2. Hole Docker Events (Container-Status-Änderungen)
-        cmd = ["docker", "events", "--since", "30m", "--until", "now", "--format", 
-               "{{.Time}} - {{.Type}} - {{.Action}} - {{.Actor.Attributes.name}}"]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode == 0:
-            for line in result.stdout.splitlines():
-                try:
-                    parts = line.split(" - ")
-                    if len(parts) >= 4:
-                        timestamp = int(parts[0])
-                        event_type = parts[1]
-                        action = parts[2]
-                        container = parts[3]
-                        
-                        logs.append({
-                            'timestamp': datetime.fromtimestamp(timestamp).isoformat(),
-                            'level': 'EVENT',
-                            'message': f"{event_type}: {action} - Container: {container}",
-                            'source': 'docker'
-                        })
-                except Exception as e:
-                    logger.error(f"Error parsing event: {e}")
-                    continue
-
-        # 3. Hole aktuelle Container-Status
+        
+        # 2. Hole Docker Container Status mit verbessertem Format
         cmd = ["docker", "ps", "-a", "--format", "{{.Names}}\t{{.Status}}\t{{.State}}"]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode == 0:
             for line in result.stdout.splitlines():
                 try:
                     name, status, state = line.split('\t')
-                    logs.append({
-                        'timestamp': datetime.now().isoformat(),
-                        'level': 'STATUS',
-                        'message': f"Container {name}: {status} ({state})",
-                        'source': 'docker'
-                    })
+                    # Formatiere Status-Nachricht
+                    message = f"Container {name}"
+                    if 'running' in state.lower():
+                        if 'unhealthy' in status.lower():
+                            message += " ist nicht gesund"
+                            level = 'WARNING'
+                        else:
+                            message += f" läuft {status.lower()}"
+                            level = 'INFO'
+                    elif 'exited' in state.lower():
+                        message += " ist gestoppt"
+                        level = 'WARNING'
+                    else:
+                        message += f" Status: {state}"
+                        level = 'INFO'
+                    
+                    add_log(message, level, 'docker')
                 except Exception as e:
                     logger.error(f"Error parsing status: {e}")
                     continue
-
-        # Sortiere alle Logs nach Timestamp
-        logs.sort(key=lambda x: x['timestamp'] if x['timestamp'] else '', reverse=True)
-        return jsonify(logs[:100])  # Limitiere auf die letzten 100 Einträge
+        
+        # 3. Hole System-Informationen
+        try:
+            # CPU-Auslastung
+            cpu_percent = psutil.cpu_percent(interval=1)
+            add_log(f"CPU-Auslastung: {cpu_percent}%", 'INFO', 'system')
+            
+            # RAM-Auslastung
+            memory = psutil.virtual_memory()
+            memory_percent = memory.percent
+            add_log(f"RAM-Auslastung: {memory_percent}%", 
+                   'WARNING' if memory_percent > 80 else 'INFO', 
+                   'system')
+            
+            # Festplattennutzung
+            disk = psutil.disk_usage('/')
+            disk_percent = disk.percent
+            add_log(f"Festplattennutzung: {disk_percent}%",
+                   'WARNING' if disk_percent > 80 else 'INFO',
+                   'system')
+            
+        except Exception as e:
+            add_log(f"Fehler beim Abrufen der Systeminfos: {str(e)}", 'ERROR', 'system')
+        
+        # Sortiere Logs nach Zeitstempel (neueste zuerst)
+        logs.sort(key=lambda x: datetime.strptime(x['timestamp'], '%d.%m.%Y, %H:%M:%S'), reverse=True)
+        
+        return jsonify({
+            'logs': logs[:100],  # Limitiere auf die letzten 100 Einträge
+            'summary': {
+                'total': len(logs),
+                'error_count': sum(1 for log in logs if log['level'] == 'ERROR'),
+                'warning_count': sum(1 for log in logs if log['level'] == 'WARNING'),
+                'info_count': sum(1 for log in logs if log['level'] == 'INFO')
+            }
+        })
         
     except Exception as e:
         logger.error(f"Error reading logs: {str(e)}")
-        return jsonify([{
-            'timestamp': datetime.now().isoformat(),
-            'level': 'ERROR',
-            'message': f"Error reading logs: {str(e)}",
-            'source': 'system'
-        }])
+        return jsonify({
+            'logs': [{
+                'timestamp': format_timestamp(current_time),
+                'level': 'ERROR',
+                'message': f"Fehler beim Lesen der Logs: {str(e)}",
+                'source': 'system'
+            }],
+            'summary': {
+                'total': 1,
+                'error_count': 1,
+                'warning_count': 0,
+                'info_count': 0
+            }
+        })
 
 @app.route('/api/docker/info')
 def get_docker_info():
@@ -1470,6 +1501,47 @@ def manage_categories():
     except Exception as e:
         logger.exception("Error managing categories")
         return {'error': str(e)}, 500
+
+@app.route('/api/container/move', methods=['POST'])
+def move_container():
+    data = request.get_json()
+    container_name = data.get('containerName')
+    source_category = data.get('sourceCategory')
+    target_category = data.get('targetCategory')
+    
+    if not all([container_name, source_category, target_category]):
+        return jsonify({'error': 'Missing required fields'}), 400
+        
+    try:
+        # Load categories
+        categories_file = os.path.join(CONFIG_DIR, 'categories.yaml')
+        with open(categories_file, 'r') as f:
+            categories = yaml.safe_load(f)
+            
+        # Remove container from source category
+        if source_category in categories:
+            if container_name in categories[source_category].get('containers', {}):
+                container_data = categories[source_category]['containers'][container_name]
+                del categories[source_category]['containers'][container_name]
+                
+                # Add container to target category
+                if target_category not in categories:
+                    categories[target_category] = {'containers': {}}
+                elif 'containers' not in categories[target_category]:
+                    categories[target_category]['containers'] = {}
+                    
+                categories[target_category]['containers'][container_name] = container_data
+                
+                # Save updated categories
+                with open(categories_file, 'w') as f:
+                    yaml.dump(categories, f, default_flow_style=False)
+                    
+                return jsonify({'success': True})
+            
+        return jsonify({'error': 'Container or category not found'}), 404
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/categories/order', methods=['POST'])
 def update_category_order():
@@ -3455,7 +3527,11 @@ def get_container_icon(container_name):
         'bambucam': 'bambucam',
         'scrypted': 'scrypted',
         'spoolman': 'spoolman',
-        'backuppro': 'backuppro'
+        'backuppro': 'backuppro',
+        'dozzle': 'dozzle',
+        'jellyfin': 'jellyfin',
+        'paperless': 'paperless',
+        'uptime-kuma': 'uptime-kuma'
     }
     
     # Verwende das Mapping, wenn vorhanden, sonst den Container-Namen
@@ -3727,7 +3803,8 @@ def import_compose():
         service_name = list(compose_data['services'].keys())[0]
         
         # Erstelle Verzeichnis im standardisierten Format
-        install_path = os.path.join(CONFIG_DIR, 'compose-files', service_name)
+        # Verwende COMPOSE_DATA_DIR statt CONFIG_DIR, um sicherzustellen, dass Container im richtigen Verzeichnis erstellt werden
+        install_path = os.path.join(COMPOSE_DATA_DIR, service_name)
         os.makedirs(install_path, exist_ok=True)
         
         # Speichere compose file

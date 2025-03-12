@@ -26,6 +26,9 @@ COPY src/static/css/ /app/static/css/
 COPY src/static/js/ /app/static/js/
 COPY src/config/ /app/config/
 
+# Kopiere die Template-Datei
+COPY src/config/categories.yaml /app/config/categories.yaml
+
 # Setze Berechtigungen
 RUN chmod -R 755 /app/static
 RUN chown -R root:root /app/static

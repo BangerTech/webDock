@@ -2,50 +2,104 @@ categories:
   smart_home:
     name: "Smart Home"
     icon: "fa-home"
-    description: "Home automation and IoT containers"
+    description: "Complete Smart Home automation and IoT control"
     containers:
-      - homeassistant
-      - openhab
-      - mosquitto
-      - raspberrymatic
-      - zigbee2mqtt
-      - homebridge
+      homeassistant:
+        name: "Home Assistant"
+        description: "Central Smart Home platform for controlling and automating all IoT devices"
+      openhab:
+        name: "openHAB"
+        description: "Flexible Smart Home solution with extensive device support and rule engine"
+      mosquitto:
+        name: "Mosquitto"
+        description: "Lightweight MQTT broker for IoT communication"
+      raspberrymatic:
+        name: "RaspberryMatic"
+        description: "Alternative firmware for HomeMatic/HomeMatic IP Smart Home systems"
+      zigbee2mqtt:
+        name: "Zigbee2MQTT"
+        description: "Bridge for integrating Zigbee devices into MQTT-based Smart Home systems"
+      homebridge:
+        name: "Homebridge"
+        description: "Server for integrating non-HomeKit devices into the Apple HomeKit ecosystem"
 
   monitoring:
     name: "Monitoring"
     icon: "fa-chart-line"
-    description: "System and network monitoring tools"
+    description: "Comprehensive system and network monitoring"
     containers:
-      - grafana
-      - prometheus
-      - node_exporter
-      - wud
+      grafana:
+        name: "Grafana"
+        description: "Visualization platform for metrics with customizable dashboards"
+      prometheus:
+        name: "Prometheus"
+        description: "Time series database and monitoring system for metrics"
+      node_exporter:
+        name: "Node Exporter"
+        description: "Prometheus exporter for hardware and OS metrics"
+      wud:
+        name: "WUD"
+        description: "Watch your Docker - Monitor Docker container updates"
+      dozzle:
+        name: "Dozzle"
+        description: "Real-time log viewer for Docker containers with web interface"
+      uptime-kuma:
+        name: "Uptime Kuma"
+        description: "Modern and simple uptime monitor for websites and services"
 
   network:
     name: "Network"
     icon: "fa-network-wired"
-    description: "Network management and monitoring"
+    description: "Network management and monitoring tools"
     containers:
-      - watchyourlan
-      - portainer
+      watchyourlan:
+        name: "WatchYourLAN"
+        description: "Network monitoring tool for detecting new devices on LAN"
+      portainer:
+        name: "Portainer"
+        description: "Container management with graphical user interface"
 
   development:
     name: "Development"
     icon: "fa-code"
-    description: "Development tools and environments"
+    description: "Development environments and tools"
     containers:
-      - codeserver
-      - filestash
+      codeserver:
+        name: "Code Server"
+        description: "VS Code in the browser - Complete IDE as web application"
+      filestash:
+        name: "Filestash"
+        description: "Modern web client for SFTP, S3, FTP and other file systems"
+
+  media:
+    name: "Media"
+    icon: "fa-photo-video"
+    description: "Media streaming and management"
+    containers:
+      jellyfin:
+        name: "Jellyfin"
+        description: "Open source media server for videos, music and photos"
+
+  documents:
+    name: "Document Management"
+    icon: "fa-file-alt"
+    description: "Document management and organization"
+    containers:
+      paperless:
+        name: "Paperless-ngx"
+        description: "Document management system with OCR and automatic classification"
 
   system:
     name: "System"
-    icon: "fa-cogs"
+    icon: "fa-server"
+    description: "System services and management tools"
     containers:
-      - "webdock-ui"
-      - "portainer"
+      webdock-ui:
+        name: "WebDock UI"
+        description: "Web-based management interface for Docker containers"
 
   imported:
-    name: 'Imported'
-    icon: 'fa-download'
-    description: 'Manually imported containers'
-    containers: [] 
+    name: "Imported"
+    icon: "fa-cloud-download-alt"
+    description: "Manually imported containers"
+    containers: {}

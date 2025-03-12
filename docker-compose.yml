@@ -8,18 +8,18 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /usr/bin/docker:/usr/bin/docker:ro
       - /usr/libexec/docker/cli-plugins/docker-compose:/usr/libexec/docker/cli-plugins/docker-compose:ro
-      - /home/webDock/docker-compose-data:/home/webDock/docker-compose-data
-      - /home/webDock/docker-compose-files:/app/docker-compose-files
-      - /home/webDock/docker-compose-data/config:/app/config
+      - ${PWD}/../..:/app/webdock
+      - ${PWD}/../../docker-compose-files:/app/docker-compose-files
+      - ${PWD}/../../docker-compose-data/config:/app/data/config
       - ./src/static/img:/app/static/img
     environment:
       - DOCKER_HOST=unix:///var/run/docker.sock
       - FLASK_DEBUG=1
       - FLASK_ENV=development
-      - CONFIG_DIR=/app/config
-      - WEBDOCK_BASE_PATH=/home/webDock
+      - CONFIG_DIR=/app/data/config
+      - WEBDOCK_BASE_PATH=/app/webdock
       - COMPOSE_FILES_DIR=/app/docker-compose-files
-      - COMPOSE_DATA_DIR=/home/webDock/docker-compose-data
+      - COMPOSE_DATA_DIR=/app/webdock/docker-compose-data
     restart: unless-stopped
     networks:
       - webdock-network
