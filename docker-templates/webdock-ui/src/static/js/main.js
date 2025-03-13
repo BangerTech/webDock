@@ -191,12 +191,19 @@ document.addEventListener('DOMContentLoaded', function() {
                                 
                                 // Suche die passende Kategorie
                                 Object.entries(categories || {}).forEach(([id, category]) => {
-                                    if (category.containers && 
-                                        category.containers.includes(container.name) && 
-                                        !assignedContainers.has(container.name)) { // Prüfe ob Container bereits zugewiesen
-                                        groupedContainers[category.name].containers.push(container);
-                                        assignedContainers.add(container.name); // Markiere Container als zugewiesen
-                                        assigned = true;
+                                    if (category.containers) {
+                                        // Check if container.name is in the category's containers list
+                                        const containerInCategory = category.containers.some(c => 
+                                            (typeof c === 'string' && c === container.name) || 
+                                            (c && c.name === container.name)
+                                        );
+                                        
+                                        if (containerInCategory && !assignedContainers.has(container.name)) {
+                                            groupedContainers[category.name].containers.push(container);
+                                            assignedContainers.add(container.name); // Markiere Container als zugewiesen
+                                            assigned = true;
+                                            console.debug(`Assigned ${container.name} to category ${category.name}`);
+                                        }
                                     }
                                 });
                                 
@@ -1338,23 +1345,106 @@ document.addEventListener('DOMContentLoaded', function() {
         target?.classList.remove('drag-over');
     }
 
-    function handleContainerDragStart(e, containerName, categoryId) {
+    // Mache die Drag & Drop-Funktionen global verfügbar
+    window.handleContainerDragStart = function(e, containerName, categoryId) {
+        // Füge die DOM-Position des Elements hinzu, um Sortierung innerhalb einer Kategorie zu ermöglichen
+        const containerCards = Array.from(e.target.closest('.container-grid').querySelectorAll('.container-card'));
+        const position = containerCards.indexOf(e.target.closest('.container-card'));
+        
         e.dataTransfer.setData('application/json', JSON.stringify({
             type: 'container',
             name: containerName,
-            sourceCategoryId: categoryId
+            sourceCategoryId: categoryId,
+            position: position
         }));
         e.target.classList.add('dragging');
-    }
+    };
 
-    function handleContainerDragEnd(e) {
+    window.handleContainerDragEnd = function(e) {
         e.target.classList.remove('dragging');
         document.querySelectorAll('.category').forEach(category => {
             category.classList.remove('drag-over');
         });
-    }
+        // Entferne auch die drag-over-Klasse von allen Container-Karten
+        document.querySelectorAll('.container-card').forEach(card => {
+            card.classList.remove('drag-over');
+        });
+    };
+    
+    // Neue globale Handler für Container-Karten
+    window.handleContainerDragOver = function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+    };
+    
+    window.handleContainerDragEnter = function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const containerCard = e.target.closest('.container-card');
+        if (containerCard) {
+            containerCard.classList.add('drag-over');
+        }
+    };
+    
+    window.handleContainerDragLeave = function(e) {
+        const containerCard = e.target.closest('.container-card');
+        if (containerCard && !containerCard.contains(e.relatedTarget)) {
+            containerCard.classList.remove('drag-over');
+        }
+    };
+    
+    window.handleContainerDrop = function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        try {
+            const data = JSON.parse(e.dataTransfer.getData('application/json'));
+            if (data && data.type === 'container') {
+                const dropTarget = e.target.closest('.container-card');
+                const categoryElement = e.target.closest('.category');
+                
+                if (dropTarget && categoryElement) {
+                    const targetCategoryId = categoryElement.getAttribute('data-id');
+                    const containerGrid = dropTarget.closest('.container-grid');
+                    const allCards = Array.from(containerGrid.querySelectorAll('.container-card'));
+                    const targetPosition = allCards.indexOf(dropTarget);
+                    
+                    console.log('Drop auf Container-Karte:', {
+                        container: data.name,
+                        fromCategory: data.sourceCategoryId,
+                        toCategory: targetCategoryId,
+                        fromPosition: data.position,
+                        toPosition: targetPosition
+                    });
+                    
+                    if (data.sourceCategoryId !== targetCategoryId) {
+                        // Container in eine andere Kategorie verschieben
+                        moveContainer(data.name, data.sourceCategoryId, targetCategoryId, targetPosition);
+                    } else if (targetPosition !== data.position) {
+                        // Container innerhalb der gleichen Kategorie neu anordnen
+                        reorderContainer(data.name, targetCategoryId, data.position, targetPosition);
+                    }
+                } else if (categoryElement) {
+                    // Drop direkt auf eine Kategorie
+                    const targetCategoryId = categoryElement.getAttribute('data-id');
+                    
+                    if (data.sourceCategoryId !== targetCategoryId) {
+                        // Container in eine andere Kategorie verschieben
+                        moveContainer(data.name, data.sourceCategoryId, targetCategoryId);
+                    }
+                }
+                
+                // Entferne die Hervorhebung
+                document.querySelectorAll('.container-card').forEach(card => {
+                    card.classList.remove('drag-over');
+                });
+            }
+        } catch (error) {
+            console.error('Fehler beim Drop-Handling:', error);
+        }
+    };
 
-    async function moveContainer(containerName, sourceCategoryId, targetCategoryId) {
+    async function moveContainer(containerName, sourceCategoryId, targetCategoryId, targetPosition = -1) {
         try {
             const response = await fetch('/api/container/move', {
                 method: 'POST',
@@ -1364,7 +1454,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 body: JSON.stringify({
                     containerName: containerName,
                     sourceCategory: sourceCategoryId,
-                    targetCategory: targetCategoryId
+                    targetCategory: targetCategoryId,
+                    targetPosition: targetPosition
                 })
             });
 
@@ -1372,12 +1463,40 @@ document.addEventListener('DOMContentLoaded', function() {
                 throw new Error('Failed to move container');
             }
 
-            // Aktualisiere die Anzeige
-            updateContainerStatus(true);
+            // Aktualisiere die Anzeige vollständig durch Neuladen der Kategorien
+            loadCategories();
             showNotification('success', `Container ${containerName} wurde in die Kategorie ${targetCategoryId} verschoben`);
         } catch (error) {
             console.error('Error moving container:', error);
             showNotification('error', `Fehler beim Verschieben des Containers: ${error.message}`);
+        }
+    }
+    
+    async function reorderContainer(containerName, categoryId, fromPosition, toPosition) {
+        try {
+            const response = await fetch('/api/container/reorder', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    containerName: containerName,
+                    categoryId: categoryId,
+                    fromPosition: fromPosition,
+                    toPosition: toPosition
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to reorder container');
+            }
+
+            // Aktualisiere die Anzeige vollständig durch Neuladen der Kategorien
+            loadCategories();
+            showNotification('success', `Container ${containerName} wurde neu angeordnet`);
+        } catch (error) {
+            console.error('Error reordering container:', error);
+            showNotification('error', `Fehler beim Neuanordnen des Containers: ${error.message}`);
         }
     }
 
@@ -1407,9 +1526,25 @@ document.addEventListener('DOMContentLoaded', function() {
             const dropZone = e.target.closest('.category');
             if (dropZone) {
                 const targetCategoryId = dropZone.getAttribute('data-id');
-                if (droppedItem.sourceCategoryId !== targetCategoryId) {
-                    moveContainer(droppedItem.name, droppedItem.sourceCategoryId, targetCategoryId);
+                
+                // Bestimme die Zielposition, wenn auf eine Container-Karte gedroppt wurde
+                let targetPosition = -1;
+                const dropContainerCard = e.target.closest('.container-card');
+                
+                if (dropContainerCard) {
+                    const containerGrid = dropContainerCard.closest('.container-grid');
+                    const allCards = Array.from(containerGrid.querySelectorAll('.container-card'));
+                    targetPosition = allCards.indexOf(dropContainerCard);
                 }
+                
+                if (droppedItem.sourceCategoryId !== targetCategoryId) {
+                    // Container in eine andere Kategorie verschieben
+                    moveContainer(droppedItem.name, droppedItem.sourceCategoryId, targetCategoryId, targetPosition);
+                } else if (targetPosition !== -1 && targetPosition !== droppedItem.position) {
+                    // Container innerhalb der gleichen Kategorie neu anordnen
+                    reorderContainer(droppedItem.name, targetCategoryId, droppedItem.position, targetPosition);
+                }
+                
                 dropZone.classList.remove('drag-over');
             }
         }
@@ -2483,13 +2618,19 @@ function getContainerLogo(containerName) {
 function createContainerCard(container, categoryId) {
     const logoUrl = getContainerLogo(container.name);
     const description = container.description || '';
+    const isInstalled = container.installed || false;
+    const state = container.status || 'stopped';
     
-    // Add drag & drop attributes for installed containers
-    const dragAttributes = container.installed ? `
+    // Add drag & drop attributes for all containers
+    const dragAttributes = `
         draggable="true"
         ondragstart="handleContainerDragStart(event, '${container.name}', '${categoryId}')"
         ondragend="handleContainerDragEnd(event)"
-    ` : '';
+        ondragover="handleContainerDragOver(event)"
+        ondragenter="handleContainerDragEnter(event)"
+        ondragleave="handleContainerDragLeave(event)"
+        ondrop="handleContainerDrop(event)"
+    `;
     
     // Bestimme das richtige Protokoll (HTTP oder HTTPS)
     const protocol = container.name === 'scrypted' ? 'https' : 'http';
@@ -2518,26 +2659,27 @@ function createContainerCard(container, categoryId) {
     return `
         <div class="container-card"${dragAttributes}>
             <div class="status-indicator ${container.status}"></div>
-            <div class="container-logo tooltip-trigger" data-tooltip="${description}">
+            <div class="container-logo">
                 <img src="${logoUrl}" 
                      alt="${container.name} logo" 
+                     title="${description}" 
                      onerror="this.src='/static/img/icons/bangertech.png'">
             </div>
             <div class="name-with-settings">
                 <h3 ${container.installed && container.port ? `onclick="window.open('${protocol}://${window.location.hostname}:${container.port}', '_blank')" style="cursor: pointer;"` : ''}>${container.name}</h3>
-                ${container.installed ? `
+                ${isInstalled ? `
                     <button class="info-btn" onclick="openInfo('${container.name}')" title="Container Information">
                         <i class="fa fa-info-circle"></i>
                     </button>
                 ` : ''}
             </div>
             ${portDisplay}
-            <p>${container.description || ''}</p>
+
             <div class="actions">
-                ${container.installed ? `
+                ${isInstalled ? `
                     <div class="button-group">
-                        <button class="status-btn ${container.status}" onclick="toggleContainer('${container.name}')">
-                            ${container.status === 'running' ? 'Stop' : 'Start'}
+                        <button class="status-btn ${state}" onclick="toggleContainer('${container.name}')">
+                            ${state === 'running' ? 'Stop' : 'Start'}
                         </button>
                         <button class="update-btn" onclick="updateContainer('${container.name}')" title="Update container">
                             <i class="fa fa-refresh"></i>

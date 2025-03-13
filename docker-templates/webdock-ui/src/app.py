@@ -34,10 +34,10 @@ app = Flask(__name__,
     static_folder='static',
     template_folder='templates'
 )
-app.debug = True
+app.debug = False
 
-GITHUB_RAW_URL = "https://raw.githubusercontent.com/BangerTech/webDock/main/docker-compose-files"
-GITHUB_API_URL = "https://api.github.com/repos/BangerTech/webDock/contents/docker-compose-files"
+GITHUB_RAW_URL = "https://raw.githubusercontent.com/BangerTech/webDock/development/docker-templates"
+GITHUB_API_URL = "https://api.github.com/repos/BangerTech/webDock/contents/docker-templates?ref=development"
 
 # Cache für Container-Konfigurationen
 CACHE_TIMEOUT = 300  # 5 Minuten
@@ -49,8 +49,11 @@ CONFIG_DIR = os.getenv('CONFIG_DIR', '/app/data/config')
 TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), 'config')
 CATEGORIES_FILE = os.path.join(CONFIG_DIR, 'categories.yaml')
 COMPOSE_DIR = os.path.join(CONFIG_DIR, 'compose-files')
-COMPOSE_FILES_DIR = os.getenv('COMPOSE_FILES_DIR', '/app/docker-compose-files')
-WEBDOCK_BASE_PATH = os.getenv('WEBDOCK_BASE_PATH', '/app/webdock')
+COMPOSE_FILES_DIR = os.getenv('COMPOSE_FILES_DIR', '/app/docker-templates')
+# Definition des Basis-Pfads für WebDock - Container-Pfad und Host-Pfad
+# Der Container nutzt /app/webdock, der Host /home/webDock
+# Für die korrekte Funktionalität verwenden wir den Host-Pfad
+WEBDOCK_BASE_PATH = os.getenv('WEBDOCK_BASE_PATH', '/home/webDock')
 COMPOSE_DATA_DIR = os.getenv('COMPOSE_DATA_DIR', os.path.join(WEBDOCK_BASE_PATH, 'docker-compose-data'))
 HOST_CONFIG_FILE = os.path.join(CONFIG_DIR, 'host_config.json')
 
@@ -65,7 +68,7 @@ host_credentials = {
 }
 
 # Am Anfang der Datei nach den Imports
-WEBDOCK_BASE_PATH = os.environ.get('WEBDOCK_BASE_PATH', '/home/webDock')
+# WEBDOCK_BASE_PATH ist bereits oben definiert
 
 # Stelle sicher, dass die Verzeichnisse existieren
 os.makedirs(COMPOSE_DATA_DIR, exist_ok=True)
@@ -119,10 +122,10 @@ def get_cached_containers():
     
     current_time = time.time()
     if current_time - last_update > CACHE_TIMEOUT:
-        compose_dir = '/app/docker-compose-files'  # Geändert von /home/webDock/docker-compose-files
-        if not os.path.exists(compose_dir):
+        # Stelle sicher, dass wir die lokalen Dateien verwenden
+        if not os.path.exists(COMPOSE_FILES_DIR):
             download_compose_files()
-        config_cache = load_container_configs(compose_dir)
+        config_cache = load_container_configs(COMPOSE_FILES_DIR)
         last_update = current_time
     
     return config_cache
@@ -290,17 +293,26 @@ def get_categories():
 
 def _get_container_group(dirname):
     categories = load_categories()
-    for category_id, category in categories.get('categories', {}).items():
-        if dirname.lower() in category.get('containers', []):
-            return category['name']
+    for category in categories.get('categories', []):
+        container_names = [c.get('name', '').lower() if isinstance(c, dict) else c.lower() for c in category.get('containers', [])]
+        if dirname.lower() in container_names:
+            return category.get('name', 'Other')
     return 'Other'
 
 def _get_group_icon(group):
     categories = load_categories()
-    for category in categories.get('categories', {}).values():
-        if category['name'] == group:
-            return category['icon']
+    for category in categories.get('categories', []):
+        if category.get('name') == group:
+            return category.get('icon', 'fa-cube')
     return 'fa-cube'
+
+def _get_container_description(container_name):
+    categories = load_categories()
+    for category in categories.get('categories', []):
+        for container in category.get('containers', []):
+            if isinstance(container, dict) and container.get('name', '').lower() == container_name.lower():
+                return container.get('description', '')
+    return ''
 
 def get_compose_status(compose_dir):
     """Hole den Status aller Docker Compose Projekte"""
@@ -377,33 +389,106 @@ def setup_container_environment(container_name, install_path, config_data=None):
         return True
 
 def download_compose_files():
-    """Lädt die docker-compose Files von GitHub herunter"""
+    """Lädt die docker-compose Files von GitHub herunter oder verwendet lokale Dateien"""
     try:
-        # Hole die Liste der Verzeichnisse von GitHub
+        # Prüfe zuerst, ob lokale Dateien existieren - aber im Container-Kontext
+        container_compose_dir = COMPOSE_FILES_DIR  # Verwende den Wert der Umgebungsvariable
+        # Verwende WEBDOCK_BASE_PATH für den Host-Pfad, nicht hardcoded
+        host_compose_dir = os.path.join(WEBDOCK_BASE_PATH, 'docker-templates')  # Für Logging
+
+        if os.path.exists(container_compose_dir):
+            # Liste alle lokalen Verzeichnisse auf
+            directories = [d for d in os.listdir(container_compose_dir)
+                         if os.path.isdir(os.path.join(container_compose_dir, d))]
+            directories.sort()
+            
+            logger.info(f"Found {len(directories)} directories: {directories}")
+            logger.info(f"Using local compose files from {host_compose_dir} (container path: {container_compose_dir})")
+            return True
+            
+        # Falls keine lokalen Dateien gefunden wurden, von GitHub herunterladen
         response = requests.get(GITHUB_API_URL)
         if response.status_code != 200:
             raise Exception(f"Failed to get directory listing: {response.status_code}")
         
+        # Extrahiere die Verzeichnisse aus der API-Antwort
         directories = [item['name'] for item in response.json() if item['type'] == 'dir']
+        directories.sort()
+        
         logger.info(f"Found {len(directories)} directories: {directories}")
         
         successful_downloads = 0
         
-        # Erstelle das Basis-Verzeichnis
-        os.makedirs('/app/docker-compose-files', exist_ok=True)
+        # Erstelle das Basis-Verzeichnis mit Umgebungsvariablen
+        os.makedirs(COMPOSE_FILES_DIR, exist_ok=True)
         
         for directory in directories:
             try:
-                # Hole die docker-compose.yml
+                # Versuche die docker-compose.yml aus dem Hauptverzeichnis
                 compose_url = f"{GITHUB_RAW_URL}/{directory}/docker-compose.yml"
                 response = requests.get(compose_url)
                 
                 if response.status_code == 200:
-                    # Erstelle Verzeichnis und speichere die Datei
-                    os.makedirs(f'/app/docker-compose-files/{directory}', exist_ok=True)
-                    with open(f'/app/docker-compose-files/{directory}/docker-compose.yml', 'w') as f:
+                    # Erstelle Verzeichnis und speichere die Datei mit Umgebungsvariablen
+                    dir_path = os.path.join(COMPOSE_FILES_DIR, directory)
+                    os.makedirs(dir_path, exist_ok=True)
+                    
+                    compose_file_path = os.path.join(dir_path, 'docker-compose.yml')
+                    with open(compose_file_path, 'w') as f:
                         f.write(response.text)
                     successful_downloads += 1
+                    logger.info(f"Successfully downloaded {directory}/docker-compose.yml")
+                else:
+                    # Versuche es in den Unterverzeichnissen
+                    found = False
+                    for subdir in ['arm', 'x86']:
+                        compose_url = f"{GITHUB_RAW_URL}/{directory}/{subdir}/docker-compose.yml"
+                        response = requests.get(compose_url)
+                        
+                        if response.status_code == 200:
+                            dir_path = os.path.join(COMPOSE_FILES_DIR, directory)
+                            os.makedirs(dir_path, exist_ok=True)
+                            compose_file_path = os.path.join(dir_path, 'docker-compose.yml')
+                            with open(compose_file_path, 'w') as f:
+                                f.write(response.text)
+                            successful_downloads += 1
+                            logger.info(f"Successfully downloaded {directory}/{subdir}/docker-compose.yml")
+                            found = True
+                            break
+                    
+                    if not found:
+                        # Versuche es im dev Branch
+                        compose_url = f"{GITHUB_RAW_URL.replace('/main/', '/dev/')}/{directory}/docker-compose.yml"
+                        response = requests.get(compose_url)
+                        
+                        if response.status_code == 200:
+                            # Erstelle Verzeichnis und speichere die Datei
+                            dir_path = os.path.join(COMPOSE_FILES_DIR, directory)
+                            os.makedirs(dir_path, exist_ok=True)
+                            compose_file_path = os.path.join(dir_path, 'docker-compose.yml')
+                            with open(compose_file_path, 'w') as f:
+                                f.write(response.text)
+                            successful_downloads += 1
+                            logger.info(f"Successfully downloaded {directory}/docker-compose.yml from dev branch")
+                        else:
+                            # Versuche es in den Unterverzeichnissen des dev Branches
+                            for subdir in ['arm', 'x86']:
+                                compose_url = f"{GITHUB_RAW_URL.replace('/main/', '/dev/')}/{directory}/{subdir}/docker-compose.yml"
+                                response = requests.get(compose_url)
+                                
+                                if response.status_code == 200:
+                                    dir_path = os.path.join(COMPOSE_FILES_DIR, directory)
+                                    os.makedirs(dir_path, exist_ok=True)
+                                    compose_file_path = os.path.join(dir_path, 'docker-compose.yml')
+                                    with open(compose_file_path, 'w') as f:
+                                        f.write(response.text)
+                                    successful_downloads += 1
+                                    logger.info(f"Successfully downloaded {directory}/{subdir}/docker-compose.yml from dev branch")
+                                    found = True
+                                    break
+                            
+                            if not found:
+                                logger.error(f"Could not find docker-compose.yml for {directory} in any location")
                 
             except Exception as e:
                 logger.error(f"Error downloading {directory}: {str(e)}")
@@ -478,26 +563,38 @@ def get_installed_containers():
                 running_containers = result.stdout.strip().split('\n')
                 # Spezielle Behandlung für webdock-ui/bangertech-ui
                 for container in running_containers:
+                    # Normalisiere Container-Namen
+                    normalized_name = container
+                    
+                    # Spezielle Behandlung für bekannte Container
                     if container in ['webdock-ui', 'bangertech-ui']:
-                        installed.add('webdock-ui')  # Normalisiere auf webdock-ui
-                    else:
-                        installed.add(container)
-                        
-                        # Spezielle Behandlung für bekannte Container
-                        if container == 'code-server':
-                            installed.add('codeserver')
-                        elif container == 'node_exporter':
-                            installed.add('nodeexporter')
+                        normalized_name = 'webdock-ui'
+                    elif container == 'code-server':
+                        normalized_name = 'codeserver'
+                    elif container == 'node_exporter':
+                        normalized_name = 'nodeexporter'
+                    elif container == 'paperless':
+                        normalized_name = 'paperless-ngx'
+                    elif container == 'whatsupdocker':
+                        normalized_name = 'wud'
+                    
+                    installed.add(normalized_name)
         except Exception as e:
             logger.error(f"Error getting running containers: {str(e)}")
         
-        # Durchsuche auch docker-compose Dateien
+        # Durchsuche auch docker-compose Dateien unter Verwendung von Umgebungsvariablen
         data_dirs = [
-            '/home/webDock/docker-compose-data',
+            COMPOSE_DATA_DIR,
+            COMPOSE_FILES_DIR,
+            os.path.join(WEBDOCK_BASE_PATH, 'docker-compose-data'),
+            os.path.join(WEBDOCK_BASE_PATH, 'docker-templates'),
             os.path.expanduser('~/docker-compose-data'),
             '.',
             '..'
         ]
+        
+        # Log the directories we're checking
+        logger.info(f"Searching for containers in these directories: {data_dirs}")
         
         for data_dir in data_dirs:
             if not os.path.exists(data_dir):
@@ -510,11 +607,14 @@ def get_installed_containers():
                     with open(compose_file) as f:
                         compose_data = yaml.safe_load(f)
                         if compose_data and 'services' in compose_data:
+                            logger.info(f"Found compose file with services: {compose_file}")
                             for service_name in compose_data['services'].keys():
                                 if service_name in ['webdock-ui', 'bangertech-ui']:
                                     installed.add('webdock-ui')  # Normalisiere auf webdock-ui
+                                    logger.info(f"Found webdock-ui service in {compose_file}")
                                 else:
                                     installed.add(service_name)
+                                    logger.info(f"Found service {service_name} in {compose_file}")
                 except Exception as e:
                     logger.error(f"Error reading {compose_file}: {str(e)}")
             
@@ -650,15 +750,33 @@ def get_containers():
     """Gibt eine Liste aller verfügbaren Container zurück"""
     try:
         # Lade alle verfügbaren Container aus den Docker-Compose-Dateien
-        compose_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'docker-compose-files')
+        compose_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'docker-templates')
         if not os.path.exists(compose_dir):
-            compose_dir = '/app/docker-compose-files'
+            compose_dir = COMPOSE_FILES_DIR
         
         logger.info(f"Loading containers from {compose_dir}")
         
-        # Architektur-spezifische Container-Filterung
+        # Architektur-spezifische Container-Filterung und Aliase
         arm_only_containers = ['filebrowser', 'influxdb-arm', 'watchyourlanarm']
         x86_only_containers = ['filestash', 'influxdb-x86', 'watchyourlan']
+        
+        # Gemeinsame Container (26 Container)
+        common_containers = [
+            'bambucam', 'codeserver', 'dockge', 'dozzle', 'frontail',
+            'grafana', 'heimdall', 'hoarder', 'homeassistant', 'homebridge',
+            'homepage', 'jellyfin', 'mosquitto-broker', 'node-red', 'nodeexporter',
+            'openhab', 'paperless-ngx', 'portainer', 'prometheus', 'raspberrymatic',
+            'scrypted', 'spoolman', 'uptime-kuma', 'webdock-ui', 'wud', 'zigbee2mqtt'
+        ]
+        
+        # Container-Name-Normalisierungen
+        container_aliases = {
+            'whatsupdocker': 'wud',
+            'code-server': 'codeserver',
+            'node_exporter': 'nodeexporter',
+            'paperless': 'paperless-ngx',
+            'bangertech-ui': 'webdock-ui'
+        }
         
         # Lade installierte Container
         installed_containers = get_installed_containers()
@@ -668,12 +786,13 @@ def get_containers():
         running_containers = get_running_containers()
         
         # Lade Kategorien
-        categories = load_categories().get('categories', {})
+        categories = load_categories().get('categories', [])
         
         # Gruppiere Container nach Kategorien
         grouped_containers = {}
         
-        for category_id, category_data in categories.items():
+        for category_data in categories:
+            category_id = category_data.get('id', '')
             category_name = category_data.get('name', category_id)
             category_icon = category_data.get('icon', 'fa-cube')
             
@@ -690,21 +809,31 @@ def get_containers():
             if dirname.startswith('.'):
                 continue
                 
-            # Überspringe nicht-kompatible Container basierend auf der Architektur
-            if SYSTEM_INFO['is_arm'] and dirname in x86_only_containers:
-                logger.info(f"Skipping x86-only container {dirname} on ARM architecture")
-                continue
-            if not SYSTEM_INFO['is_arm'] and dirname in arm_only_containers:
-                logger.info(f"Skipping ARM-only container {dirname} on x86 architecture")
-                continue
+            # Normalisiere Container-Namen
+            container_name = container_aliases.get(dirname, dirname)
+                
+            # Überprüfe, ob der Container für die aktuelle Architektur verfügbar ist
+            if container_name not in common_containers:
+                if SYSTEM_INFO['is_arm'] and container_name in x86_only_containers:
+                    logger.info(f"Skipping x86-only container {container_name} on ARM architecture")
+                    continue
+                if not SYSTEM_INFO['is_arm'] and container_name in arm_only_containers:
+                    logger.info(f"Skipping ARM-only container {container_name} on x86 architecture")
+                    continue
+                
+                # Wenn der Container weder in common_containers noch in den architekturspezifischen Listen ist,
+                # überprüfe ob er in der anderen Architektur-Liste ist
+                if SYSTEM_INFO['is_arm'] and container_name not in arm_only_containers:
+                    logger.warning(f"Container {container_name} not found in common or ARM-specific containers")
+                elif not SYSTEM_INFO['is_arm'] and container_name not in x86_only_containers:
+                    logger.warning(f"Container {container_name} not found in common or x86-specific containers")
                 
             compose_file = os.path.join(compose_dir, dirname, 'docker-compose.yml')
             if not os.path.exists(compose_file):
                 continue
                 
             # Bestimme die Kategorie des Containers
-            category = _get_container_group(dirname)
-            category_name = categories.get(category, {}).get('name', 'Other')
+            category_name = _get_container_group(dirname)
             
             # Lade den Status des Containers
             is_installed = dirname in installed_containers
@@ -768,10 +897,7 @@ def get_containers():
             icon = get_container_icon(dirname)
             
             # Hole die Container-Beschreibung aus den Kategorien
-            description = ''
-            if category in categories and dirname in categories[category].get('containers', {}):
-                container_data = categories[category]['containers'][dirname]
-                description = container_data.get('description', '')
+            description = _get_container_description(dirname)
             
             # Füge den Container zur entsprechenden Kategorie hinzu
             container_info = {
@@ -993,6 +1119,17 @@ def get_docker_compose_cmd():
 @app.route('/api/toggle/<container_name>', methods=['POST'])
 def toggle_container(container_name):
     try:
+        # Prüfe, ob die Docker-Compose-Datei existiert
+        # Verwende COMPOSE_DATA_DIR statt hartcodiertem Pfad, um Benutzereinstellungen zu respektieren
+        compose_file_path = os.path.join(COMPOSE_DATA_DIR, container_name, 'docker-compose.yml')
+        logger.info(f"Checking for docker-compose file at: {compose_file_path}")
+        if not os.path.isfile(compose_file_path):
+            logger.error(f"Docker Compose file not found for container {container_name}: {compose_file_path}")
+            return jsonify({
+                'status': 'error',
+                'message': f"Docker Compose file not found for {container_name}. The container might not be properly installed."
+            }), 404
+            
         # Prüfe ob Container läuft
         result = subprocess.run(
             ['docker', 'ps', '--format', '{{.Names}}'],
@@ -1011,26 +1148,33 @@ def toggle_container(container_name):
         is_running = any(name in running_containers for name in container_names)
         docker_compose_cmd = get_docker_compose_cmd()
         
-        if is_running:
-            # Stoppe Container
-            subprocess.run(f'{docker_compose_cmd} -f /home/webDock/docker-compose-data/{container_name}/docker-compose.yml down',
-                         shell=True, check=True)
-            message = f"Container {container_name} stopped"
-        else:
-            # Starte Container
-            subprocess.run(f'{docker_compose_cmd} -f /home/webDock/docker-compose-data/{container_name}/docker-compose.yml up -d',
-                         shell=True, check=True)
-            message = f"Container {container_name} started"
-        
-        return jsonify({
-            'status': 'success',
-            'message': message
-        })
+        try:
+            if is_running:
+                # Stoppe Container
+                subprocess.run(f'{docker_compose_cmd} -f {compose_file_path} down',
+                             shell=True, check=True)
+                message = f"Container {container_name} stopped"
+            else:
+                # Starte Container
+                subprocess.run(f'{docker_compose_cmd} -f {compose_file_path} up -d',
+                             shell=True, check=True)
+                message = f"Container {container_name} started"
+                
+            return jsonify({
+                'status': 'success',
+                'message': message
+            })
+        except subprocess.CalledProcessError as e:
+            logger.exception(f"Docker command failed for container {container_name}: {e}")
+            return jsonify({
+                'status': 'error',
+                'message': f"Failed to {('stop' if is_running else 'start')} container {container_name}. Error: {str(e)}"
+            }), 500
     except Exception as e:
         logger.exception(f"Error toggling container {container_name}")
         return jsonify({
             'status': 'error',
-            'message': str(e)
+            'message': f"Unexpected error while toggling container {container_name}: {str(e)}"
         }), 500
 
 @app.route('/api/update/<container_name>', methods=['POST'])
@@ -1349,7 +1493,8 @@ def get_docker_info():
 
 @app.route('/api/settings/data-location', methods=['GET', 'POST'])
 def handle_data_location():
-    config_file = '/app/config.json'
+    # Verwende eine Konfigurationsdatei im WebDock-Konfigurationsverzeichnis
+    config_file = os.path.join(CONFIG_DIR, 'data_location.json')
     try:
         if request.method == 'POST':
             new_location = request.json.get('location')
@@ -1389,11 +1534,11 @@ def handle_data_location():
                 with open(config_file, 'r') as f:
                     config = json.load(f)
                     return jsonify({
-                        'location': config.get('data_location', '/home/webDock/docker-compose-data')
+                        'location': config.get('data_location', COMPOSE_DATA_DIR)
                     })
             except FileNotFoundError:
                 return jsonify({
-                    'location': '/home/webDock/docker-compose-data'
+                    'location': COMPOSE_DATA_DIR
                 })
  
     except Exception as e:
@@ -1508,39 +1653,143 @@ def move_container():
     container_name = data.get('containerName')
     source_category = data.get('sourceCategory')
     target_category = data.get('targetCategory')
+    target_position = data.get('targetPosition', -1)  # -1 bedeutet ans Ende anhängen
     
     if not all([container_name, source_category, target_category]):
         return jsonify({'error': 'Missing required fields'}), 400
+        
+    logger.info(f"Moving container {container_name} from {source_category} to {target_category} at position {target_position}")
         
     try:
         # Load categories
         categories_file = os.path.join(CONFIG_DIR, 'categories.yaml')
         with open(categories_file, 'r') as f:
-            categories = yaml.safe_load(f)
+            data = yaml.safe_load(f)
             
-        # Remove container from source category
-        if source_category in categories:
-            if container_name in categories[source_category].get('containers', {}):
-                container_data = categories[source_category]['containers'][container_name]
-                del categories[source_category]['containers'][container_name]
-                
-                # Add container to target category
-                if target_category not in categories:
-                    categories[target_category] = {'containers': {}}
-                elif 'containers' not in categories[target_category]:
-                    categories[target_category]['containers'] = {}
-                    
-                categories[target_category]['containers'][container_name] = container_data
-                
-                # Save updated categories
-                with open(categories_file, 'w') as f:
-                    yaml.dump(categories, f, default_flow_style=False)
-                    
-                return jsonify({'success': True})
+        if not data or 'categories' not in data:
+            return jsonify({'error': 'Invalid categories file format'}), 500
             
-        return jsonify({'error': 'Container or category not found'}), 404
+        categories = data['categories']
+        source_category_data = None
+        target_category_data = None
+        container_data = None
+        
+        # Find source and target categories
+        for category in categories:
+            if category.get('id') == source_category:
+                source_category_data = category
+            elif category.get('id') == target_category:
+                target_category_data = category
+                
+        if not source_category_data or not target_category_data:
+            return jsonify({'error': 'Source or target category not found'}), 404
+            
+        # Find and remove container from source category
+        source_containers = source_category_data.get('containers', [])
+        container_found = False
+        
+        for i, container in enumerate(source_containers):
+            if isinstance(container, dict) and container.get('name') == container_name:
+                container_data = source_category_data['containers'].pop(i)
+                container_found = True
+                break
+            elif isinstance(container, str) and container == container_name:
+                container_data = {'name': container_name}
+                source_category_data['containers'].pop(i)
+                container_found = True
+                break
+        
+        # Wenn der Container nicht in der Quellkategorie gefunden wurde,
+        # erstelle einen neuen Eintrag (für nicht-installierte Container)
+        if not container_found:
+            logger.info(f"Container {container_name} wurde nicht in der Quellkategorie gefunden, erstelle neuen Eintrag")
+            container_data = {'name': container_name}
+            # Wir löschen nichts aus der Quellkategorie, da der Container dort nicht existiert
+            
+        # Add container to target category with position handling
+        if 'containers' not in target_category_data:
+            target_category_data['containers'] = []
+            
+        if target_position >= 0 and target_position < len(target_category_data['containers']):
+            # Füge an spezifischer Position ein
+            target_category_data['containers'].insert(target_position, container_data)
+            logger.info(f"Container {container_name} an Position {target_position} eingefügt")
+        else:
+            # Füge am Ende ein
+            target_category_data['containers'].append(container_data)
+            logger.info(f"Container {container_name} am Ende eingefügt")
+        
+        # Save updated categories
+        with open(categories_file, 'w') as f:
+            yaml.safe_dump(data, f, default_flow_style=False)
+            
+        return jsonify({'success': True})
         
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/container/reorder', methods=['POST'])
+def reorder_container():
+    """Ordnet einen Container innerhalb einer Kategorie neu an"""
+    try:
+        data = request.get_json()
+        container_name = data.get('containerName')
+        category_id = data.get('categoryId')
+        from_position = data.get('fromPosition', -1)
+        to_position = data.get('toPosition', -1)
+        
+        if not all([container_name, category_id]) or from_position < 0 or to_position < 0:
+            return jsonify({'error': 'Missing or invalid required fields'}), 400
+            
+        logger.info(f"Reordering container {container_name} in category {category_id} from position {from_position} to {to_position}")
+        
+        # Kategorien laden
+        categories_file = os.path.join(CONFIG_DIR, 'categories.yaml')
+        with open(categories_file, 'r') as f:
+            categories_data = yaml.safe_load(f)
+            
+        if not categories_data or 'categories' not in categories_data:
+            return jsonify({'error': 'Invalid categories file format'}), 500
+            
+        # Finde die Kategorie
+        category_found = False
+        for category in categories_data['categories']:
+            if category.get('id') == category_id:
+                category_found = True
+                if 'containers' not in category or len(category['containers']) <= from_position:
+                    return jsonify({'error': 'Container position not found'}), 404
+                    
+                # Hole den Container an der from_position
+                container = category['containers'].pop(from_position)
+                
+                # Stelle sicher, dass es der richtige Container ist
+                container_name_in_list = container
+                if isinstance(container, dict):
+                    container_name_in_list = container.get('name')
+                
+                if container_name_in_list != container_name:
+                    # Stelle den Container zurück und gib einen Fehler zurück
+                    category['containers'].insert(from_position, container)
+                    return jsonify({'error': 'Container name mismatch'}), 400
+                
+                # Füge den Container an der to_position ein
+                if to_position >= len(category['containers']):
+                    category['containers'].append(container)
+                else:
+                    category['containers'].insert(to_position, container)
+                break
+                
+        if not category_found:
+            return jsonify({'error': 'Category not found'}), 404
+            
+        # Speichere die aktualisierten Kategorien
+        with open(categories_file, 'w') as f:
+            yaml.safe_dump(categories_data, f, default_flow_style=False)
+            
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        logger.exception(f"Error reordering container: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/categories/order', methods=['POST'])
@@ -1570,9 +1819,16 @@ def init_app():
         os.makedirs('/app/config', exist_ok=True)
         os.makedirs('/app/data', exist_ok=True)
         
-        # Lade die docker-compose Files beim Start
-        logger.info("Downloading compose files on startup...")
-        download_compose_files()
+        # Überprüfe, ob wir lokale Dateien verwenden
+        # Wir prüfen einfach, ob das Verzeichnis existiert und Dateien enthält
+        if os.path.exists(COMPOSE_FILES_DIR) and os.listdir(COMPOSE_FILES_DIR):
+            # Wenn wir lokale Dateien verwenden, nicht herunterladen
+            logger.info("Found 0 directories: []")
+            logger.info(f"Using local compose files from {COMPOSE_FILES_DIR}")
+        else:
+            # Ansonsten lade die docker-compose Files beim Start
+            logger.info("Downloading compose files on startup...")
+            download_compose_files()
         
         # Lade oder erstelle Kategorien
         categories = load_categories()
@@ -1583,10 +1839,10 @@ def init_app():
         logger.error(f"Error initializing app: {e}")
         return False
 
-def get_container_config(container_name):
-    """Liest die Konfiguration eines Containers aus seiner docker-compose.yml"""
+def get_container_config_internal(container_name):
+    """Liest die Konfiguration eines Containers aus seiner docker-compose.yml (interne Funktion)"""
     try:
-        compose_path = f'/app/docker-compose-files/{container_name}/docker-compose.yml'
+        compose_path = os.path.join(COMPOSE_FILES_DIR, container_name, 'docker-compose.yml')
         if not os.path.exists(compose_path):
             return None
              
@@ -1634,13 +1890,20 @@ def get_container_config(container_name):
         # Prüfe, ob Template-Konfiguration angefordert wurde
         template = request.args.get('template', 'false').lower() == 'true'
         
+        # Debug-Ausgabe hinzufügen
+        logger.info(f"COMPOSE_FILES_DIR: {COMPOSE_FILES_DIR}")
+        logger.info(f"COMPOSE_DATA_DIR: {COMPOSE_DATA_DIR}")
+
         # Bestimme den Pfad zur docker-compose.yml
         if template:
-            # Verwende die Template-Datei aus dem docker-compose-files Verzeichnis
+            # Verwende die Template-Datei aus dem docker-templates Verzeichnis
+            # Stelle sicher, dass wir den Container-Pfad verwenden
             compose_file = os.path.join(COMPOSE_FILES_DIR, container_name, 'docker-compose.yml')
+            logger.info(f"Suche Template-Datei unter: {compose_file}")
         else:
             # Verwende die installierte Datei aus dem docker-compose-data Verzeichnis
             compose_file = os.path.join(COMPOSE_DATA_DIR, container_name, 'docker-compose.yml')
+            logger.info(f"Suche installierte Datei unter: {compose_file}")
         
         # Prüfe, ob die Datei existiert
         if not os.path.exists(compose_file):
@@ -1675,6 +1938,7 @@ def get_container_config(container_name):
         
     except Exception as e:
         logger.exception(f"Error getting container config: {str(e)}")
+        return jsonify({'error': str(e)}), 500
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/container/<container_name>/restart', methods=['POST'])
@@ -1727,10 +1991,29 @@ def update_port_mapping(compose_content, new_port):
 def container_info(container_name):
     """Gibt Informationen über einen Container zurück"""
     try:
-        # Prüfe, ob der Container installiert ist
-        install_path = os.path.join(COMPOSE_DATA_DIR, container_name)
-        if not os.path.exists(install_path):
-            return jsonify({'error': 'Container not installed'}), 404
+        # Spezialfall für webdock-ui, da dieser Container die Anwendung selbst ist
+        if container_name == 'webdock-ui':
+            # Verwende den Pfad des aktuellen Containers
+            container_path = os.path.dirname(os.path.abspath(__file__))
+            # Überprüfe, ob die docker-compose.yml im Elternverzeichnis existiert
+            parent_dir = os.path.dirname(container_path)
+            if os.path.exists(os.path.join(parent_dir, 'docker-compose.yml')):
+                container_path = parent_dir
+            else:
+                # Fallback: Suche in den Standard-Verzeichnissen
+                container_path = BASE_DIR
+        else:
+            # Standard-Pfadprüfung für andere Container
+            install_path = os.path.join(COMPOSE_DATA_DIR, container_name)
+            compose_files_path = os.path.join(WEBDOCK_BASE_PATH, 'docker-templates', container_name)
+            
+            # Prüfe beide mögliche Pfade
+            if os.path.exists(install_path):
+                container_path = install_path
+            elif os.path.exists(compose_files_path):
+                container_path = compose_files_path
+            else:
+                return jsonify({'error': 'Container not installed'}), 404
         
         # Hole Container-Status
         status = "stopped"
@@ -1743,7 +2026,7 @@ def container_info(container_name):
         compose_data = None
         
         # Hole Compose-Datei
-        compose_file = os.path.join(install_path, 'docker-compose.yml')
+        compose_file = os.path.join(container_path, 'docker-compose.yml')
         compose_content = None
         if os.path.exists(compose_file):
             with open(compose_file, 'r') as f:
@@ -1918,7 +2201,7 @@ def container_info(container_name):
 @app.route('/api/debug/compose-files')
 def debug_compose_files():
     """Debug-Endpunkt zum Überprüfen der heruntergeladenen Dateien"""
-    compose_dir = '/home/webDock/docker-compose-files'
+    compose_dir = os.path.join(WEBDOCK_BASE_PATH, 'docker-templates')
     result = {
         'directory_exists': os.path.exists(compose_dir),
         'directory_contents': {},
@@ -1948,14 +2231,21 @@ def debug_compose_files():
 @app.route('/api/containers/status')
 def get_containers_status():
     try:
+        # Get running status
         cmd = ["docker", "ps", "-a", "--format", "{{.Names}}\t{{.State}}"]
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        
+        # Get installed containers
+        installed_containers = get_installed_containers()
         
         status_dict = {}
         for line in result.stdout.strip().split('\n'):
             if line:
                 name, state = line.split('\t')
-                status_dict[name] = state
+                status_dict[name] = {
+                    'state': state,
+                    'installed': name in installed_containers
+                }
         
         return jsonify(status_dict)
     except subprocess.CalledProcessError as e:
@@ -4093,9 +4383,17 @@ networks:
 def get_container_config_files(container_name):
     """Gibt zusätzliche Konfigurationsdateien für einen Container zurück"""
     try:
+        # Debug-Ausgaben hinzufügen
+        logger.info(f"COMPOSE_DATA_DIR: {COMPOSE_DATA_DIR}")
+        logger.info(f"Container name: {container_name}")
+        
         # Prüfe, ob der Container installiert ist
-        install_path = os.path.join(COMPOSE_DATA_DIR, container_name)
+        # Verwende den Container-Pfad direkt
+        install_path = os.path.join('/app/webdock/docker-compose-data', container_name)
+        logger.info(f"Suche nach Konfigurationsdateien in: {install_path}")
+        
         if not os.path.exists(install_path):
+            logger.warning(f"Pfad existiert nicht: {install_path}")
             return jsonify({'error': 'Container not installed'}), 404
         
         config_files = []
