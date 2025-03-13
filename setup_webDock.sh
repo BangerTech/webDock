@@ -39,7 +39,7 @@ echo "=== Setting up network detection script ==="
 sudo mkdir -p "$INSTALL_DIR/scripts"
 
 # Modifiziere das Skript, um den dynamischen Pfad zu verwenden
-cat << EOF | sudo tee "$INSTALL_DIR/scripts/detect_network.sh" > /dev/null
+cat << 'EOF' | sudo tee "$INSTALL_DIR/scripts/detect_network.sh" > /dev/null
 #!/bin/bash
 
 # Skript zur Erkennung des Netzwerk-Interfaces und der IP-Adresse
