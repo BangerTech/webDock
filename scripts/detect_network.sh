@@ -3,7 +3,7 @@
 # Skript zur Erkennung des Netzwerk-Interfaces und der IP-Adresse
 # Dieses Skript wird außerhalb des Containers ausgeführt
 
-# Ausgabedatei
+# Ausgabedatei mit absolutem Pfad
 OUTPUT_FILE="/home/webDock/docker-compose-data/config/network_info.json"
 
 # Verzeichnis erstellen, falls es nicht existiert

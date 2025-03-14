@@ -6,8 +6,15 @@
 # Ermittle den aktuellen Ausführungspfad
 CURRENT_DIR="$(pwd)"
 
-# Definiere Basisverzeichnis - Füge "webDock" an den aktuellen Pfad an
-INSTALL_DIR="$CURRENT_DIR/webDock"
+# Prüfe, ob wir uns bereits in einem webDock-Verzeichnis befinden
+if [[ "$(basename "$CURRENT_DIR")" == "webDock" ]]; then
+    # Wenn ja, verwende das aktuelle Verzeichnis
+    INSTALL_DIR="$CURRENT_DIR"
+    echo "Already in a webDock directory, using current directory..."
+else
+    # Sonst füge webDock an den aktuellen Pfad an
+    INSTALL_DIR="$CURRENT_DIR/webDock"
+fi
 
 # Definiere Verzeichnisse basierend auf INSTALL_DIR
 BASE_DIR="$INSTALL_DIR/docker-compose-data/webdock-ui"
@@ -38,15 +45,18 @@ fi
 echo "=== Setting up network detection script ==="
 sudo mkdir -p "$INSTALL_DIR/scripts"
 
-# Modifiziere das Skript, um den dynamischen Pfad zu verwenden
-cat << 'EOF' | sudo tee "$INSTALL_DIR/scripts/detect_network.sh" > /dev/null
+# Erstelle ein temporäres Script mit Platzhalter
+TMP_SCRIPT="$INSTALL_DIR/scripts/detect_network.sh"
+
+# Erstelle das Script mit PLACEHOLDER für Pfad
+sudo tee "$TMP_SCRIPT" > /dev/null << 'EOF'
 #!/bin/bash
 
 # Skript zur Erkennung des Netzwerk-Interfaces und der IP-Adresse
 # Dieses Skript wird außerhalb des Containers ausgeführt
 
-# Ausgabedatei mit dynamischem Pfad
-OUTPUT_FILE="${INSTALL_DIR}/docker-compose-data/config/network_info.json"
+# Ausgabedatei mit absolutem Pfad
+OUTPUT_FILE="__INSTALL_DIR__/docker-compose-data/config/network_info.json"
 
 # Verzeichnis erstellen, falls es nicht existiert
 mkdir -p "$(dirname "$OUTPUT_FILE")"
@@ -83,6 +93,9 @@ cat "$OUTPUT_FILE"
 chmod 644 "$OUTPUT_FILE"
 EOF
 
+# Ersetze den Platzhalter mit dem tatsächlichen Pfad
+sudo sed -i "s|__INSTALL_DIR__|$INSTALL_DIR|g" "$TMP_SCRIPT"
+
 # Mache das Skript ausführbar
 sudo chmod +x "$INSTALL_DIR/scripts/detect_network.sh"
 
@@ -111,7 +124,7 @@ sudo mkdir -p "$SRC_DIR/config"
 sudo mkdir -p "$CONFIG_DIR"
 
 # Definiere GitHub URLs
-GITHUB_BRANCH="main"
+GITHUB_BRANCH="development"
 GITHUB_RAW_URL="https://raw.githubusercontent.com/BangerTech/webDock/$GITHUB_BRANCH"
 
 # Funktion zum Kopieren lokaler Dateien

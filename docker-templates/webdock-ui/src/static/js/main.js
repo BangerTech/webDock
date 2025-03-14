@@ -1347,17 +1347,33 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Mache die Drag & Drop-Funktionen global verfügbar
     window.handleContainerDragStart = function(e, containerName, categoryId) {
+        // Finde die Container-Karte und das Container-Grid
+        const containerCard = e.target.closest('.container-card');
+        const containerGrid = containerCard.closest('.container-grid');
+        
         // Füge die DOM-Position des Elements hinzu, um Sortierung innerhalb einer Kategorie zu ermöglichen
-        const containerCards = Array.from(e.target.closest('.container-grid').querySelectorAll('.container-card'));
-        const position = containerCards.indexOf(e.target.closest('.container-card'));
+        const containerCards = Array.from(containerGrid.querySelectorAll('.container-card'));
+        const position = containerCards.indexOf(containerCard);
+        
+        // Speichere die Kategorie-ID und den Gruppen-Namen
+        const groupSection = containerGrid.closest('.group-section');
+        const groupName = groupSection ? groupSection.querySelector('h2').textContent.trim() : '';
+        
+        console.log('Drag Start:', {
+            container: containerName,
+            position: position,
+            group: groupName
+        });
         
         e.dataTransfer.setData('application/json', JSON.stringify({
             type: 'container',
             name: containerName,
-            sourceCategoryId: categoryId,
-            position: position
+            sourceCategoryId: categoryId || groupName,
+            position: position,
+            groupName: groupName
         }));
-        e.target.classList.add('dragging');
+        
+        containerCard.classList.add('dragging');
     };
 
     window.handleContainerDragEnd = function(e) {
@@ -1399,48 +1415,74 @@ document.addEventListener('DOMContentLoaded', function() {
         
         try {
             const data = JSON.parse(e.dataTransfer.getData('application/json'));
-            if (data && data.type === 'container') {
-                const dropTarget = e.target.closest('.container-card');
-                const categoryElement = e.target.closest('.category');
-                
-                if (dropTarget && categoryElement) {
-                    const targetCategoryId = categoryElement.getAttribute('data-id');
-                    const containerGrid = dropTarget.closest('.container-grid');
-                    const allCards = Array.from(containerGrid.querySelectorAll('.container-card'));
-                    const targetPosition = allCards.indexOf(dropTarget);
-                    
-                    console.log('Drop auf Container-Karte:', {
-                        container: data.name,
-                        fromCategory: data.sourceCategoryId,
-                        toCategory: targetCategoryId,
-                        fromPosition: data.position,
-                        toPosition: targetPosition
-                    });
-                    
-                    if (data.sourceCategoryId !== targetCategoryId) {
-                        // Container in eine andere Kategorie verschieben
-                        moveContainer(data.name, data.sourceCategoryId, targetCategoryId, targetPosition);
-                    } else if (targetPosition !== data.position) {
-                        // Container innerhalb der gleichen Kategorie neu anordnen
-                        reorderContainer(data.name, targetCategoryId, data.position, targetPosition);
-                    }
-                } else if (categoryElement) {
-                    // Drop direkt auf eine Kategorie
-                    const targetCategoryId = categoryElement.getAttribute('data-id');
-                    
-                    if (data.sourceCategoryId !== targetCategoryId) {
-                        // Container in eine andere Kategorie verschieben
-                        moveContainer(data.name, data.sourceCategoryId, targetCategoryId);
-                    }
-                }
-                
-                // Entferne die Hervorhebung
-                document.querySelectorAll('.container-card').forEach(card => {
-                    card.classList.remove('drag-over');
-                });
+            if (!data || data.type !== 'container') {
+                return;
             }
+            
+            // Finde das Drop-Ziel und die Gruppe
+            const dropTarget = e.target.closest('.container-card');
+            const groupSection = e.target.closest('.group-section');
+            
+            if (!groupSection) {
+                console.error('Keine Gruppe gefunden für Drop-Target:', e.target);
+                showNotification('error', 'Konnte keine Zielgruppe finden');
+                return;
+            }
+            
+            // Hole den Gruppen-Namen und die Kategorie-ID aus der Gruppe
+            const groupName = groupSection.querySelector('h2').textContent.trim();
+            // Hole die Kategorie-ID aus dem data-category-id Attribut oder verwende den Gruppennamen als Fallback
+            const categoryId = groupSection.getAttribute('data-category-id') || groupName;
+            console.log('Gefundene Gruppe:', groupName, 'Kategorie-ID:', categoryId);
+            
+            // Finde das Container-Grid
+            const containerGrid = groupSection.querySelector('.container-grid');
+            if (!containerGrid) {
+                console.error('Kein Container-Grid in der Gruppe gefunden');
+                return;
+            }
+            
+            if (dropTarget) {
+                // Drop auf eine Container-Karte
+                const allCards = Array.from(containerGrid.querySelectorAll('.container-card'));
+                const targetPosition = allCards.indexOf(dropTarget);
+                
+                console.log('Drop auf Container-Karte:', {
+                    container: data.name,
+                    fromGroup: data.groupName,
+                    toGroup: groupName,
+                    fromPosition: data.position,
+                    toPosition: targetPosition
+                });
+                
+                if (data.groupName !== groupName) {
+                    // Container in eine andere Gruppe verschieben
+                    moveContainer(data.name, data.sourceCategoryId || data.groupName, categoryId, targetPosition);
+                } else if (targetPosition !== data.position && targetPosition !== -1) {
+                    // Container innerhalb der gleichen Gruppe neu anordnen
+                    reorderContainer(data.name, categoryId, data.position, targetPosition);
+                }
+            } else {
+                // Drop direkt auf eine Gruppe (nicht auf eine Karte)
+                console.log('Drop direkt auf Gruppe:', {
+                    container: data.name,
+                    fromGroup: data.groupName,
+                    toGroup: groupName
+                });
+                
+                if (data.groupName !== groupName) {
+                    // Container in eine andere Gruppe verschieben
+                    moveContainer(data.name, data.sourceCategoryId, groupName);
+                }
+            }
+            
+            // Entferne die Hervorhebung von allen Karten
+            document.querySelectorAll('.container-card').forEach(card => {
+                card.classList.remove('drag-over');
+            });
         } catch (error) {
             console.error('Fehler beim Drop-Handling:', error);
+            showNotification('error', `Fehler beim Verschieben: ${error.message}`);
         }
     };
 
@@ -2617,7 +2659,8 @@ function getContainerLogo(containerName) {
 
 function createContainerCard(container, categoryId) {
     const logoUrl = getContainerLogo(container.name);
-    const description = container.description || '';
+    // Verwende die Beschreibung aus der Container-Konfiguration oder hole sie aus unserer Funktion
+    const description = container.description || getContainerDescription(container.name) || '';
     const isInstalled = container.installed || false;
     const state = container.status || 'stopped';
     
