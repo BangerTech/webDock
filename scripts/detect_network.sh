@@ -4,7 +4,7 @@
 # Dieses Skript wird außerhalb des Containers ausgeführt
 
 # Ausgabedatei mit absolutem Pfad
-OUTPUT_FILE="/home/webDock/docker-compose-data/config/network_info.json"
+OUTPUT_FILE="/home/webDock/webdock-data/config/network_info.json"
 
 # Verzeichnis erstellen, falls es nicht existiert
 mkdir -p "$(dirname "$OUTPUT_FILE")"

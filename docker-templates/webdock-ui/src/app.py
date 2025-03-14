@@ -60,7 +60,7 @@ else:
     current_dir = os.getcwd()
     original_current_dir = current_dir
     while current_dir != '/':
-        if os.path.exists(os.path.join(current_dir, 'docker-templates')):
+        if os.path.exists(os.path.join(current_dir, 'webdock-templates')):
             WEBDOCK_BASE_PATH = current_dir
             base_path_found = True
             logger.info(f"Found webDock base path at current directory: {WEBDOCK_BASE_PATH}")
@@ -71,12 +71,12 @@ else:
     if not base_path_found:
         current_dir = APP_DIR
         while current_dir != '/':
-            if os.path.exists(os.path.join(current_dir, 'docker-templates')):
+            if os.path.exists(os.path.join(current_dir, 'webdock-templates')):
                 WEBDOCK_BASE_PATH = current_dir
                 base_path_found = True
                 logger.info(f"Found webDock base path at app directory: {WEBDOCK_BASE_PATH}")
                 break
-            if os.path.exists(os.path.join(os.path.dirname(current_dir), 'docker-templates')):
+            if os.path.exists(os.path.join(os.path.dirname(current_dir), 'webdock-templates')):
                 WEBDOCK_BASE_PATH = os.path.dirname(current_dir)
                 base_path_found = True
                 logger.info(f"Found webDock base path at parent directory: {WEBDOCK_BASE_PATH}")
@@ -86,17 +86,17 @@ else:
     # 3. Wenn immer noch nicht gefunden, verwende das aktuelle Arbeitsverzeichnis als Basis
     if not base_path_found:
         WEBDOCK_BASE_PATH = original_current_dir
-        logger.warning(f"Could not find docker-templates directory, using current directory as base: {WEBDOCK_BASE_PATH}")
-        # Erstelle das docker-templates Verzeichnis, falls es nicht existiert
-        os.makedirs(os.path.join(WEBDOCK_BASE_PATH, 'docker-templates'), exist_ok=True)
+        logger.warning(f"Could not find webdock-templates directory, using current directory as base: {WEBDOCK_BASE_PATH}")
+        # Erstelle das webdock-templates Verzeichnis, falls es nicht existiert
+        os.makedirs(os.path.join(WEBDOCK_BASE_PATH, 'webdock-templates'), exist_ok=True)
 
 # Konfiguriere die Pfade relativ zum Basis-Pfad
 CONFIG_DIR = os.getenv('CONFIG_DIR', os.path.join(WEBDOCK_BASE_PATH, 'config'))
 TEMPLATE_DIR = os.path.join(APP_DIR, 'config')
 CATEGORIES_FILE = os.path.join(CONFIG_DIR, 'categories.yaml')
 COMPOSE_DIR = os.path.join(CONFIG_DIR, 'compose-files')
-COMPOSE_FILES_DIR = os.getenv('COMPOSE_FILES_DIR', os.path.join(WEBDOCK_BASE_PATH, 'docker-templates'))
-COMPOSE_DATA_DIR = os.getenv('COMPOSE_DATA_DIR', os.path.join(WEBDOCK_BASE_PATH, 'docker-compose-data'))
+COMPOSE_FILES_DIR = os.getenv('COMPOSE_FILES_DIR', os.path.join(WEBDOCK_BASE_PATH, 'webdock-templates'))
+COMPOSE_DATA_DIR = os.getenv('COMPOSE_DATA_DIR', os.path.join(WEBDOCK_BASE_PATH, 'webdock-data'))
 
 # Logge die wichtigen Pfade
 logger.info(f"WebDock Base Path: {WEBDOCK_BASE_PATH}")
@@ -870,8 +870,8 @@ def get_installed_containers():
         # NICHT die Template-Verzeichnisse!
         data_dirs = [
             COMPOSE_DATA_DIR,
-            os.path.join(WEBDOCK_BASE_PATH, 'docker-compose-data'),
-            os.path.expanduser('~/docker-compose-data')
+            # Verwende nur webdock-data, nicht docker-compose-data
+            os.path.join(WEBDOCK_BASE_PATH, 'webdock-data')
         ]
         
         # Log the directories we're checking
@@ -1458,7 +1458,7 @@ def toggle_container(container_name):
 def update_container(container_name):
     try:
         # Führe Pull und Neustart durch
-        compose_file = f'/home/webDock/docker-compose-data/{container_name}/docker-compose.yml'
+        compose_file = f'/home/webDock/webdock-data/{container_name}/docker-compose.yml'
         
         # Stoppe Container
         subprocess.run(['docker', 'compose', '-f', compose_file, 'down'])
@@ -2343,7 +2343,7 @@ def get_container_config(container_name):
 @app.route('/api/container/<container_name>/restart', methods=['POST'])
 def restart_container(container_name):
     try:
-        compose_file = f'/home/webDock/docker-compose-data/{container_name}/docker-compose.yml'
+        compose_file = f'/home/webDock/webdock-data/{container_name}/docker-compose.yml'
         
         # Neustart des Containers
         subprocess.run(['docker', 'compose', '-f', compose_file, 'down'])
@@ -5021,7 +5021,7 @@ def get_container_config_files(container_name):
         
         # Prüfe, ob der Container installiert ist
         # Verwende den Container-Pfad direkt
-        install_path = os.path.join('/app/webdock/docker-compose-data', container_name)
+        install_path = os.path.join('/app/webdock/webdock-data', container_name)
         logger.info(f"Suche nach Konfigurationsdateien in: {install_path}")
         
         if not os.path.exists(install_path):

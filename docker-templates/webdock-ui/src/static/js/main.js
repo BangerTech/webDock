@@ -1930,7 +1930,7 @@ function installContainer(name) {
     fetch('/api/settings/data-location')
         .then(response => response.json())
         .then(settings => {
-            const dataLocation = settings.location || '/home/The-BangerTECH-Utility-main/docker-compose-data';
+            const dataLocation = settings.location || '/home/The-BangerTECH-Utility-main/webdock-data';
             
             // Zeige Installations-Dialog mit Konfigurationsoptionen
             showInstallModal(name, dataLocation);
@@ -2258,7 +2258,7 @@ async function executeInstall(containerName) {
             ];
             
             // Prüfe Stacks-Verzeichnis für Dockge
-            const stacksDir = document.getElementById('stacks-dir')?.value || '/home/webDock/docker-compose-data';
+            const stacksDir = document.getElementById('stacks-dir')?.value || '/home/webDock/webdock-data';
             
             // Füge Dockge-spezifische Konfiguration hinzu
             installData.dockge = {

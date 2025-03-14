@@ -17,14 +17,23 @@ else
 fi
 
 # Definiere Verzeichnisse basierend auf INSTALL_DIR
-BASE_DIR="$INSTALL_DIR/docker-compose-data/webdock-ui"
+BASE_DIR="$INSTALL_DIR/webdock-data/webdock-ui"
 SRC_DIR="$BASE_DIR/src"
-CONFIG_DIR="$INSTALL_DIR/docker-compose-data/config"
-COMPOSE_FILES_DIR="$INSTALL_DIR/docker-templates"
-COMPOSE_DATA_DIR="$INSTALL_DIR/docker-compose-data"
+CONFIG_DIR="$INSTALL_DIR/webdock-data/config"
+COMPOSE_FILES_DIR="$INSTALL_DIR/webdock-templates"
+COMPOSE_DATA_DIR="$INSTALL_DIR/webdock-data"
 
 echo "=== Installing WebDock in $INSTALL_DIR ==="
 echo "    Container data will be stored in: $COMPOSE_DATA_DIR"
+
+# Entferne alte docker-compose-data Verzeichnisse, wenn vorhanden
+if [ -e "$INSTALL_DIR/docker-compose-data" ]; then
+    echo "Removing any existing docker-compose-data directory to avoid duplicates..."
+    sudo rm -rf "$INSTALL_DIR/docker-compose-data"
+fi
+
+# Stelle sicher, dass webdock-data existiert
+sudo mkdir -p "$COMPOSE_DATA_DIR"
 
 echo "=== Starting Web UI Setup ==="
 
@@ -56,7 +65,7 @@ sudo tee "$TMP_SCRIPT" > /dev/null << 'EOF'
 # Dieses Skript wird außerhalb des Containers ausgeführt
 
 # Ausgabedatei mit absolutem Pfad
-OUTPUT_FILE="__INSTALL_DIR__/docker-compose-data/config/network_info.json"
+OUTPUT_FILE="__INSTALL_DIR__/webdock-data/config/network_info.json"
 
 # Verzeichnis erstellen, falls es nicht existiert
 mkdir -p "$(dirname "$OUTPUT_FILE")"
@@ -122,6 +131,14 @@ sudo mkdir -p "$SRC_DIR/static/img/icons"  # Erstelle icons Verzeichnis
 sudo mkdir -p "$SRC_DIR/templates"
 sudo mkdir -p "$SRC_DIR/config"
 sudo mkdir -p "$CONFIG_DIR"
+# Erstelle webdock-templates Verzeichnis
+sudo mkdir -p "$COMPOSE_FILES_DIR"
+
+# Finale Überprüfung um sicherzustellen, dass kein docker-compose-data Verzeichnis existiert
+if [ -e "$INSTALL_DIR/docker-compose-data" ]; then
+    echo "Final check: Removing any docker-compose-data directory..."
+    sudo rm -rf "$INSTALL_DIR/docker-compose-data"
+fi
 
 # Definiere GitHub URLs
 GITHUB_BRANCH="development"
@@ -131,32 +148,32 @@ GITHUB_RAW_URL="https://raw.githubusercontent.com/BangerTech/webDock/$GITHUB_BRA
 copy_local_files() {
     echo "Using local files..."
     # Kopiere Basis-Dateien
-    sudo cp docker-templates/webdock-ui/docker-compose.yml "$BASE_DIR/" || return 1
-    sudo cp docker-templates/webdock-ui/Dockerfile "$BASE_DIR/" || return 1
-    sudo cp docker-templates/webdock-ui/requirements.txt "$BASE_DIR/" || return 1
+    sudo cp webdock-templates/webdock-ui/docker-compose.yml "$BASE_DIR/" || return 1
+    sudo cp webdock-templates/webdock-ui/Dockerfile "$BASE_DIR/" || return 1
+    sudo cp webdock-templates/webdock-ui/requirements.txt "$BASE_DIR/" || return 1
     
     # Modify app.py to use local files directly instead of copying them
     # Create the local_compose_dir variable in app.py to match the structure
-    local_app_content=$(cat docker-templates/webdock-ui/src/app.py)
+    local_app_content=$(cat webdock-templates/webdock-ui/src/app.py)
     
     # Make sure app.py is configured to use local files and paths
     # Get the app.py from local directory with local file path handling
-    modified_app_content="$(cat docker-templates/webdock-ui/src/app.py | \
+    modified_app_content="$(cat webdock-templates/webdock-ui/src/app.py | \
       sed "s|COMPOSE_FILES_DIR = .*|COMPOSE_FILES_DIR = '$COMPOSE_FILES_DIR'|g" | \
       sed "s|WEBDOCK_BASE_PATH = .*|WEBDOCK_BASE_PATH = '$INSTALL_DIR'|g" | \
       sed "s|COMPOSE_DATA_DIR = .*|COMPOSE_DATA_DIR = '$COMPOSE_DATA_DIR'|g")"
     echo "$modified_app_content" | sudo tee "$SRC_DIR/app.py" > /dev/null || return 1
     
-    sudo cp docker-templates/webdock-ui/src/templates/index.html "$SRC_DIR/templates/" || return 1
-    sudo cp docker-templates/webdock-ui/src/static/css/style.css "$SRC_DIR/static/css/" || return 1
-    sudo cp docker-templates/webdock-ui/src/static/js/main.js "$SRC_DIR/static/js/" || return 1
+    sudo cp webdock-templates/webdock-ui/src/templates/index.html "$SRC_DIR/templates/" || return 1
+    sudo cp webdock-templates/webdock-ui/src/static/css/style.css "$SRC_DIR/static/css/" || return 1
+    sudo cp webdock-templates/webdock-ui/src/static/js/main.js "$SRC_DIR/static/js/" || return 1
     
     # Kopiere Logo und Icons
-    sudo cp docker-templates/webdock-ui/src/static/img/logo1.png "$SRC_DIR/static/img/" || echo "Warning: Could not copy logo1.png"
-    sudo cp docker-templates/webdock-ui/src/static/img/icons/* "$SRC_DIR/static/img/icons/" || echo "Warning: Could not copy icons"
+    sudo cp webdock-templates/webdock-ui/src/static/img/logo1.png "$SRC_DIR/static/img/" || echo "Warning: Could not copy logo1.png"
+    sudo cp webdock-templates/webdock-ui/src/static/img/icons/* "$SRC_DIR/static/img/icons/" || echo "Warning: Could not copy icons"
     
     # Kopiere Konfigurationsdateien
-    sudo cp docker-templates/webdock-ui/src/config/categories.yaml "$SRC_DIR/config/" || return 1
+    sudo cp webdock-templates/webdock-ui/src/config/categories.yaml "$SRC_DIR/config/" || return 1
     
     # Don't copy Docker-Compose-Dateien, use them directly from their original location
     # Instead of creating a nested symbolic link, we ensure the app uses the correct environment variables
@@ -169,6 +186,7 @@ copy_local_files() {
 download_from_github() {
     echo "Downloading files from GitHub..."
     # Liste der zu ladenden Dateien
+    # Note that GitHub URLs still use docker-templates as that's the repo structure, but we save to webdock-templates locally
     FILES=(
         "docker-templates/webdock-ui/docker-compose.yml:$BASE_DIR/docker-compose.yml"
         "docker-templates/webdock-ui/Dockerfile:$BASE_DIR/Dockerfile"
@@ -199,53 +217,185 @@ download_from_github() {
         fi
     done
 
-    # Standard-Container definieren
-    DEFAULT_CONTAINERS=(
-        "pihole"
-        "portainer"
-        "nextcloud"
-        "jellyfin"
-        "homeassistant"
-        "grafana"
-    )
+    # Überprüfe, ob curl und jq installiert sind
+    if ! command -v jq &> /dev/null; then
+        echo "jq ist nicht installiert. Versuche es zu installieren..."
+        if command -v apt-get &> /dev/null; then
+            sudo apt-get update && sudo apt-get install -y jq
+        elif command -v yum &> /dev/null; then
+            sudo yum install -y jq
+        elif command -v dnf &> /dev/null; then
+            sudo dnf install -y jq
+        elif command -v pacman &> /dev/null; then
+            sudo pacman -S --noconfirm jq
+        else
+            echo "Warnung: Konnte jq nicht automatisch installieren. Die Container müssen manuell heruntergeladen werden."
+            # Standard-Container definieren als Fallback
+            DEFAULT_CONTAINERS=(
+                "pihole"
+                "portainer"
+                "nextcloud"
+                "jellyfin"
+                "homeassistant"
+                "grafana"
+            )
 
-    # Lade die docker-compose.yml für jeden Standard-Container
-    for container in "${DEFAULT_CONTAINERS[@]}"; do
-        echo "Downloading $container docker-compose.yml..."
-        sudo mkdir -p "$SRC_DIR/docker-templates/$container"
+            # Lade die docker-compose.yml für jeden Standard-Container
+            for container in "${DEFAULT_CONTAINERS[@]}"; do
+                echo "Downloading $container docker-compose.yml..."
+                sudo mkdir -p "$COMPOSE_FILES_DIR/$container"
+                
+                # Versuche die docker-compose.yml herunterzuladen
+                if ! sudo curl -sSL "$GITHUB_RAW_URL/docker-templates/$container/docker-compose.yml" \
+                        -o "$COMPOSE_FILES_DIR/$container/docker-compose.yml"; then
+                    echo "Warning: Could not download $container/docker-compose.yml"
+                elif [ ! -s "$COMPOSE_FILES_DIR/$container/docker-compose.yml" ]; then
+                    echo "Warning: Downloaded docker-compose.yml for $container is empty"
+                    # Lösche leere Datei
+                    sudo rm "$COMPOSE_FILES_DIR/$container/docker-compose.yml"
+                else
+                    echo "Successfully downloaded docker-compose.yml for $container"
+                fi
+
+                # Lade auch das Icon herunter
+                echo "Downloading icon for $container..."
+                if ! sudo curl -sSL "$GITHUB_RAW_URL/docker-templates/webdock-ui/src/static/img/icons/$container.png" \
+                        -o "$SRC_DIR/static/img/icons/$container.png"; then
+                    echo "Warning: Could not download icon for $container"
+                elif [ ! -s "$SRC_DIR/static/img/icons/$container.png" ]; then
+                    echo "Warning: Downloaded icon for $container is empty"
+                    # Lösche leere Datei
+                    sudo rm "$SRC_DIR/static/img/icons/$container.png"
+                else
+                    echo "Successfully downloaded icon for $container"
+                fi
+            done
+            return 0
+        fi
+    fi
+
+    # Funktion zum Herunterladen einer Datei, wenn sie nicht existiert oder eine Aktualisierung verfügbar ist
+    download_if_needed() {
+        local github_url="$1"
+        local local_path="$2"
+        local description="$3"
+        local skip_etag_check="$4"  # Optional: 'true' um etag-Check zu überspringen
+
+        # Existiert die Datei bereits?
+        if [ -f "$local_path" ]; then
+            # Skip-Flag gesetzt oder Etag-Prüfung
+            if [ "$skip_etag_check" = "true" ]; then
+                echo "$description existiert bereits, überspringe Download."
+                return 0
+            else
+                # Prüfe, ob eine neuere Version auf GitHub verfügbar ist
+                local remote_etag=$(curl -sI "$github_url" | grep -i etag | awk '{print $2}' | tr -d '\r"')
+                local local_etag_file="${local_path}.etag"
+                local download_needed=true
+
+                if [ -f "$local_etag_file" ] && [ -n "$remote_etag" ]; then
+                    local local_etag=$(cat "$local_etag_file")
+                    if [ "$local_etag" = "$remote_etag" ]; then
+                        echo "$description ist aktuell, überspringe Download."
+                        download_needed=false
+                    else
+                        echo "Neue Version von $description verfügbar, lade herunter..."
+                    fi
+                else
+                    echo "Keine Etag-Informationen für $description, lade herunter..."
+                fi
+
+                if [ "$download_needed" = "false" ]; then
+                    return 0
+                fi
+            fi
+        else
+            echo "$description nicht gefunden, lade herunter..."
+        fi
+
+        # Datei herunterladen
+        if ! sudo curl -sSL "$github_url" -o "$local_path"; then
+            echo "Warning: Konnte $description nicht herunterladen"
+            return 1
+        elif [ ! -s "$local_path" ]; then
+            echo "Warning: Heruntergeladene Datei $description ist leer"
+            sudo rm "$local_path"
+            return 1
+        else
+            echo "$description erfolgreich heruntergeladen"
+            # Speichere Etag für zukünftige Vergleiche
+            if [ "$skip_etag_check" != "true" ]; then
+                local remote_etag=$(curl -sI "$github_url" | grep -i etag | awk '{print $2}' | tr -d '\r"')
+                if [ -n "$remote_etag" ]; then
+                    echo "$remote_etag" | sudo tee "${local_path}.etag" > /dev/null
+                fi
+            fi
+            return 0
+        fi
+    }
+
+    # Lade alle verfügbaren Container-Verzeichnisse automatisch von GitHub
+    echo "Detecting available container templates from GitHub..."
+    GITHUB_API_URL="https://api.github.com/repos/BangerTech/webDock/contents/docker-templates?ref=$GITHUB_BRANCH"
+    
+    # Hole die Liste der Verzeichnisse über die GitHub API
+    CONTAINER_LIST=$(curl -sSL "$GITHUB_API_URL" | jq -r '.[] | select(.type=="dir" and .name!="webdock-ui") | .name')
+    
+    if [ -z "$CONTAINER_LIST" ]; then
+        echo "Keine Container-Verzeichnisse gefunden oder API-Aufruf fehlgeschlagen."
+        echo "Verwende Standard-Container als Fallback."
+        CONTAINER_LIST="pihole portainer nextcloud jellyfin homeassistant grafana"
+    fi
+    
+    echo "Gefundene Container-Vorlagen: $CONTAINER_LIST"
+    
+    # Erstelle das Hauptverzeichnis für die Container-Templates
+    sudo mkdir -p "$COMPOSE_FILES_DIR"
+    
+    # Stelle sicher, dass die notwendigen Icons-Verzeichnisse existieren
+    sudo mkdir -p "$SRC_DIR/static/img/icons"
+    
+    # Lade default.png und bangertech.png Icons
+    echo "Downloading default icons..."
+    download_if_needed "$GITHUB_RAW_URL/docker-templates/webdock-ui/src/static/img/icons/default.png" \
+        "$SRC_DIR/static/img/icons/default.png" "Default icon"
+    download_if_needed "$GITHUB_RAW_URL/docker-templates/webdock-ui/src/static/img/icons/bangertech.png" \
+        "$SRC_DIR/static/img/icons/bangertech.png" "BangerTech icon"
+    
+    # Lade jeden gefundenen Container herunter
+    for container in $CONTAINER_LIST; do
+        echo "Processing $container template..."
+        sudo mkdir -p "$COMPOSE_FILES_DIR/$container"
         
-        # Versuche die docker-compose.yml herunterzuladen
-        if ! sudo curl -sSL "$GITHUB_RAW_URL/docker-templates/$container/docker-compose.yml" \
-                -o "$SRC_DIR/docker-templates/$container/docker-compose.yml"; then
-            echo "Warning: Could not download $container/docker-compose.yml"
-        elif [ ! -s "$SRC_DIR/docker-templates/$container/docker-compose.yml" ]; then
-            echo "Warning: Downloaded docker-compose.yml for $container is empty"
-            # Lösche leere Datei
-            sudo rm "$SRC_DIR/docker-templates/$container/docker-compose.yml"
+        # Hole Liste der Dateien in diesem Container-Verzeichnis
+        CONTAINER_API_URL="https://api.github.com/repos/BangerTech/webDock/contents/docker-templates/$container?ref=$GITHUB_BRANCH"
+        CONTAINER_FILES=$(curl -sSL "$CONTAINER_API_URL" | jq -r '.[] | select(.type=="file") | .name')
+        
+        # Wenn keine Dateien gefunden wurden, versuche zumindest docker-compose.yml zu laden
+        if [ -z "$CONTAINER_FILES" ]; then
+            echo "Keine Dateien für $container gefunden, versuche docker-compose.yml direkt..."
+            # Überprüfen und ggf. herunterladen der docker-compose.yml
+            download_if_needed "$GITHUB_RAW_URL/docker-templates/$container/docker-compose.yml" \
+                "$COMPOSE_FILES_DIR/$container/docker-compose.yml" "$container/docker-compose.yml"
         else
-            echo "Successfully downloaded docker-compose.yml for $container"
+            # Überprüfe und lade alle Dateien im Container-Verzeichnis herunter
+            for file in $CONTAINER_FILES; do
+                download_if_needed "$GITHUB_RAW_URL/docker-templates/$container/$file" \
+                    "$COMPOSE_FILES_DIR/$container/$file" "$container/$file"
+            done
         fi
 
-        # Lade auch das Icon herunter
-        echo "Downloading icon for $container..."
-        if ! sudo curl -sSL "$GITHUB_RAW_URL/docker-templates/webdock-ui/src/static/img/icons/$container.png" \
-                -o "$SRC_DIR/static/img/icons/$container.png"; then
-            echo "Warning: Could not download icon for $container"
-        elif [ ! -s "$SRC_DIR/static/img/icons/$container.png" ]; then
-            echo "Warning: Downloaded icon for $container is empty"
-            # Lösche leere Datei
-            sudo rm "$SRC_DIR/static/img/icons/$container.png"
-        else
-            echo "Successfully downloaded icon for $container"
-        fi
+        # Überprüfe und lade das Icon herunter
+        download_if_needed "$GITHUB_RAW_URL/docker-templates/webdock-ui/src/static/img/icons/$container.png" \
+            "$SRC_DIR/static/img/icons/$container.png" "Icon for $container"
     done
     return 0
 }
 
 # Versuche zuerst lokale Dateien zu kopieren
 echo "Copying files..."
-if [ -d "docker-templates/webdock-ui" ]; then
-    echo "Local files found in docker-templates/webdock-ui"
+if [ -d "webdock-templates/webdock-ui" ]; then
+    echo "Local files found in webdock-templates/webdock-ui"
     copy_local_files || {
         echo "Error copying local files, falling back to GitHub..."
         download_from_github || { echo "Error downloading files from GitHub"; exit 1; }
