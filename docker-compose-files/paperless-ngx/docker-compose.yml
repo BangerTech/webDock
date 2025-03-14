@@ -1,0 +1,36 @@
+
+services:
+  paperless:
+    image: paperless-ngx/paperless-ngx:latest
+    networks:
+      - webdock-network
+    depends_on:
+      - db
+    environment:
+      - PAPERLESS_DB_HOST=postgres
+      - PAPERLESS_DB_USER=paperless
+      - PAPERLESS_DB_PASSWORD=yourpassword
+      - PAPERLESS_DB_NAME=paperless
+      - PAPERLESS_TIME_ZONE=Europe/Berlin
+      - PAPERLESS_OCR_LANGUAGE=deu
+    volumes:
+      - ./data:/usr/src/paperless/data
+      - ./consume:/usr/src/paperless/consume
+      - ./media:/usr/src/paperless/media
+    ports:
+      - "8010:8000"
+
+  db:
+    image: postgres:15.2-alpine
+    networks:
+      - webdock-network
+    environment:
+      - POSTGRES_DB=paperless
+      - POSTGRES_USER=paperless
+      - POSTGRES_PASSWORD=yourpassword
+    volumes:
+      - ./postgres-data:/var/lib/postgresql/data
+
+networks:
+  webdock-network:
+    external: true

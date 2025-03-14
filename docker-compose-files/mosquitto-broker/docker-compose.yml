@@ -1,0 +1,18 @@
+version: '3'
+services:
+  mosquitto-broker:
+    image: eclipse-mosquitto:latest
+    container_name: mosquitto-broker
+    networks:
+      - webdock-network
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./config:/mosquitto/config
+      - ./data:/mosquitto/data
+      - ./log:/mosquitto/log
+    restart: unless-stopped
+networks:
+  webdock-network:
+    external: true

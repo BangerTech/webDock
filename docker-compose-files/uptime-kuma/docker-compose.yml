@@ -1,0 +1,20 @@
+
+services:
+  uptime-kuma:
+    image: louislam/uptime-kuma:latest
+    container_name: uptime-kuma
+    networks:
+      - webdock-network
+    restart: always
+    ports:
+      - "3010:3001"
+    volumes:
+      - ./uptime-kuma:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
+
+volumes:
+  uptime-kuma:
+
+networks:
+  webdock-network:
+    external: true

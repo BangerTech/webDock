@@ -1,0 +1,12 @@
+name: Mosquitto Broker
+description: Open source MQTT message broker for IoT communication
+category: smart_home
+version: latest
+website: https://mosquitto.org/
+ports:
+  - 1883: MQTT
+  - 9001: WebSocket
+volumes:
+  - config: Configuration files
+  - data: Persistent data
+  - log: Log files 

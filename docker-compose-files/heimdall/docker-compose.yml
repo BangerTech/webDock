@@ -1,0 +1,18 @@
+services:
+  heimdall:
+    image: lscr.io/linuxserver/heimdall:latest
+    container_name: heimdall
+    networks:
+      - webdock-network
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Berlin
+    volumes:
+      - ./appdata/config:/config
+    ports:
+      - 8500:80
+    restart: unless-stopped
+networks:
+  webdock-network:
+    external: true

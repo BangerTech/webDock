@@ -1,0 +1,13 @@
+services:
+  whatsupdocker:
+    image: getwud/wud
+    container_name: wud
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - 3004:3000
+    networks:
+      - webdock-network
+networks:
+  webdock-network:
+    external: true

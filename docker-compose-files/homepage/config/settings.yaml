@@ -1,0 +1,76 @@
+---
+title: BangerTECH Home Network
+useEqualHeights: true
+language: en
+background:
+  image: https://images.unsplash.com/photo-1638184984605-af1f05249a56?q=80&w=1932&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D
+  blur: sm # sm, "", md, xl... see https://tailwindcss.com/docs/backdrop-blur
+  saturate: 100 # 0, 50, 100... see https://tailwindcss.com/docs/backdrop-saturate
+  brightness: 100 # 0, 50, 75... see https://tailwindcss.com/docs/backdrop-brightness
+  opacity: 100 # 0-100
+  
+favicon: https://secure.gravatar.com/avatar/7774fb32dff180ff0cbcefdaada43ce1?s=96&d=mm&r=g
+theme: dark # or light
+color: slate
+
+
+layout:
+
+  Calendar:
+    style:
+    columns:
+    icon: si-googlecalendar
+    useEqualHeights: true
+    
+  Network:
+    style:
+    columns:
+    icon: si-neutralinojs
+    useEqualHeights: true
+    
+  SmartHome:
+    style: row
+    columns: 2
+    icon: si-kasasmart
+    initiallyCollapsed: false
+    
+  Docker:
+    style: column
+    columns: 2
+    icon: si-docker
+    
+  Storage:
+    style: column
+    columns: 2
+    icon: si-googlecloudstorage
+    
+  Server:
+    style: column
+    columns: 2
+    icon: si-freedesktopdotorg
+    
+  Controller:
+    style: row
+    columns: 2
+    useEqualHeights: true
+    icon: si-esphome
+    initiallyCollapsed: false
+    
+  Devices:
+    style: row
+    columns: 2
+    useEqualHeights: true
+    icon: si-smartthings
+    initiallyCollapsed: false
+
+    
+  Camera:
+    style: column
+    columns: 2
+    useEqualHeights: true
+    icon: si-lens
+    
+
+  Bookmarks:
+    style: row
+    columns: 2

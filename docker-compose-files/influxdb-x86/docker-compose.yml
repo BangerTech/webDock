@@ -1,0 +1,15 @@
+services:
+  influxdb:
+    # Debian X86 Image
+    image: influxdb:latest
+    container_name: influxdb
+    networks:
+      - webdock-network
+    restart: always
+    volumes:
+      - ./data:/var/lib/influxdb
+    ports:
+      - "8086:8086"
+networks:
+  webdock-network:
+    external: true

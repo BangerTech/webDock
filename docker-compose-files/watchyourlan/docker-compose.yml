@@ -1,0 +1,33 @@
+version: '3'
+services:
+  node-bootstrap:
+    image: aceberg/node-bootstrap:latest
+    container_name: watchyourlan-bootstrap
+    restart: unless-stopped
+    networks:
+      - webdock-network
+    ports:
+      - "8850:8850"
+  watchyourlan:
+    image: aceberg/watchyourlan:latest
+    container_name: watchyourlan
+    restart: unless-stopped
+    network_mode: "host"
+    depends_on:
+      - node-bootstrap
+    volumes:
+      - ./data:/data
+    environment:
+      TZ: Europe/Berlin                 # required: needs your TZ for correct time
+      DBPATH: "/data/db.sqlite"         # optional, default: /data/db.sqlite
+      GUIPORT: "8840"                   # optional, default: 8840
+      TIMEOUT: "120"                    # optional, time in seconds, default: 60
+      SHOUTRRR_URL: ""                  # optional, set url to notify
+      THEME: "darkly"                   # optional
+      IGNOREIP: "no"
+      NETWORK_INTERFACE: "${NETWORK_INTERFACE}"  # Network interface to monitor
+      IP_RANGE: "${IP_RANGE}"           # IP range to scan
+
+networks:
+  webdock-network:
+    external: true

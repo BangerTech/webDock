@@ -1,0 +1,18 @@
+version: '3'
+services:
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    networks:
+      - webdock-network
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/var/lib/grafana
+      - ./data/env.grafana:/etc/grafana/env.grafana
+    env_file:
+      - ./data/env.grafana
+    restart: unless-stopped
+networks:
+  webdock-network:
+    external: true

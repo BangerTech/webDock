@@ -1,0 +1,55 @@
+:root {
+    --color-primary: #0082c9;
+    --color-main-background: #fff;
+    --color-main-text: #222;
+    --color-background-dark: #f5f5f5;
+}
+
+.nc-theme {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans, Ubuntu, Cantarell, 'Helvetica Neue', Arial, sans-serif;
+    color: var(--color-main-text);
+    background: var(--color-main-background);
+}
+
+header {
+    background: var(--color-primary);
+    color: white;
+    padding: 1rem;
+    box-shadow: 0 1px 10px rgba(0,0,0,.2);
+}
+
+.container-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 2rem;
+    padding: 2rem;
+}
+
+.container-card {
+    background: var(--color-background-dark);
+    border-radius: 10px;
+    padding: 1.5rem;
+    position: relative;
+    transition: transform .2s;
+}
+
+.container-card:hover {
+    transform: translateY(-5px);
+}
+
+.status-indicator {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+}
+
+.status-indicator.running {
+    background: #46ba61;
+}
+
+.status-indicator.stopped {
+    background: #e9322d;
+} 

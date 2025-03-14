@@ -1,0 +1,20 @@
+
+services:
+  jellyfin:
+    image: lscr.io/linuxserver/jellyfin:latest
+    container_name: jellyfin
+    networks:
+      - webdock-network
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Berlin
+    volumes:
+      - ./jellyfin-config:/config
+      - ./media:/media
+    ports:
+      - 8096:8096
+
+networks:
+  webdock-network:
+    external: true
