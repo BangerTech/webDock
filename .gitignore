@@ -1,0 +1,20 @@
+# Ignore webdock data directories
+/webdock-data/
+/docker-compose-data/
+/webdock-templates/
+/docker-templates/
+
+# Common temporary files
+*.log
+*.tmp
+.DS_Store
+
+# Environment variables
+.env
+
+# ETag files for download tracking
+*.etag
+
+# Downloaded content that shouldn't be committed
+*/icons/
+*/config/

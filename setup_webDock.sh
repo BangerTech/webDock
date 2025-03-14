@@ -334,61 +334,125 @@ download_from_github() {
         fi
     }
 
-    # Lade alle verfügbaren Container-Verzeichnisse automatisch von GitHub
-    echo "Detecting available container templates from GitHub..."
-    GITHUB_API_URL="https://api.github.com/repos/BangerTech/webDock/contents/docker-templates?ref=$GITHUB_BRANCH"
+        # Intelligenter Ansatz: Prüfe zuerst, welche Container existieren und welche aktualisiert werden müssen
     
-    # Hole die Liste der Verzeichnisse über die GitHub API
-    CONTAINER_LIST=$(curl -sSL "$GITHUB_API_URL" | jq -r '.[] | select(.type=="dir" and .name!="webdock-ui") | .name')
+    # Temporäres Verzeichnis erstellen
+    TMP_DIR=$(mktemp -d)
+    REPO_ZIP="$TMP_DIR/webdock.zip"
     
-    if [ -z "$CONTAINER_LIST" ]; then
-        echo "Keine Container-Verzeichnisse gefunden oder API-Aufruf fehlgeschlagen."
-        echo "Verwende Standard-Container als Fallback."
-        CONTAINER_LIST="pihole portainer nextcloud jellyfin homeassistant grafana"
+    # Speichere den letzten bekannten Commit-Hash
+    HASH_FILE="$BASE_DIR/.last_commit_hash"
+    CURRENT_REMOTE_HASH=""
+    
+    # Prüfe, ob wir eine neue Version herunterladen müssen
+    echo "Prüfe auf Updates im Repository..."
+    CURRENT_REMOTE_HASH=$(curl -sSL "https://api.github.com/repos/BangerTech/webDock/commits/$GITHUB_BRANCH" | jq -r '.sha' 2>/dev/null || echo "")
+    
+    if [ -z "$CURRENT_REMOTE_HASH" ]; then
+        echo "Konnte den aktuellen Commit-Hash nicht ermitteln, lade komplettes Repository herunter..."
+        FORCE_UPDATE=true
+    else
+        # Prüfe, ob eine lokale Hash-Datei existiert
+        if [ -f "$HASH_FILE" ]; then
+            LAST_HASH=$(cat "$HASH_FILE")
+            if [ "$LAST_HASH" = "$CURRENT_REMOTE_HASH" ]; then
+                echo "Repository ist bereits auf dem neuesten Stand (Hash: ${LAST_HASH:0:8})."
+                UPDATES_NEEDED=false
+            else
+                echo "Neue Version verfügbar: ${LAST_HASH:0:8} -> ${CURRENT_REMOTE_HASH:0:8}"
+                UPDATES_NEEDED=true
+            fi
+        else
+            echo "Keine lokale Hash-Information gefunden, lade komplettes Repository herunter..."
+            UPDATES_NEEDED=true
+            FORCE_UPDATE=true
+        fi
     fi
     
-    echo "Gefundene Container-Vorlagen: $CONTAINER_LIST"
-    
-    # Erstelle das Hauptverzeichnis für die Container-Templates
+    # Stelle sicher, dass die Verzeichnisstruktur existiert
     sudo mkdir -p "$COMPOSE_FILES_DIR"
-    
-    # Stelle sicher, dass die notwendigen Icons-Verzeichnisse existieren
     sudo mkdir -p "$SRC_DIR/static/img/icons"
     
-    # Lade default.png und bangertech.png Icons
-    echo "Downloading default icons..."
-    download_if_needed "$GITHUB_RAW_URL/docker-templates/webdock-ui/src/static/img/icons/default.png" \
-        "$SRC_DIR/static/img/icons/default.png" "Default icon"
-    download_if_needed "$GITHUB_RAW_URL/docker-templates/webdock-ui/src/static/img/icons/bangertech.png" \
-        "$SRC_DIR/static/img/icons/bangertech.png" "BangerTech icon"
-    
-    # Lade jeden gefundenen Container herunter
-    for container in $CONTAINER_LIST; do
-        echo "Processing $container template..."
-        sudo mkdir -p "$COMPOSE_FILES_DIR/$container"
-        
-        # Hole Liste der Dateien in diesem Container-Verzeichnis
-        CONTAINER_API_URL="https://api.github.com/repos/BangerTech/webDock/contents/docker-templates/$container?ref=$GITHUB_BRANCH"
-        CONTAINER_FILES=$(curl -sSL "$CONTAINER_API_URL" | jq -r '.[] | select(.type=="file") | .name')
-        
-        # Wenn keine Dateien gefunden wurden, versuche zumindest docker-compose.yml zu laden
-        if [ -z "$CONTAINER_FILES" ]; then
-            echo "Keine Dateien für $container gefunden, versuche docker-compose.yml direkt..."
-            # Überprüfen und ggf. herunterladen der docker-compose.yml
-            download_if_needed "$GITHUB_RAW_URL/docker-templates/$container/docker-compose.yml" \
-                "$COMPOSE_FILES_DIR/$container/docker-compose.yml" "$container/docker-compose.yml"
-        else
-            # Überprüfe und lade alle Dateien im Container-Verzeichnis herunter
-            for file in $CONTAINER_FILES; do
-                download_if_needed "$GITHUB_RAW_URL/docker-templates/$container/$file" \
-                    "$COMPOSE_FILES_DIR/$container/$file" "$container/$file"
-            done
+    # Wenn Updates benötigt werden oder ein Komplett-Update erzwungen wird
+    if [ "$UPDATES_NEEDED" = "true" ] || [ "$FORCE_UPDATE" = "true" ]; then
+        echo "Lade Repository als ZIP herunter..."
+        # ZIP-Datei des Repositories herunterladen
+        if ! curl -L "https://github.com/BangerTech/webDock/archive/refs/heads/$GITHUB_BRANCH.zip" -o "$REPO_ZIP"; then
+            echo "Fehler beim Herunterladen des Repositories"
+            return 1
         fi
-
-        # Überprüfe und lade das Icon herunter
-        download_if_needed "$GITHUB_RAW_URL/docker-templates/webdock-ui/src/static/img/icons/$container.png" \
-            "$SRC_DIR/static/img/icons/$container.png" "Icon for $container"
-    done
+        
+        # Entpacke das ZIP-Archiv
+        echo "Entpacke Repository..."
+        unzip -q "$REPO_ZIP" -d "$TMP_DIR"
+        
+        # Finde das entpackte Verzeichnis
+        UNPACKED_DIR="$TMP_DIR/webDock-$GITHUB_BRANCH"
+        
+        # Kopiere Icons aus dem WebDock UI-Verzeichnis
+        echo "Kopiere Icons..."
+        if [ -d "$UNPACKED_DIR/docker-templates/webdock-ui/src/static/img/icons" ]; then
+            sudo mkdir -p "$SRC_DIR/static/img/icons"
+            sudo cp -R "$UNPACKED_DIR/docker-templates/webdock-ui/src/static/img/icons/"* "$SRC_DIR/static/img/icons/" 2>/dev/null || true
+        fi
+        
+        # Kopiere WebDock UI-Dateien
+        echo "Kopiere WebDock UI-Dateien..."
+        if [ -f "$UNPACKED_DIR/docker-templates/webdock-ui/docker-compose.yml" ]; then
+            sudo cp "$UNPACKED_DIR/docker-templates/webdock-ui/docker-compose.yml" "$BASE_DIR/docker-compose.yml"
+        fi
+        if [ -f "$UNPACKED_DIR/docker-templates/webdock-ui/Dockerfile" ]; then
+            sudo cp "$UNPACKED_DIR/docker-templates/webdock-ui/Dockerfile" "$BASE_DIR/Dockerfile"
+        fi
+        if [ -f "$UNPACKED_DIR/docker-templates/webdock-ui/requirements.txt" ]; then
+            sudo cp "$UNPACKED_DIR/docker-templates/webdock-ui/requirements.txt" "$BASE_DIR/requirements.txt"
+        fi
+        if [ -f "$UNPACKED_DIR/docker-templates/webdock-ui/app.py" ]; then
+            sudo cp "$UNPACKED_DIR/docker-templates/webdock-ui/app.py" "$BASE_DIR/app.py"
+        fi
+        
+        # Generiere eine Liste aller verfügbaren Container
+        echo "Ermittle verfügbare Container..."
+        AVAILABLE_CONTAINERS=$(find "$UNPACKED_DIR/docker-templates/" -maxdepth 1 -type d -not -name "webdock-ui" -not -name "docker-templates" | xargs -n1 basename 2>/dev/null)
+        
+        # Kopiere nur neue oder geänderte Container-Vorlagen
+        echo "Aktualisiere Container-Vorlagen..."
+        for container in $AVAILABLE_CONTAINERS; do
+            container_src="$UNPACKED_DIR/docker-templates/$container"
+            container_dst="$COMPOSE_FILES_DIR/$container"
+            
+            # Prüfe, ob der Container neu ist oder aktualisiert werden muss
+            if [ ! -d "$container_dst" ] || [ "$FORCE_UPDATE" = "true" ]; then
+                echo "Installiere neuen Container: $container"
+                sudo mkdir -p "$container_dst"
+                sudo cp -R "$container_src/"* "$container_dst/" 2>/dev/null || true
+            else
+                # Prüfe auf Änderungen durch Vergleich der Dateien
+                if [ "$UPDATES_NEEDED" = "true" ]; then
+                    echo "Prüfe auf Updates für: $container"
+                    # docker-compose.yml Datei ist immer wichtig, prüfe diese zuerst
+                    if [ -f "$container_src/docker-compose.yml" ] && \
+                       ( [ ! -f "$container_dst/docker-compose.yml" ] || \
+                         ! cmp -s "$container_src/docker-compose.yml" "$container_dst/docker-compose.yml" ); then
+                        echo "Update für $container gefunden"
+                        sudo cp -R "$container_src/"* "$container_dst/" 2>/dev/null || true
+                    fi
+                fi
+            fi
+        done
+        
+        # Speichere den aktuellen Hash für zukünftige Vergleiche
+        if [ -n "$CURRENT_REMOTE_HASH" ]; then
+            echo "$CURRENT_REMOTE_HASH" | sudo tee "$HASH_FILE" > /dev/null
+            echo "Commit-Hash gespeichert: ${CURRENT_REMOTE_HASH:0:8}"
+        fi
+        
+        # Aufräumen
+        echo "Räume temporäre Dateien auf..."
+        rm -rf "$TMP_DIR"
+    else
+        echo "Keine Updates notwendig, überspringe Download."
+    fi
     return 0
 }
 
