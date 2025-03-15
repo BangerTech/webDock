@@ -765,6 +765,15 @@ function initializeContainerSocket() {
         isConnecting = true;
         console.log('Initialisiere WebSocket-Verbindung für Echtzeit-Container-Updates...');
         
+        // Setze einen Timeout für den Verbindungsaufbau
+        const connectionTimeout = setTimeout(() => {
+            if (isConnecting) {
+                console.warn('WebSocket-Verbindung konnte nicht innerhalb des Timeouts hergestellt werden');
+                isConnecting = false;
+                setupStatusPollingFallback();
+            }
+        }, 10000); // 10 Sekunden Timeout
+        
         // Wenn bereits eine Verbindung existiert, zuerst trennen
         if (containerSocket) {
             // Entferne alle vorhandenen Listeners um Memory-Leaks zu vermeiden
@@ -782,15 +791,18 @@ function initializeContainerSocket() {
         // Verbindung zum Socket.IO-Namespace für Container-Updates herstellen
         containerSocket = io('/containers', {
             reconnection: true,             // Automatische Wiederverbindung aktivieren
-            reconnectionAttempts: 5,        // Begrenzen auf 5 Versuche
+            reconnectionAttempts: 10,        // Mehr Versuche erlauben für stabilere Verbindung
             reconnectionDelay: 1000,        // Anfängliche Verzögerung in ms
-            reconnectionDelayMax: 10000,    // Maximale Verzögerung in ms
-            timeout: 30000                  // Verbindungs-Timeout in ms
+            reconnectionDelayMax: 5000,     // Geringere maximale Verzögerung für schnellere Reconnects
+            timeout: 20000,                 // Verbindungs-Timeout in ms
+            forceNew: false,                // Bestehende Verbindungen wiederverwenden
+            transports: ['websocket', 'polling'] // Erst WebSocket, dann Polling als Fallback
         });
         
         // Event-Handler für Verbindungsereignisse
         containerSocket.on('connect', () => {
-            console.log('✅ WebSocket-Verbindung hergestellt!');  
+            console.log('✅ WebSocket-Verbindung hergestellt!');
+            clearTimeout(connectionTimeout);
             isConnecting = false;
             
             // Fallback-Timer entfernen, wenn WebSocket funktioniert
@@ -798,21 +810,63 @@ function initializeContainerSocket() {
                 clearInterval(containerStatusTimer);
                 containerStatusTimer = null;
             }
+            
+            // Anfrage für initialen Status senden
+            containerSocket.emit('get_initial_status');
+            
+            // Update UI to show connected state
+            const statusIndicator = document.getElementById('websocket-status');
+            if (statusIndicator) {
+                statusIndicator.className = 'connected';
+                statusIndicator.title = 'WebSocket verbunden';
+            }
         });
         
         containerSocket.on('connect_error', (error) => {
             console.error('❌ WebSocket-Verbindungsfehler:', error);
+            clearTimeout(connectionTimeout);
             isConnecting = false;
             setupStatusPollingFallback(); // Fallback zu regelmäßigem Polling
+            
+            // Update UI to show disconnected state
+            const statusIndicator = document.getElementById('websocket-status');
+            if (statusIndicator) {
+                statusIndicator.className = 'disconnected';
+                statusIndicator.title = 'WebSocket getrennt: ' + error.message;
+            }
+            
+            // Automatisch nach einer Verzögerung erneut versuchen zu verbinden
+            setTimeout(() => {
+                if (!containerSocket || !containerSocket.connected) {
+                    console.log('Versuche WebSocket-Verbindung wiederherzustellen...');
+                    initializeContainerSocket();
+                }
+            }, 5000); // Nach 5 Sekunden erneut versuchen
         });
         
         containerSocket.on('disconnect', (reason) => {
             console.log('⚠️ WebSocket-Verbindung getrennt:', reason);
+            clearTimeout(connectionTimeout);
             isConnecting = false;
             
-            // Nur Polling einrichten, wenn Wiederverbindung nicht automatisch erfolgt
-            if (reason === 'io server disconnect' || reason === 'transport close') {
-                setupStatusPollingFallback(); // Fallback zu regelmäßigem Polling
+            // Update UI to show disconnected state
+            const statusIndicator = document.getElementById('websocket-status');
+            if (statusIndicator) {
+                statusIndicator.className = 'disconnected';
+                statusIndicator.title = 'WebSocket getrennt: ' + reason;
+            }
+            
+            // Fallback zu Polling einrichten
+            setupStatusPollingFallback();
+            
+            // Bei bestimmten Fehlern versuche automatisch neu zu verbinden
+            if (reason === 'io server disconnect' || reason === 'transport close' || reason === 'ping timeout') {
+                setTimeout(() => {
+                    if (!containerSocket || !containerSocket.connected) {
+                        console.log('Versuche WebSocket-Verbindung nach Trennung wiederherzustellen...');
+                        initializeContainerSocket();
+                    }
+                }, 3000); // Nach 3 Sekunden erneut versuchen
             }
         });
         
@@ -823,25 +877,41 @@ function initializeContainerSocket() {
         });
         
         containerSocket.on('container_status_update', (containerData) => {
-            // Reduzierte Logging-Nachricht
-            const container = {
-                name: containerData.name,
-                status: containerData.status
-            };
-            
-            // Update des UI nur für den einen Container
-            updateContainerStatusUI([container], true);
+            // Verarbeite nur, wenn die Daten gültig sind
+            if (containerData && containerData.name) {
+                // Reduzierte Logging-Nachricht
+                const container = {
+                    name: containerData.name,
+                    status: containerData.status
+                };
+                
+                // Update des UI nur für den einen Container
+                updateContainerStatusUI([container], true);
+            }
         });
         
         containerSocket.on('container_status_refresh', (statusData) => {
-            updateContainerStatusUI(statusData);
+            if (Array.isArray(statusData)) {
+                updateContainerStatusUI(statusData);
+            } else {
+                console.warn('Ungültiges Format für Container-Status-Refresh:', statusData);
+            }
         });
         
+        // Erfolgreiche Initialisierung
         return true;
     } catch (error) {
         console.error('Fehler bei der Initialisierung der WebSocket-Verbindung:', error);
         isConnecting = false;
         setupStatusPollingFallback(); // Fallback zu regelmäßigem Polling
+        
+        // Update UI to show error state
+        const statusIndicator = document.getElementById('websocket-status');
+        if (statusIndicator) {
+            statusIndicator.className = 'error';
+            statusIndicator.title = 'WebSocket-Fehler: ' + error.message;
+        }
+        
         return false;
     }
 }
@@ -1610,8 +1680,15 @@ function setupRefreshInterval() {
         e.stopPropagation();
         
         try {
-            const data = JSON.parse(e.dataTransfer.getData('application/json'));
+            const jsonData = e.dataTransfer.getData('application/json');
+            if (!jsonData) {
+                console.warn('Keine drag & drop Daten erhalten');
+                return;
+            }
+            
+            const data = JSON.parse(jsonData);
             if (!data || data.type !== 'container') {
+                console.warn('Nur Container können auf Gruppen gezogen werden');
                 return;
             }
             
@@ -1626,10 +1703,24 @@ function setupRefreshInterval() {
             }
             
             // Hole den Gruppen-Namen und die Kategorie-ID aus der Gruppe
-            const groupName = groupSection.querySelector('h2').textContent.trim();
+            const groupNameElement = groupSection.querySelector('h2');
+            if (!groupNameElement) {
+                console.error('Konnte keinen h2-Header in der Gruppe finden');
+                return;
+            }
+            
+            const groupName = groupNameElement.textContent.trim();
+            if (!groupName) {
+                console.error('Gruppenelement hat keinen Text');
+                return;
+            }
+            
             // Hole die Kategorie-ID aus dem data-category-id Attribut oder verwende den Gruppennamen als Fallback
             const categoryId = groupSection.getAttribute('data-category-id') || groupName;
             console.log('Gefundene Gruppe:', groupName, 'Kategorie-ID:', categoryId);
+            
+            // Stelle sicher, dass wir eine valide sourceCategoryId haben
+            const sourceCategoryId = data.sourceCategoryId || data.groupName || 'Imported';
             
             // Finde das Container-Grid
             const containerGrid = groupSection.querySelector('.container-grid');
@@ -1637,6 +1728,10 @@ function setupRefreshInterval() {
                 console.error('Kein Container-Grid in der Gruppe gefunden');
                 return;
             }
+            
+            // Zeige visuelles Feedback an, dass eine Aktion im Gange ist
+            const loadingOverlay = document.getElementById('loading-overlay');
+            if (loadingOverlay) loadingOverlay.style.display = 'flex';
             
             if (dropTarget) {
                 // Drop auf eine Container-Karte
@@ -1646,29 +1741,39 @@ function setupRefreshInterval() {
                 console.log('Drop auf Container-Karte:', {
                     container: data.name,
                     fromGroup: data.groupName,
+                    fromCategory: sourceCategoryId,
                     toGroup: groupName,
+                    toCategory: categoryId,
                     fromPosition: data.position,
                     toPosition: targetPosition
                 });
                 
                 if (data.groupName !== groupName) {
                     // Container in eine andere Gruppe verschieben
-                    moveContainer(data.name, data.sourceCategoryId || data.groupName, categoryId, targetPosition);
+                    moveContainer(data.name, sourceCategoryId, categoryId, targetPosition);
                 } else if (targetPosition !== data.position && targetPosition !== -1) {
                     // Container innerhalb der gleichen Gruppe neu anordnen
                     reorderContainer(data.name, categoryId, data.position, targetPosition);
+                } else if (loadingOverlay) {
+                    // Wenn keine Aktion ausgeführt wird, verstecke Loading-Anzeige
+                    loadingOverlay.style.display = 'none';
                 }
             } else {
                 // Drop direkt auf eine Gruppe (nicht auf eine Karte)
                 console.log('Drop direkt auf Gruppe:', {
                     container: data.name,
                     fromGroup: data.groupName,
-                    toGroup: groupName
+                    fromCategory: sourceCategoryId,
+                    toGroup: groupName,
+                    toCategory: categoryId
                 });
                 
                 if (data.groupName !== groupName) {
                     // Container in eine andere Gruppe verschieben
-                    moveContainer(data.name, data.sourceCategoryId, groupName);
+                    moveContainer(data.name, sourceCategoryId, categoryId);
+                } else if (loadingOverlay) {
+                    // Wenn keine Aktion ausgeführt wird, verstecke Loading-Anzeige
+                    loadingOverlay.style.display = 'none';
                 }
             }
             
@@ -1679,11 +1784,26 @@ function setupRefreshInterval() {
         } catch (error) {
             console.error('Fehler beim Drop-Handling:', error);
             showNotification('error', `Fehler beim Verschieben: ${error.message}`);
+            
+            // Verstecke Loading-Anzeige im Fehlerfall
+            const loadingOverlay = document.getElementById('loading-overlay');
+            if (loadingOverlay) loadingOverlay.style.display = 'none';
         }
     };
 
     async function moveContainer(containerName, sourceCategoryId, targetCategoryId, targetPosition = -1) {
         try {
+            // Stelle sicher, dass die sourceCategory immer definiert ist
+            // Verwende 'Imported' als Fallback, wenn keine Quellkategorie angegeben wurde
+            const sourceCategory = sourceCategoryId || 'Imported';
+            
+            console.log('API Anfrage: Container verschieben', {
+                containerName,
+                sourceCategory,
+                targetCategory: targetCategoryId,
+                targetPosition
+            });
+            
             const response = await fetch('/api/container/move', {
                 method: 'POST',
                 headers: {
@@ -1691,18 +1811,20 @@ function setupRefreshInterval() {
                 },
                 body: JSON.stringify({
                     containerName: containerName,
-                    sourceCategory: sourceCategoryId,
+                    sourceCategory: sourceCategory,
                     targetCategory: targetCategoryId,
                     targetPosition: targetPosition
                 })
             });
 
             if (!response.ok) {
-                throw new Error('Failed to move container');
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Fehler beim Verschieben des Containers');
             }
 
-            // Aktualisiere die Anzeige vollständig durch Neuladen der Kategorien
-            loadCategories();
+            // Force-Refresh aller Daten
+            loadCategories(true);
+            loadContainers(true);
             showNotification('success', `Container ${containerName} wurde in die Kategorie ${targetCategoryId} verschoben`);
         } catch (error) {
             console.error('Error moving container:', error);
