@@ -1506,42 +1506,47 @@ def update_container(container_name):
 
 @app.route('/static/img/<path:filename>')
 def serve_image(filename):
+    """Dient Bilder mit optimierten Cache-Einstellungen aus.
+    Vermeidet ETag-Probleme durch völligen Verzicht auf automatische ETag-Generierung."""
     try:
-        # Versuche das angeforderte Bild zu finden
+        # Prüfe zuerst, ob die Datei existiert
         file_path = os.path.join(app.static_folder, 'img', filename)
-        if not os.path.isfile(file_path):
-            # Wenn die Datei nicht existiert, versuche, ein Fallback-Bild zu finden
-            raise FileNotFoundError(f"Image not found: {filename}")
+        icons_path = os.path.join(app.static_folder, 'img', 'icons')
+        default_icon = os.path.join(icons_path, 'default.png')
+        webdock_icon = os.path.join(icons_path, 'webdock.png')
         
-        # Sende die Datei mit angepassten Cache-Headern
-        response = send_from_directory(app.static_folder + '/img', filename)
+        if os.path.isfile(file_path):
+            # Die angeforderte Datei existiert
+            target_file = file_path
+            max_age = 60 * 60 * 24 * 7  # 7 Tage für normale Bilder
+        elif os.path.isfile(default_icon):
+            # Verwende default.png als Fallback
+            target_file = default_icon
+            max_age = 3600  # 1 Stunde für Fallback-Icons
+        elif os.path.isfile(webdock_icon):
+            # Verwende webdock.png als letzten Fallback
+            target_file = webdock_icon
+            max_age = 3600  # 1 Stunde für Fallback-Icons
+        else:
+            # Kein Bild gefunden, gib 404 zurück
+            logger.warning(f"No image found for {filename} and no fallback available")
+            return "", 404
         
-        # Setze Cache-Header für lange Caching-Dauer (1 Woche)
-        max_age = 60 * 60 * 24 * 7  # 7 Tage in Sekunden
+        # Erstelle eine einfache Response mit dem Dateiinhalt
+        with open(target_file, 'rb') as img_file:
+            response = Response(img_file.read(), mimetype='image/png')
+        
+        # Setze Cache-Header für optimales Caching
         response.headers['Cache-Control'] = f'public, max-age={max_age}'
         
-        # Verwende einen berechneten Last-Modified Header statt ETag
-        last_modified = datetime.datetime.fromtimestamp(os.path.getmtime(file_path))
-        response.headers['Last-Modified'] = last_modified.strftime('%a, %d %b %Y %H:%M:%S GMT')
+        # Setze Last-Modified Header statt ETag
+        mod_time = datetime.fromtimestamp(os.path.getmtime(target_file))
+        response.headers['Last-Modified'] = mod_time.strftime('%a, %d %b %Y %H:%M:%S GMT')
         
         return response
     except Exception as e:
-        logger.warning(f"Image serving error: {str(e)}")
-        try:
-            # Fallback auf Standardbild
-            fallback_path = os.path.join(app.static_folder, 'img', 'icons', 'default.png')
-            if os.path.exists(fallback_path):
-                response = send_from_directory(app.static_folder + '/img/icons', 'default.png')
-            else:
-                # Wenn kein Default-Icon gefunden wurde, versuche webdock.png
-                response = send_from_directory(app.static_folder + '/img/icons', 'webdock.png')
-            
-            response.headers['Cache-Control'] = 'public, max-age=3600'  # 1 Stunde Cache für Fallback-Icon
-            return response
-        except Exception as inner_e:
-            logger.error(f"Failed to serve fallback image: {str(inner_e)}")
-            # Wenn auch das nicht klappt, gib einen leeren Response zurück
-            return "", 404
+        logger.error(f"Error serving image {filename}: {str(e)}")
+        return "", 500
 
 @app.route('/api/system/status')
 def get_system_status():
