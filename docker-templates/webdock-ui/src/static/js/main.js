@@ -47,6 +47,14 @@ function closeModal(containerName = null) {
     // Suche nach allen modalen Dialogen
     const modals = document.querySelectorAll('.modal');
     
+    // Finde alle Install-Buttons, die deaktiviert sind, aber nicht laden
+    const pendingButtons = document.querySelectorAll('.install-btn[disabled]:not(.loading)');
+    pendingButtons.forEach(button => {
+        button.disabled = false;
+        // Setze auf den ursprünglichen Text zurück, oder auf 'Install' als Fallback
+        button.innerHTML = button.originalHTML || 'Install';
+    });
+    
     // Schließe alle gefundenen Modals
     modals.forEach(modal => {
         // Entferne die 'show' Klasse für die Animation
@@ -63,11 +71,21 @@ function closeModal(containerName = null) {
     
     // Wenn ein Container-Name angegeben wurde, setze dessen Install-Button zurück
     if (containerName) {
-        const mainButton = document.querySelector(`[data-container="${containerName}"] .install-btn`);
+        // Versuche zuerst mit data-container
+        let mainButton = document.querySelector(`[data-container="${containerName}"] .install-btn`);
+        
+        // Wenn nichts gefunden, versuche mit der Container-Karte über data-name
+        if (!mainButton) {
+            const containerCard = document.querySelector(`.container-card[data-name="${containerName}"]`);
+            if (containerCard) {
+                mainButton = containerCard.querySelector('.install-btn');
+            }
+        }
+        
         if (mainButton) {
             mainButton.disabled = false;
             mainButton.classList.remove('loading');
-            mainButton.innerHTML = 'Install';
+            mainButton.innerHTML = mainButton.originalHTML || 'Install';
         }
     }
     
@@ -2110,6 +2128,7 @@ function setupStatusPollingFallback() {
 function installContainer(name) {
     const button = event.target;
     button.disabled = true;
+    button.originalHTML = button.innerHTML; // Speichern des ursprünglichen Button-Textes
     button.innerHTML = '<i class="fa fa-spinner fa-spin"></i>';
 
     // Hole zuerst den Data Location Pfad aus den Settings
@@ -2312,7 +2331,17 @@ async function showInstallModal(containerName) {
         installButton.addEventListener('click', () => executeInstall(containerName));
 
         // Schließen-Funktionalität
-        const handleClose = () => closeModal(containerName);
+        const handleClose = () => {
+            // Finde alle Buttons, die auf diesen Container verweisen
+            const containerButtons = document.querySelectorAll(`.install-btn`);
+            containerButtons.forEach(btn => {
+                if (btn.disabled && !btn.classList.contains('loading')) {
+                    btn.disabled = false;
+                    btn.innerHTML = btn.originalHTML || 'Install';
+                }
+            });
+            closeModal(containerName);
+        };
         
         cancelButton.addEventListener('click', handleClose);
         closeButton.addEventListener('click', handleClose);
@@ -2886,8 +2915,8 @@ function createContainerCard(container, categoryId) {
     }
     
     return `
-        <div class="container-card"${dragAttributes}>
-            <div class="status-indicator ${container.status}"></div>
+        <div class="container-card" data-name="${container.name}"${dragAttributes}>
+            <div class="status-indicator ${container.status}" title="Status: ${container.status}"></div>
             <div class="container-logo">
                 <img src="${logoUrl}" 
                      alt="${container.name} logo" 
@@ -2903,6 +2932,7 @@ function createContainerCard(container, categoryId) {
                 ` : ''}
             </div>
             ${portDisplay}
+            <!-- Beschreibung wird absichtlich nicht angezeigt, nur als Tooltip beim Hover über das Logo -->
 
             <div class="actions">
                 ${isInstalled ? `
