@@ -3771,25 +3771,54 @@ async function updateContainerStatus(forceRefresh = false) {
 }
 
 // Initialisierung
+// Hauptinitialisierungsfunktion
 document.addEventListener('DOMContentLoaded', async () => {
-    // Erste Ladung
-    await updateContainerStatus();
+    // Lade die UI beim Start
+    await loadCategories(true);
     
-    // Periodische Updates (optional)
-    setInterval(updateContainerStatus, UPDATE_INTERVAL);
-});
-
-// Nur manuelles Update über Button
-document.addEventListener('DOMContentLoaded', async () => {
-    // Erste Ladung
-    await updateContainerStatus();
+    // Initialisiere den Status-Aktualisierungs-Timer
+    initStatusUpdateTimer();
     
-    // Refresh Button (falls gewünscht)
+    // Refresh Button einrichten
     const refreshButton = document.getElementById('refresh-button');
     if (refreshButton) {
-        refreshButton.addEventListener('click', updateContainerStatus);
+        refreshButton.addEventListener('click', () => {
+            // Bei Klick auf Refresh vollständige Aktualisierung durchführen
+            updateContainerStatus(true);
+            showNotification('info', 'Aktualisiere Container-Status...');
+        });
     }
+    
+    // Zeige Benachrichtigung, dass Auto-Update aktiv ist
+    console.log(`Auto-Update aktiviert: Status alle ${STATUS_UPDATE_INTERVAL/1000} Sekunden, vollständiger Refresh alle ${FULL_REFRESH_INTERVAL/60000} Minuten`);
 });
+
+/**
+ * Initialisiert den Timer für automatische Status-Updates
+ */
+function initStatusUpdateTimer() {
+    if (statusUpdateInterval) {
+        clearInterval(statusUpdateInterval);
+    }
+    
+    // Setze den Zeitpunkt des letzten vollständigen Refreshs
+    lastFullRefresh = Date.now();
+    
+    // Starte den Timer für Status-Updates
+    statusUpdateInterval = setInterval(() => {
+        const now = Date.now();
+        
+        // Prüfe, ob ein vollständiger Refresh fällig ist
+        if (now - lastFullRefresh >= FULL_REFRESH_INTERVAL) {
+            console.log('Durchführung eines vollständigen UI-Refreshs...');
+            updateContainerStatus(true);
+            lastFullRefresh = now;
+        } else {
+            // Ansonsten nur Status aktualisieren
+            updateContainerStatus(false);
+        }
+    }, STATUS_UPDATE_INTERVAL);
+}
 
 // Füge diese Funktion vor der updateContainerStatus Funktion hinzu
 function addContainerEventListeners() {

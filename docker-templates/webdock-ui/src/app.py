@@ -1508,22 +1508,40 @@ def update_container(container_name):
 def serve_image(filename):
     try:
         # Versuche das angeforderte Bild zu finden
+        file_path = os.path.join(app.static_folder, 'img', filename)
+        if not os.path.isfile(file_path):
+            # Wenn die Datei nicht existiert, versuche, ein Fallback-Bild zu finden
+            raise FileNotFoundError(f"Image not found: {filename}")
+        
+        # Sende die Datei mit angepassten Cache-Headern
         response = send_from_directory(app.static_folder + '/img', filename)
         
         # Setze Cache-Header für lange Caching-Dauer (1 Woche)
         max_age = 60 * 60 * 24 * 7  # 7 Tage in Sekunden
         response.headers['Cache-Control'] = f'public, max-age={max_age}'
         
-        # Füge ETag für effizientes Caching hinzu
-        response.add_etag()
+        # Verwende einen berechneten Last-Modified Header statt ETag
+        last_modified = datetime.datetime.fromtimestamp(os.path.getmtime(file_path))
+        response.headers['Last-Modified'] = last_modified.strftime('%a, %d %b %Y %H:%M:%S GMT')
         
         return response
-    except:
-        # Fallback auf Standardbild
-        response = send_from_directory(app.static_folder + '/img/icons', 'webdock.png')
-        response.headers['Cache-Control'] = 'public, max-age=3600'  # 1 Stunde Cache für Fallback-Icon
-        response.add_etag()
-        return response
+    except Exception as e:
+        logger.warning(f"Image serving error: {str(e)}")
+        try:
+            # Fallback auf Standardbild
+            fallback_path = os.path.join(app.static_folder, 'img', 'icons', 'default.png')
+            if os.path.exists(fallback_path):
+                response = send_from_directory(app.static_folder + '/img/icons', 'default.png')
+            else:
+                # Wenn kein Default-Icon gefunden wurde, versuche webdock.png
+                response = send_from_directory(app.static_folder + '/img/icons', 'webdock.png')
+            
+            response.headers['Cache-Control'] = 'public, max-age=3600'  # 1 Stunde Cache für Fallback-Icon
+            return response
+        except Exception as inner_e:
+            logger.error(f"Failed to serve fallback image: {str(inner_e)}")
+            # Wenn auch das nicht klappt, gib einen leeren Response zurück
+            return "", 404
 
 @app.route('/api/system/status')
 def get_system_status():
