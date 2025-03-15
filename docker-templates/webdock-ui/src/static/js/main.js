@@ -44,15 +44,31 @@ function getContainerDescription(containerName) {
 
 // Globale closeModal Funktion
 function closeModal(containerName = null) { 
+    console.log(`Modal closed for container: ${containerName}`);
+    
     // Suche nach allen modalen Dialogen
     const modals = document.querySelectorAll('.modal');
     
-    // Finde alle Install-Buttons, die deaktiviert sind, aber nicht laden
+    // Suche nach markierten Buttons mit data-installing-container
+    if (containerName) {
+        const markedButtons = document.querySelectorAll(`[data-installing-container="${containerName}"]`);
+        if (markedButtons.length > 0) {
+            console.log(`${markedButtons.length} markierte Buttons für Container ${containerName} gefunden`);
+            markedButtons.forEach(btn => {
+                resetInstallButton(btn, containerName);
+            });
+        }
+    }
+    
+    // Zusätzlich: Finde alle Install-Buttons, die deaktiviert sind (als Fallback)
     const pendingButtons = document.querySelectorAll('.install-btn[disabled]:not(.loading)');
     pendingButtons.forEach(button => {
+        const btnContainer = button.getAttribute('data-installing-container') || containerName || 'unknown';
+        console.log(`Zurücksetzen eines deaktivierten Buttons für Container: ${btnContainer}`);
         button.disabled = false;
-        // Setze auf den ursprünglichen Text zurück, oder auf 'Install' als Fallback
         button.innerHTML = button.originalHTML || 'Install';
+        // Entferne das Attribut, falls es existiert
+        button.removeAttribute('data-installing-container');
     });
     
     // Schließe alle gefundenen Modals
@@ -69,28 +85,7 @@ function closeModal(containerName = null) {
         }, 300);
     });
     
-    // Wenn ein Container-Name angegeben wurde, setze dessen Install-Button zurück
-    if (containerName) {
-        // Versuche zuerst mit data-container
-        let mainButton = document.querySelector(`[data-container="${containerName}"] .install-btn`);
-        
-        // Wenn nichts gefunden, versuche mit der Container-Karte über data-name
-        if (!mainButton) {
-            const containerCard = document.querySelector(`.container-card[data-name="${containerName}"]`);
-            if (containerCard) {
-                mainButton = containerCard.querySelector('.install-btn');
-            }
-        }
-        
-        if (mainButton) {
-            mainButton.disabled = false;
-            mainButton.classList.remove('loading');
-            mainButton.innerHTML = mainButton.originalHTML || 'Install';
-        }
-    }
-    
-    // Debug-Logging
-    console.log('Modal closed for container:', containerName);
+    // Debug-Logging wurde in den Funktionskopf verschoben
 }
 
 // Globale Variablen am Anfang der Datei

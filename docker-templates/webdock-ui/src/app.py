@@ -2339,7 +2339,7 @@ def reorder_container():
                     c_name = c.get('name') if isinstance(c, dict) else c
                     logger.info(f"  Position {i}: {c_name}")
                 
-                # Finde den Container direkt nach Namen und ignoriere die angegebene Position
+                # Finde den Container im Backend nach Namen und ignoriere zunächst die angegebene Position
                 # Dies ist zuverlässiger, da die UI-Position und die Backend-Position unterschiedlich sein können
                 found_container = False
                 found_position = -1
@@ -2348,6 +2348,7 @@ def reorder_container():
                 logger.info(f"Suche Container '{container_name}' in Kategorie '{category_id}'")
                 logger.info(f"Angegebene Positionen: von={from_position}, nach={to_position}")
                 
+                # Erst suchen wir den Container nach Namen
                 for idx, cont in enumerate(category['containers']):
                     # Normalisiere den Container-Namen
                     if isinstance(cont, dict):
@@ -2360,7 +2361,8 @@ def reorder_container():
                     if cont_name == container_name:
                         found_container = True
                         found_position = idx
-                        logger.info(f"  ✔ Found container '{container_name}' at position {idx}")
+                        logger.info(f"  ✔ Found container '{container_name}' at position {idx} (Backend)")
+                        logger.info(f"    Frontend gab Position {from_position} an, Backend-Position ist {idx}")
                         break
                 
                 # Wenn der Container nicht gefunden wurde, akzeptiere die vom Frontend übergebene Position
@@ -2400,15 +2402,45 @@ def reorder_container():
                     # Wenn es ein String ist, konvertiere es in ein Dictionary
                     container = {'name': container}
                 
-                # Anpassen der Zielposition, wenn sie größer als die Quellposition ist
-                # (da wir bereits ein Element entfernt haben)
-                adjusted_to_position = to_position
-                if from_position < to_position:
-                    # Wenn wir nach unten verschieben, müssen wir die Position anpassen,
-                    # da wir bereits ein Element entfernt haben
-                    adjusted_to_position = max(0, min(len(category['containers']), to_position))
+                # Wir müssen zum korrekten Index im Backend verschieben, der nicht mit dem DOM-Index übereinstimmt
                 
-                # Füge den Container an der to_position ein
+                # 1. Erst bestimmen wir, wo der Container tatsächlich hin soll relativ zur aktuellen Position
+                move_direction = ""  # nach oben, unten oder selbst
+                adjusted_to_position = 0
+                
+                # Wenn der Frontend-Index und Backend-Index von der Ausgangsposition unterschiedlich sind,
+                # verwenden wir die relative Verschiebung, um zu bestimmen, wo der Container hin soll
+                if from_position < to_position:
+                    # Verschiebung nach unten (höherer Index)
+                    move_direction = "down"
+                    # Berechne Offset zwischen Ziel und Start im Frontend
+                    offset = to_position - from_position
+                    # Wende diesen Offset auf die Backend-Position an
+                    adjusted_to_position = min(found_position + offset, len(category['containers']))
+                    logger.info(f"Verschiebe nach unten um {offset} Positionen: von {found_position} nach {adjusted_to_position}")
+                elif from_position > to_position:
+                    # Verschiebung nach oben (niedrigerer Index)
+                    move_direction = "up"
+                    # Berechne den Offset zwischen Start und Ziel im Frontend
+                    offset = from_position - to_position
+                    # Wende diesen Offset auf die Backend-Position an, aber nicht unter 0
+                    adjusted_to_position = max(0, found_position - offset)
+                    logger.info(f"Verschiebe nach oben um {offset} Positionen: von {found_position} nach {adjusted_to_position}")
+                else:  # from_position == to_position
+                    move_direction = "self"
+                    adjusted_to_position = found_position  # Keine Änderung, gleiche Position
+                    logger.info(f"Keine Verschiebung notwendig, bleibt an Position {found_position}")
+                    
+                # Entferne Container an der aktuellen Position
+                container = category['containers'].pop(found_position)
+                logger.info(f"Removed container at position {found_position}: {container}")
+                
+                # Bei Verschiebung nach unten müssen wir eine Position abziehen, da wir bereits ein Element entfernt haben
+                if move_direction == "down" and adjusted_to_position > found_position:
+                    adjusted_to_position -= 1
+                    logger.info(f"Angepasste Zielposition nach Entfernen des Elements: {adjusted_to_position}")
+                    
+                # Füge den Container an der berechneten Position ein
                 if adjusted_to_position >= len(category['containers']):
                     logger.info(f"Appending container to end of list (position {len(category['containers'])})")
                     category['containers'].append(container)
