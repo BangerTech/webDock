@@ -95,7 +95,7 @@ function closeModal(containerName = null) {
 
 // Globale Variablen am Anfang der Datei
 let sshConnection = null;
-let currentPath = '/';
+let globalCurrentPath = '/';
 let currentCommand = '';
 let terminalContent = null;  // Wird später definiert
 let commandHistory = [];  // Neu: Global definiert
@@ -175,6 +175,9 @@ window.disconnectFromServer = function() {
 
 document.addEventListener('DOMContentLoaded', function() {
     loadingOverlay = document.getElementById('loading-overlay');
+    
+    // Lade Docker-Informationen
+    fetchDockerInfo();
     
     // Container-Status-Updates als globale Funktion
     window.updateContainerStatus = function(showLoading = false) {
@@ -748,23 +751,47 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
 // Initialisierung der WebSocket-Verbindung für Container-Status-Updates
+// Globale Variable um zu verfolgen, ob wir aktiv versuchen, eine Verbindung herzustellen
+let isConnecting = false;
+
 function initializeContainerSocket() {
+    // Verhindere mehrere gleichzeitige Verbindungsversuche
+    if (isConnecting) {
+        console.log('Verbindungsaufbau bereits im Gange, warte...');
+        return true;
+    }
+    
     try {
+        isConnecting = true;
         console.log('Initialisiere WebSocket-Verbindung für Echtzeit-Container-Updates...');
+        
+        // Wenn bereits eine Verbindung existiert, zuerst trennen
+        if (containerSocket) {
+            // Entferne alle vorhandenen Listeners um Memory-Leaks zu vermeiden
+            containerSocket.off('connect');
+            containerSocket.off('connect_error');
+            containerSocket.off('disconnect');
+            containerSocket.off('initial_status');
+            containerSocket.off('container_status_update');
+            containerSocket.off('container_status_refresh');
+            
+            // Trenne bestehende Verbindung
+            containerSocket.disconnect();
+        }
         
         // Verbindung zum Socket.IO-Namespace für Container-Updates herstellen
         containerSocket = io('/containers', {
             reconnection: true,             // Automatische Wiederverbindung aktivieren
-            reconnectionAttempts: Infinity, // Unbegrenzt viele Versuche
+            reconnectionAttempts: 5,        // Begrenzen auf 5 Versuche
             reconnectionDelay: 1000,        // Anfängliche Verzögerung in ms
-            reconnectionDelayMax: 5000,     // Maximale Verzögerung in ms
-            timeout: 20000                  // Verbindungs-Timeout in ms
+            reconnectionDelayMax: 10000,    // Maximale Verzögerung in ms
+            timeout: 30000                  // Verbindungs-Timeout in ms
         });
         
         // Event-Handler für Verbindungsereignisse
         containerSocket.on('connect', () => {
             console.log('✅ WebSocket-Verbindung hergestellt!');  
-            // Keine Benachrichtigung mehr anzeigen
+            isConnecting = false;
             
             // Fallback-Timer entfernen, wenn WebSocket funktioniert
             if (containerStatusTimer) {
@@ -775,12 +802,18 @@ function initializeContainerSocket() {
         
         containerSocket.on('connect_error', (error) => {
             console.error('❌ WebSocket-Verbindungsfehler:', error);
+            isConnecting = false;
             setupStatusPollingFallback(); // Fallback zu regelmäßigem Polling
         });
         
         containerSocket.on('disconnect', (reason) => {
-            console.warn('⚠️ WebSocket-Verbindung getrennt:', reason);
-            setupStatusPollingFallback(); // Fallback zu regelmäßigem Polling
+            console.log('⚠️ WebSocket-Verbindung getrennt:', reason);
+            isConnecting = false;
+            
+            // Nur Polling einrichten, wenn Wiederverbindung nicht automatisch erfolgt
+            if (reason === 'io server disconnect' || reason === 'transport close') {
+                setupStatusPollingFallback(); // Fallback zu regelmäßigem Polling
+            }
         });
         
         // Event-Handler für Container-Status-Updates
@@ -790,10 +823,7 @@ function initializeContainerSocket() {
         });
         
         containerSocket.on('container_status_update', (containerData) => {
-            // Keine ausführliche Logging-Nachricht mehr
-            console.log('Container-Status aktualisiert für:', containerData.name);
-            
-            // Einzelnes Container-Update verarbeiten
+            // Reduzierte Logging-Nachricht
             const container = {
                 name: containerData.name,
                 status: containerData.status
@@ -804,13 +834,13 @@ function initializeContainerSocket() {
         });
         
         containerSocket.on('container_status_refresh', (statusData) => {
-            console.log('Status-Aktualisierung empfangen');
             updateContainerStatusUI(statusData);
         });
         
         return true;
     } catch (error) {
         console.error('Fehler bei der Initialisierung der WebSocket-Verbindung:', error);
+        isConnecting = false;
         setupStatusPollingFallback(); // Fallback zu regelmäßigem Polling
         return false;
     }
@@ -819,38 +849,49 @@ function initializeContainerSocket() {
 // Fallback-Funktion, die reguläres Polling einrichtet, falls WebSockets nicht funktionieren
 function setupStatusPollingFallback() {
     // Verhindere mehrere Timer
-    if (containerStatusTimer) return;
+    if (containerStatusTimer) {
+        clearInterval(containerStatusTimer);
+        containerStatusTimer = null;
+    }
+    
+    // Prüfe, ob autoUpdate aktiviert ist
+    if (localStorage.getItem('autoUpdate') === 'false') {
+        return; // Wenn auto-Update deaktiviert ist, richte auch keinen Fallback ein
+    }
     
     console.log('Richte Fallback-Polling für Container-Status ein');
-    const interval = parseInt(localStorage.getItem('refreshInterval') || '30') * 1000;
+    const interval = Math.max(30, parseInt(localStorage.getItem('refreshInterval') || '30')) * 1000;
     
-    if (localStorage.getItem('autoUpdate') !== 'false') {
-        containerStatusTimer = setInterval(() => { 
+    containerStatusTimer = setInterval(function() {
+        // Nur polling ausführen wenn keine WebSocket-Verbindung besteht
+        if (!containerSocket || !containerSocket.connected) {
             console.log('Polling Container-Status (Fallback-Methode)...');
             updateContainerStatus(false);
-        }, interval);
-    }
+        }
+    }, interval);
 }
 
-    // Docker Version Info
+// Funktion zum Abrufen der Docker-Versionsinformationen
+function fetchDockerInfo() {
     fetch('/api/docker/info')
-        .then(response => response.json())
-        .then(data => {
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
             document.getElementById('docker-version').value = data.version;
             document.getElementById('docker-network').value = data.network;
         })
-        .catch(error => console.error('Error getting Docker info:', error));
+        .catch(function(error) { console.error('Error getting Docker info:', error); });
+}
 
-    // Setup Refresh Interval - Nur für Systemstatus, Container-Status verwendet WebSockets
-    function setupRefreshInterval() {
-        const interval = parseInt(refreshInterval.value) * 1000;
-        if (window.statusInterval) clearInterval(window.statusInterval);
-        if (autoUpdate.checked) {
-            window.statusInterval = setInterval(() => {
-                updateSystemStatus();
-                updateContainerHealth();
-                updateSystemLogs();
-            }, interval);
+// Setup Refresh Interval - Nur für Systemstatus, Container-Status verwendet WebSockets
+function setupRefreshInterval() {
+    const interval = parseInt(refreshInterval.value) * 1000;
+    if (window.statusInterval) clearInterval(window.statusInterval);
+    if (autoUpdate.checked) {
+        window.statusInterval = setInterval(function() {
+            updateSystemStatus();
+            updateContainerHealth();
+            updateSystemLogs();
+        }, interval);
         }
         
         // Aktualisiere auch die WebSocket-Verbindung, wenn die Einstellungen geändert wurden
@@ -2112,19 +2153,23 @@ function setupStatusPollingFallback() {
         }
     }
 
-    // Initialisierung beim Laden der Seite
-    document.addEventListener('DOMContentLoaded', function() {
+    // Initialisierung für Import-Tabs
+    function initializeOnLoad() {
         // Initialisiere Header-Tabs
-        initializeHeaderTabs();
+        if (typeof initializeHeaderTabs === 'function') {
+            initializeHeaderTabs();
+        }
         
         // Initialisiere Import-Tabs nur wenn die Section bereits offen ist
         const importSection = document.querySelector('.import-tabs');
-        if (importSection && importSection.offsetParent !== null) {
+        if (importSection && importSection.offsetParent !== null && typeof initializeImportTabs === 'function') {
             initializeImportTabs();
         }
-    });
+    }
+    
+    // Führe die Initialisierung aus
+    initializeOnLoad();
 });
-
 // Container control functions
 function installContainer(name) {
     const button = event.target;

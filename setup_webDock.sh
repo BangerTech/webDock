@@ -521,8 +521,20 @@ export WEBDOCK_INSTALL_DIR="$INSTALL_DIR"
 echo "Setting WEBDOCK_INSTALL_DIR=$WEBDOCK_INSTALL_DIR"
 
 echo "=== Starting container with live logs ==="
-echo "Press Ctrl+C to stop viewing logs (container will continue running)"
-sudo -E docker compose up --build
+echo "Press Ctrl+C to stop viewing logs (container will continue running in the background)"
+
+# Starte den Container im Hintergrund, um eine saubere Beendigung zu ermöglichen
+sudo -E docker compose up -d --build
+
+# Zeige die Logs an und warte auf Abbruch durch den Benutzer
+sudo docker compose logs -f || true
+
+# Prüfe, ob der Container noch läuft
+if sudo docker ps --format '{{.Names}}' | grep -q "webdock-ui"; then
+    CONTAINER_STATUS="running"
+else
+    CONTAINER_STATUS="stopped"
+fi
 
 # Die folgenden Tests werden nur ausgeführt, wenn man das Script mit dem Parameter --test aufruft
 # Zeige Informationshinweis nach der Installation
@@ -544,7 +556,7 @@ if [ "$1" == "--test" ]; then
     curl -v http://localhost:8585/
 fi
 
-echo -e "\nSetup complete. Container is running with live logs."
+echo -e "\nSetup abgeschlossen. WebDock-Container ist $CONTAINER_STATUS."
 
 # Am Anfang des Scripts nach den Verzeichnis-Definitionen
 if [ -d "/home/The-BangerTECH-Utility-main" ]; then

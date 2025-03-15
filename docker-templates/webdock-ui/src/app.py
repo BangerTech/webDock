@@ -481,7 +481,16 @@ def update_category(category_id):
 def get_categories():
     try:
         categories = load_categories()
-        logger.info(f"Returning categories: {categories}")  # Debug logging
+        
+        # Entferne Beschreibungen aus den Container-Objekten
+        if 'categories' in categories and isinstance(categories['categories'], list):
+            for category in categories['categories']:
+                if 'containers' in category and isinstance(category['containers'], list):
+                    for container in category['containers']:
+                        if isinstance(container, dict) and 'description' in container:
+                            del container['description']
+        
+        logger.debug(f"Returning {len(categories.get('categories', []))} categories")  # Reduziertes Logging
         return jsonify(categories)
     except Exception as e:
         logger.exception("Error getting categories")
