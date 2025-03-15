@@ -2106,16 +2106,19 @@ def reorder_container():
         from_position = data.get('fromPosition', -1)
         to_position = data.get('toPosition', -1)
         
-        # Log für Debugging
+        # Umfassendes Logging für Debugging-Zwecke
         logger.info(f"Received reorder request: {data}")
         
         # Wenn keine Kategorie-ID angegeben ist, verwende 'default'
         if not category_id or category_id == 'undefined':
             category_id = 'default'
             
-        if not container_name or from_position < 0 or to_position < 0:
-            logger.error(f"Missing or invalid fields: container={container_name}, from={from_position}, to={to_position}")
-            return jsonify({'error': 'Missing or invalid required fields'}), 400
+        if not container_name:
+            logger.error(f"Missing container name in request: {data}")
+            return jsonify({'error': 'Container name is required'}), 400
+            
+        if from_position < 0 or to_position < 0:
+            logger.warning(f"Invalid positions: from={from_position}, to={to_position}. Will attempt to find container by name.")
             
         logger.info(f"Reordering container {container_name} in category {category_id} from position {from_position} to {to_position}")
         
@@ -2165,45 +2168,38 @@ def reorder_container():
                 category['containers'] = normalized_containers
                 
                 # Wenn wir hier sind, haben wir die richtige Kategorie gefunden
-                # Prüfe, ob die Position gültig ist
-                if len(category['containers']) <= from_position:
-                    # Wenn der Container nicht an der angegebenen Position existiert,
-                    # füge ihn einfach zur Kategorie hinzu
-                    logger.warning(f"Container position {from_position} not found in category {category_id} with {len(category['containers'])} containers")
-                    logger.info(f"Adding container {container_name} to category {category_id}")
+                
+                # Protokolliere die aktuellen Container in der Kategorie für besseres Debugging
+                logger.info(f"Current containers in category {category_id}:")
+                for i, c in enumerate(category['containers']):
+                    c_name = c.get('name') if isinstance(c, dict) else c
+                    logger.info(f"  Position {i}: {c_name}")
+                
+                # Finde den Container direkt nach Namen und ignoriere die angegebene Position
+                # Dies ist zuverlässiger, da die UI-Position und die Backend-Position unterschiedlich sein können
+                found_container = False
+                found_position = -1
+                
+                for idx, cont in enumerate(category['containers']):
+                    cont_name = cont.get('name') if isinstance(cont, dict) else cont
+                    if cont_name == container_name:
+                        found_container = True
+                        found_position = idx
+                        logger.info(f"Found container {container_name} at position {idx}")
+                        break
+                
+                if not found_container:
+                    # Wenn der Container nicht gefunden wurde, füge ihn zur Kategorie hinzu
+                    logger.warning(f"Container {container_name} not found in category {category_id}, adding it")
                     category['containers'].append({'name': container_name})
                     break
                 
-                # Überprüfe, ob der richtige Container an der Position ist
-                container_at_position = category['containers'][from_position]
-                container_name_at_position = container_at_position.get('name') if isinstance(container_at_position, dict) else container_at_position
-                logger.info(f"Container at position {from_position}: {container_name_at_position}")
+                # Entferne den Container von seiner aktuellen Position
+                container = category['containers'].pop(found_position)
+                logger.info(f"Removed container at position {found_position}: {container}")
                 
-                # Wenn der Container an der Position nicht der angeforderte Container ist,
-                # suche den richtigen Container in der Liste
-                if container_name_at_position != container_name:
-                    logger.warning(f"Container at position {from_position} is {container_name_at_position}, but requested container is {container_name}")
-                    # Suche den Container in der Liste
-                    found = False
-                    for idx, cont in enumerate(category['containers']):
-                        cont_name = cont.get('name') if isinstance(cont, dict) else cont
-                        if cont_name == container_name:
-                            # Hole den Container an der gefundenen Position
-                            container = category['containers'].pop(idx)
-                            from_position = idx  # Aktualisiere die Quellposition
-                            logger.info(f"Found requested container {container_name} at position {idx}, removing it")
-                            found = True
-                            break
-                    
-                    if not found:
-                        # Wenn der Container nicht in der Liste gefunden wurde, füge ihn hinzu
-                        logger.warning(f"Container {container_name} not found in category {category_id}, adding it")
-                        category['containers'].append({'name': container_name})
-                        break
-                else:
-                    # Hole den Container an der from_position
-                    container = category['containers'].pop(from_position)
-                    logger.info(f"Removed container at position {from_position}: {container}")
+                # Aktualisiere die from_position für die richtige Position im Log
+                from_position = found_position
                 
                 # Wir verwenden den Container, der tatsächlich an der Position gefunden wurde
                 # anstatt zu prüfen, ob der Name übereinstimmt

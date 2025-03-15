@@ -1516,19 +1516,37 @@ document.addEventListener('DOMContentLoaded', function() {
     
     async function reorderContainer(containerName, categoryId, fromPosition, toPosition) {
         try {
+            // Protokolliere die Anfrage mit Details für Debugging
+            console.log(`reorderContainer aufgerufen: Container '${containerName}' in Kategorie '${categoryId}'`);
+            console.log(`  Von Position ${fromPosition} nach Position ${toPosition}`);
+            
             // Zeige UI-Feedback an, dass etwas passiert
             showNotification('info', `Container ${containerName} wird verschoben...`, 1000);
             
+            // Finde den Container in der Kategorie nach Namen
+            const categorySection = document.querySelector(`.category-section[data-category-id="${categoryId}"]`) || 
+                                    Array.from(document.querySelectorAll('.category-section'))
+                                        .find(section => section.querySelector('h2').textContent.trim() === categoryId);
+                                        
+            if (categorySection) {
+                const containerCards = Array.from(categorySection.querySelectorAll('.container-card'));
+                console.log(`Aktuelle Container in Kategorie '${categoryId}':`);
+                containerCards.forEach((card, idx) => {
+                    console.log(`  Pos ${idx}: ${card.getAttribute('data-name')}`);
+                });
+            }
+            
+            // Sende die Anfrage zum Server
             const response = await fetch('/api/container/reorder', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    containerName: containerName,
-                    categoryId: categoryId,
-                    fromPosition: fromPosition,
-                    toPosition: toPosition
+                    containerName: containerName,  // Der Name des zu verschiebenden Containers
+                    categoryId: categoryId,       // Die Kategorie-ID
+                    fromPosition: fromPosition,   // Startposition
+                    toPosition: toPosition        // Zielposition
                 })
             });
 
@@ -1541,9 +1559,9 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log('Container erfolgreich verschoben, lade UI neu');
             
             // Verzögerung hinzufügen, um sicherzustellen, dass der Server die Änderung verarbeitet hat
-            await new Promise(resolve => setTimeout(resolve, 200));
+            await new Promise(resolve => setTimeout(resolve, 500));
             
-            // Erzwinge eine vollständige Seiten-Aktualisierung, um sicherzustellen, dass die UI mit dem Backend synchronisiert ist
+            // Erzwinge eine vollständige Seiten-Aktualisierung
             window.location.reload();
             
             showNotification('success', `Container ${containerName} wurde neu angeordnet`);
