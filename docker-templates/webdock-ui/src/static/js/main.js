@@ -1215,11 +1215,11 @@ function setupRefreshInterval() {
         const categoryList = document.querySelector('.category-list');
         categoryList.innerHTML = '';
         
-        // Sortiere die Kategorien alphabetisch, aber stelle sicher dass "Other" am Ende ist
+        // Sortiere die Kategorien strikt alphabetisch (nur "Other" am Ende)
         const sortedCategories = Object.entries(data.categories || {}).sort((a, b) => {
             if (a[1].name === 'Other') return 1;
             if (b[1].name === 'Other') return -1;
-            return a[1].name.localeCompare(b[1].name);
+            return a[1].name.localeCompare(b[1].name, undefined, {sensitivity: 'base'});
         });
 
         sortedCategories.forEach(([id, category]) => {
@@ -4562,14 +4562,31 @@ function renderContainers(containers, categories) {
         // Finde die Kategorie
         const category = categories.categories[categoryId];
         if (category && category.containers && category.containers.length > 0) {
-            // Füge Container dieser Kategorie hinzu
+            // Erstelle ein Array mit Container-Informationen für die Sortierung
+            const containerInfoArray = [];
+            
+            // Sammle Container-Informationen
             category.containers.forEach(containerId => {
                 const containerName = typeof containerId === 'string' ? containerId : containerId.name;
                 const containerInfo = containers.find(c => c.name === containerName);
                 if (containerInfo) {
-                    const containerCard = createContainerCard(containerInfo, categoryId);
-                    containerGrid.appendChild(containerCard);
+                    containerInfoArray.push({
+                        info: containerInfo,
+                        name: containerInfo.name,
+                        displayName: containerInfo.display_name || containerInfo.name
+                    });
                 }
+            });
+            
+            // Sortiere Container-Array alphabetisch nach Anzeigename
+            containerInfoArray.sort((a, b) => {
+                return a.displayName.localeCompare(b.displayName, undefined, {sensitivity: 'base'});
+            });
+            
+            // Füge sortierte Container hinzu
+            containerInfoArray.forEach(container => {
+                const containerCard = createContainerCard(container.info, categoryId);
+                containerGrid.appendChild(containerCard);
             });
             
             section.appendChild(containerGrid);
