@@ -60,6 +60,13 @@ function closeModal(containerName = null) {
         }
     }
     
+    // Verstecke den Loading-Overlay wenn vorhanden
+    const loadingOverlay = document.getElementById('loading-overlay');
+    if (loadingOverlay) {
+        loadingOverlay.style.display = 'none';
+        console.log('Loading-Overlay ausgeblendet');
+    }
+    
     // Zusätzlich: Finde alle Install-Buttons, die deaktiviert sind (als Fallback)
     const pendingButtons = document.querySelectorAll('.install-btn[disabled]:not(.loading)');
     pendingButtons.forEach(button => {
@@ -1910,17 +1917,15 @@ function setupRefreshInterval() {
             // Zeige UI-Feedback an, dass etwas passiert
             showNotification('info', `Container ${containerName} wird verschoben...`, 1000);
             
-            // Bestimme tatsächliche Positionen
-            // Ignoriere die übergebene fromPosition und nutze immer die tatsächliche DOM-Position
-            // um Diskrepanzen zwischen Frontend und Backend zu vermeiden
-            const actualFromPosition = findActualContainerPosition(containerName, categoryId);
-            let actualToPosition = toPosition;
+            // Wir verwenden hier direkt den Container-Namen als Hauptidentifikator
+            // anstatt auf Positions-Indizes zu vertrauen, die zwischen Frontend und Backend
+            // unterschiedlich sein können
             
-            console.log(`Sende Container-Neuordnung zum Server: ${containerName} von ${actualFromPosition} (DOM-Position) nach ${actualToPosition}`);
-            console.log(`Hinweis: Die ursprüngliche Position war ${fromPosition}, wir verwenden die aktuelle DOM-Position ${actualFromPosition}`);
+            console.log(`Sende Container-Neuordnung zum Server: ${containerName} vom aktuellen Platz nach Position ${toPosition}`);
             
-            // Sende die Anfrage zum Server mit den korrigierten Positionen
-            // Wir verlassen uns jetzt primär auf den Container-Namen anstatt auf Positionen
+            // Sende die Anfrage zum Server mit BEIDEN Informationen: 
+            // 1. Dem Container-Namen (primär)
+            // 2. Den Positionen (sekundär)
             const response = await fetch('/api/container/reorder', {
                 method: 'POST',
                 headers: {
@@ -1929,8 +1934,8 @@ function setupRefreshInterval() {
                 body: JSON.stringify({
                     containerName: containerName,  // Der Name des zu verschiebenden Containers (Primärschlüssel)
                     categoryId: categoryId,       // Die Kategorie-ID
-                    fromPosition: actualFromPosition, // Korrigierte tatsächliche Startposition
-                    toPosition: actualToPosition   // Zielposition
+                    fromPosition: fromPosition,   // Ursprüngliche Frontend-Position (kann vom Backend abweichen)
+                    toPosition: toPosition        // Gewünschte Zielposition
                 })
             });
 

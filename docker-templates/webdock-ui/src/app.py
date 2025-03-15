@@ -384,13 +384,17 @@ def load_categories():
                                     container_name = container if isinstance(container, str) else container.get('name')
                                     
                                     # Prüfe Architektur-spezifische Filter
+                                    # Listen von Containern, die nur auf bestimmten Architekturen laufen
+                                    arm_only_containers = ['filebrowser', 'influxdb-arm', 'watchyourlanarm']
+                                    x86_only_containers = ['filestash', 'influxdb-x86', 'watchyourlan']
+                                    
                                     if SYSTEM_INFO['is_arm']:
-                                        # Entferne x86-spezifische Container
-                                        if container_name != 'filestash':
+                                        # Entferne x86-spezifische Container auf ARM-Systemen
+                                        if container_name not in x86_only_containers:
                                             filtered_containers.append(container)
                                     else:  # x86/AMD64
-                                        # Entferne ARM-spezifische Container
-                                        if container_name != 'filebrowser':
+                                        # Entferne ARM-spezifische Container auf x86-Systemen
+                                        if container_name not in arm_only_containers:
                                             filtered_containers.append(container)
                                             
                                 category['containers'] = filtered_containers
@@ -398,15 +402,21 @@ def load_categories():
                         # Kategorien sind als Dictionary strukturiert (altes Format)
                         for category_id, category in categories['categories'].items():
                             if 'containers' in category:
-                                # Filtere ARM-spezifische Container
+                                # Listen von Containern, die nur auf bestimmten Architekturen laufen
+                                arm_only_containers = ['filebrowser', 'influxdb-arm', 'watchyourlanarm']
+                                x86_only_containers = ['filestash', 'influxdb-x86', 'watchyourlan']
+                                
+                                # Filtere Container basierend auf der Systemarchitektur
                                 if SYSTEM_INFO['is_arm']:
                                     # Entferne x86-spezifische Container
-                                    if 'filestash' in category['containers']:
-                                        category['containers'].remove('filestash')
+                                    for container in x86_only_containers:
+                                        if container in category['containers']:
+                                            category['containers'].remove(container)
                                 else:  # x86/AMD64
                                     # Entferne ARM-spezifische Container
-                                    if 'filebrowser' in category['containers']:
-                                        category['containers'].remove('filebrowser')
+                                    for container in arm_only_containers:
+                                        if container in category['containers']:
+                                            category['containers'].remove(container)
                 
                 return categories
         
