@@ -2173,10 +2173,37 @@ def reorder_container():
                     logger.info(f"Adding container {container_name} to category {category_id}")
                     category['containers'].append({'name': container_name})
                     break
+                
+                # Überprüfe, ob der richtige Container an der Position ist
+                container_at_position = category['containers'][from_position]
+                container_name_at_position = container_at_position.get('name') if isinstance(container_at_position, dict) else container_at_position
+                logger.info(f"Container at position {from_position}: {container_name_at_position}")
+                
+                # Wenn der Container an der Position nicht der angeforderte Container ist,
+                # suche den richtigen Container in der Liste
+                if container_name_at_position != container_name:
+                    logger.warning(f"Container at position {from_position} is {container_name_at_position}, but requested container is {container_name}")
+                    # Suche den Container in der Liste
+                    found = False
+                    for idx, cont in enumerate(category['containers']):
+                        cont_name = cont.get('name') if isinstance(cont, dict) else cont
+                        if cont_name == container_name:
+                            # Hole den Container an der gefundenen Position
+                            container = category['containers'].pop(idx)
+                            from_position = idx  # Aktualisiere die Quellposition
+                            logger.info(f"Found requested container {container_name} at position {idx}, removing it")
+                            found = True
+                            break
                     
-                # Hole den Container an der from_position
-                container = category['containers'].pop(from_position)
-                logger.info(f"Removed container at position {from_position}: {container}")
+                    if not found:
+                        # Wenn der Container nicht in der Liste gefunden wurde, füge ihn hinzu
+                        logger.warning(f"Container {container_name} not found in category {category_id}, adding it")
+                        category['containers'].append({'name': container_name})
+                        break
+                else:
+                    # Hole den Container an der from_position
+                    container = category['containers'].pop(from_position)
+                    logger.info(f"Removed container at position {from_position}: {container}")
                 
                 # Wir verwenden den Container, der tatsächlich an der Position gefunden wurde
                 # anstatt zu prüfen, ob der Name übereinstimmt
