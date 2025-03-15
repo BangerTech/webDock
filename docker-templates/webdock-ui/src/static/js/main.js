@@ -1169,6 +1169,7 @@ function setupRefreshInterval() {
 
     async function loadCategories(forceRefresh = false) {
         const now = Date.now();
+        // Bei einer Neuanordnung immer neue Daten laden
         const useCachedData = categoriesCache && !forceRefresh && (now - lastCategoriesFetch < CACHE_TTL);
         
         if (useCachedData) {
@@ -1179,7 +1180,20 @@ function setupRefreshInterval() {
 
         console.log('Lade neue Kategoriedaten vom Server');
         try {
-            const response = await fetch('/api/categories');
+            // Cache im Browser deaktivieren, um sicherzustellen, dass wir die neuesten Daten erhalten
+            const response = await fetch('/api/categories', {
+                method: 'GET',
+                headers: {
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache'
+                },
+                cache: 'no-store'
+            });
+            
+            if (!response.ok) {
+                throw new Error(`Fehler beim Laden der Kategorien: ${response.status}`);
+            }
+            
             const data = await response.json();
             
             // Aktualisiere den Cache und Zeitstempel
@@ -1187,10 +1201,13 @@ function setupRefreshInterval() {
             lastCategoriesFetch = now;
             
             // Rendere die UI mit den neuen Daten
+            console.log('Neue Kategoriedaten erhalten:', data);
             renderCategories(data);
+            
+            return data;
         } catch (error) {
             console.error('Error loading categories:', error);
-            showNotification('error', 'Error loading categories');
+            showNotification('error', `Fehler beim Laden der Kategorien: ${error.message}`);
         }
     }
 
@@ -1934,11 +1951,26 @@ function setupRefreshInterval() {
 
             console.log('Container erfolgreich verschoben, lade nun UI-Daten neu');
             
-            // Verzögerung hinzufügen, um sicherzustellen, dass der Server die Änderung verarbeitet hat
-            await new Promise(resolve => setTimeout(resolve, 300));
+            // Erhöhte Verzögerung hinzufügen, um sicherzustellen, dass der Server die Änderung verarbeitet hat
+            await new Promise(resolve => setTimeout(resolve, 500));
             
-            // Lade nur die Kategorien statt der gesamten Seite neu
-            loadCategories(true); // Force-Refresh, um sicherzustellen, dass wir die neuesten Daten erhalten
+            // Lösche explizit den Kategorien-Cache vor dem Neuladen
+            categoriesCache = null;
+            
+            // Führe einen Hard-Refresh der DOM-Elemente durch
+            const categoryContainer = document.getElementById('container-grid');
+            if (categoryContainer) {
+                categoryContainer.innerHTML = '<div class="loading-indicator"><i class="fa fa-spinner fa-spin"></i> Lade Container...</div>';
+            }
+            
+            // Lade die Kategorien mit Force-Refresh
+            const freshData = await loadCategories(true); // Force-Refresh, um sicherzustellen, dass wir die neuesten Daten erhalten
+            
+            // Zusätzlicher Reload nach einer weiteren Verzögerung für hartnäckige Fälle
+            if (freshData) {
+                console.log('Zweiten Render zum Sicherstellen der korrekten Anzeige starten');
+                setTimeout(() => renderCategories(freshData), 200);
+            }
             
             showNotification('success', `Container ${containerName} wurde neu angeordnet`);
         } catch (error) {
@@ -2414,45 +2446,85 @@ function resetInstallButton(button, containerName) {
 
 async function showInstallModal(containerName) {
     try {
+        // Erstelle zuerst ein Lade-Modal, um sofortiges Feedback zu bieten
+        const loadingModal = document.createElement('div');
+        loadingModal.className = 'modal';
+        loadingModal.id = 'loadingModal';
+        loadingModal.innerHTML = `
+            <div class="modal-content" style="max-width: 400px;">
+                <div class="modal-header">
+                    <h2><i class="fa fa-spinner fa-spin"></i> Lade Konfiguration</h2>
+                </div>
+                <div class="modal-body" style="text-align: center;">
+                    <p>Container-Konfiguration wird abgerufen...</p>
+                    <div class="progress-bar" style="margin-top: 15px; height: 4px; width: 100%; background: #f0f0f0; overflow: hidden;">
+                        <div class="progress-bar-fill" style="height: 100%; width: 10%; background: var(--color-primary); animation: progress-animation 1.5s infinite ease-in-out;"></div>
+                    </div>
+                    <style>
+                        @keyframes progress-animation {
+                            0% { width: 10%; margin-left: 0%; }
+                            50% { width: 50%; margin-left: 25%; }
+                            100% { width: 10%; margin-left: 90%; }
+                        }
+                    </style>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(loadingModal);
+        setTimeout(() => loadingModal.classList.add('show'), 10);
+
         // Normalisiere den Container-Namen für die API-Anfrage
         const apiContainerName = containerName === 'mosquitto' ? 'mosquitto-broker' : containerName;
         
-        // Hole Netzwerkinformationen für WatchYourLAN
+        // Bereite alle Anfragen parallel vor
+        const requests = [
+            fetch(`/api/container/${apiContainerName}/config?template=true`).then(res => {
+                if (!res.ok) throw new Error(`Failed to load config: ${res.status}`);
+                return res.json();
+            })
+        ];
+        
+        // Füge Netzwerkinformationsanfrage für WatchYourLAN hinzu
         let networkInterface = 'eth0';
         let ipRange = '192.168.1.0/24';
         
         if (containerName === 'watchyourlan' || containerName === 'watchyourlanarm') {
-            try {
-                const networkResponse = await fetch('/api/network-info');
-                if (networkResponse.ok) {
-                    const networkData = await networkResponse.json();
-                    console.log("Network info from server:", networkData);
-                    
-                    if (networkData.interface) {
-                        networkInterface = networkData.interface;
-                    }
-                    
-                    if (networkData.ip_range) {
-                        ipRange = networkData.ip_range;
-                    } else if (networkData.client_ip && networkData.client_ip !== "127.0.0.1" && networkData.client_ip !== "::1") {
-                        // Verwende die Client-IP vom Server
-                        const ipParts = networkData.client_ip.split('.');
-                        if (ipParts.length === 4) {
-                            ipRange = `${ipParts[0]}.${ipParts[1]}.${ipParts[2]}.0/24`;
+            requests.push(
+                fetch('/api/network-info')
+                .then(res => res.ok ? res.json() : null)
+                .then(networkData => {
+                    if (networkData) {
+                        console.log("Network info from server:", networkData);
+                        
+                        if (networkData.interface) {
+                            networkInterface = networkData.interface;
+                        }
+                        
+                        if (networkData.ip_range) {
+                            ipRange = networkData.ip_range;
+                        } else if (networkData.client_ip && networkData.client_ip !== "127.0.0.1" && networkData.client_ip !== "::1") {
+                            // Verwende die Client-IP vom Server
+                            const ipParts = networkData.client_ip.split('.');
+                            if (ipParts.length === 4) {
+                                ipRange = `${ipParts[0]}.${ipParts[1]}.${ipParts[2]}.0/24`;
+                            }
                         }
                     }
-                }
-            } catch (error) {
-                console.error("Error fetching network info:", error);
-            }
+                    return { networkInterface, ipRange };
+                })
+                .catch(error => {
+                    console.error("Error fetching network info:", error);
+                    return { networkInterface, ipRange };
+                })
+            );
         }
         
-        // Hole Template-Konfiguration
-        const response = await fetch(`/api/container/${apiContainerName}/config?template=true`);
-        if (!response.ok) {
-            throw new Error(`Failed to load config: ${response.status}`);
-        }
-        const config = await response.json();
+        // Hole alle Daten parallel
+        const results = await Promise.all(requests);
+        const config = results[0];
+        
+        // Entferne das Lade-Modal
+        document.body.removeChild(loadingModal);
         
         if (!config.yaml) {
             throw new Error('No YAML configuration received');
