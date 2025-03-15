@@ -21,6 +21,9 @@
         display: flex !important;
         align-items: center;
         justify-content: center;
+        width: 100%;
+        height: 100%;
+        padding: 0;
     }
 
     /* Text in der mobilen Navigation ausblenden, nur Icons anzeigen */
@@ -109,12 +112,14 @@
     nav a i {
         font-size: 1.5rem; /* Größere Icons für bessere Sichtbarkeit */
         margin: 0;
-        display: block !important; /* Erzwinge die Anzeige der Icons */
+        display: flex !important; /* Erzwinge die Anzeige der Icons als Flex */
         visibility: visible !important;
         color: white !important;
         width: auto !important;
         height: auto !important;
         opacity: 1 !important;
+        align-items: center;
+        justify-content: center;
     }
 
     /* Container-Grid für Mobilgeräte optimieren */
@@ -194,13 +199,35 @@
         width: 95%;
     }
 
+    /* Verbesserte Navigation für sehr kleine Bildschirme */
     nav ul {
-        gap: 0.2rem;
+        gap: 0;
+        padding: 0;
+        justify-content: space-between;
+    }
+
+    nav ul li {
+        min-width: 18%;
+        flex: 0 1 auto;
+        padding: 0;
+        margin: 0;
     }
 
     nav a {
-        font-size: 0.8rem;
-        padding: 0.4rem;
+        font-size: 0;
+        padding: 0.3rem 0;
+    }
+
+    nav a i {
+        font-size: 1.25rem;
+        margin: 0;
+        display: flex !important; /* Wichtig für Sichtbarkeit */
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .theme-toggle i {
+        font-size: 1.25rem;
     }
 
     /* Optimiere Abstand im Logo-Bereich */

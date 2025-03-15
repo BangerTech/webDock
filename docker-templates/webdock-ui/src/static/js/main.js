@@ -1658,16 +1658,23 @@ function setupRefreshInterval() {
         const groupSection = containerGrid.closest('.group-section');
         const groupName = groupSection ? groupSection.querySelector('h2').textContent.trim() : '';
         
+        // Stelle sicher, dass wir eine valide Kategorie-ID haben
+        // Priorität: 1. Explizite categoryId, 2. data-category-id vom groupSection, 3. Gruppen-Name
+        const effectiveCategoryId = categoryId || 
+                                  (groupSection && groupSection.getAttribute('data-category-id')) || 
+                                  groupName;
+        
         console.log('Drag Start:', {
             container: containerName,
             position: position,
-            group: groupName
+            group: groupName,
+            category: effectiveCategoryId
         });
         
         e.dataTransfer.setData('application/json', JSON.stringify({
             type: 'container',
             name: containerName,
-            sourceCategoryId: categoryId || groupName,
+            sourceCategoryId: effectiveCategoryId,
             position: position,
             groupName: groupName
         }));
@@ -1753,7 +1760,13 @@ function setupRefreshInterval() {
             console.log('Gefundene Gruppe:', groupName, 'Kategorie-ID:', categoryId);
             
             // Stelle sicher, dass wir eine valide sourceCategoryId haben
-            const sourceCategoryId = data.sourceCategoryId || data.groupName || 'Imported';
+            // Vermeide den String "undefined" - wandle in einen tatsächlichen undefined-Wert um
+            let sourceCategoryId = data.sourceCategoryId;
+            if (sourceCategoryId === 'undefined') {
+                sourceCategoryId = data.groupName || 'Imported';
+            } else {
+                sourceCategoryId = sourceCategoryId || data.groupName || 'Imported';
+            }
             
             // Finde das Container-Grid
             const containerGrid = groupSection.querySelector('.container-grid');
@@ -1791,8 +1804,17 @@ function setupRefreshInterval() {
                     } else if (targetPosition !== fromPosition && targetPosition !== -1) {
                         // Finde die tatsächliche Position im DOM
                         const actualFromPosition = findActualContainerPosition(data.name, categoryId);
-                        // Container innerhalb der gleichen Gruppe neu anordnen
-                        reorderContainer(data.name, categoryId, actualFromPosition, targetPosition);
+                        if (actualFromPosition !== -1) {
+                            // Nur reordern, wenn wir eine gültige Position gefunden haben
+                            console.log(`Reordering container ${data.name} in category ${categoryId} from ${actualFromPosition} to ${targetPosition}`);
+                            // Container innerhalb der gleichen Gruppe neu anordnen
+                            reorderContainer(data.name, categoryId, actualFromPosition, targetPosition);
+                        } else {
+                            console.error(`Konnte Container ${data.name} nicht in Kategorie ${categoryId} finden für Neuordnung`);
+                            showNotification('error', `Konnte Container nicht neu anordnen: Position konnte nicht ermittelt werden`);
+                            // Loading-Overlay ausblenden, falls Aktion fehlschlägt
+                            if (loadingOverlay) loadingOverlay.style.display = 'none';
+                        }
                     } else {
                         // Wenn keine Aktion ausgeführt wird, verstecke Loading-Anzeige
                         if (loadingOverlay) loadingOverlay.style.display = 'none';
@@ -1846,8 +1868,26 @@ function setupRefreshInterval() {
         
         try {
             // Stelle sicher, dass die sourceCategory immer definiert ist
-            // Verwende 'Imported' als Fallback, wenn keine Quellkategorie angegeben wurde
-            const sourceCategory = sourceCategoryId || 'Imported';
+            // Vermeide den String "undefined" - verwende stattdessen einen gültigen Wert
+            let sourceCategory;
+            if (sourceCategoryId === 'undefined' || sourceCategoryId === undefined) {
+                // Versuche, die Kategorie aus dem DOM zu bestimmen
+                const allGroups = document.querySelectorAll('.group-section');
+                for (const group of allGroups) {
+                    const containerCards = group.querySelectorAll(`.container-card[data-name="${containerName}"]`);
+                    if (containerCards.length > 0) {
+                        // Container in dieser Gruppe gefunden
+                        sourceCategory = group.getAttribute('data-category-id') || 
+                                       group.querySelector('h2')?.textContent.trim() || 
+                                       'Imported';
+                        break;
+                    }
+                }
+                // Fallback, wenn wir im DOM nichts finden
+                sourceCategory = sourceCategory || 'Imported';
+            } else {
+                sourceCategory = sourceCategoryId;
+            }
             
             console.log('API Anfrage: Container verschieben', {
                 containerName,
