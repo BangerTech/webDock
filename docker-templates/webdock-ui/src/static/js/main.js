@@ -68,11 +68,13 @@ function closeModal(containerName = null) {
     }
     
     // Zusätzlich: Finde alle Install-Buttons, die deaktiviert sind (als Fallback)
-    const pendingButtons = document.querySelectorAll('.install-btn[disabled]:not(.loading)');
+    // Erweiterte Suche, um auch Buttons mit Spinner zu finden
+    const pendingButtons = document.querySelectorAll('.install-btn[disabled], .install-btn:has(.fa-spinner)');
     pendingButtons.forEach(button => {
         const btnContainer = button.getAttribute('data-installing-container') || containerName || 'unknown';
         console.log(`Zurücksetzen eines deaktivierten Buttons für Container: ${btnContainer}`);
         button.disabled = false;
+        // Stelle sicher, dass der Button wieder seinen ursprünglichen Text hat
         button.innerHTML = button.originalHTML || 'Install';
         // Entferne das Attribut, falls es existiert
         button.removeAttribute('data-installing-container');
@@ -1218,7 +1220,10 @@ function setupRefreshInterval() {
         }
     }
 
-    function renderCategories(data) {
+    function renderCategories(data, forceRefresh = false) {
+        // Aktualisiere zunächst den globalen Kategorien-Cache
+        categoriesCache = data;
+        
         const categoryList = document.querySelector('.category-list');
         categoryList.innerHTML = '';
         
@@ -1265,8 +1270,9 @@ function setupRefreshInterval() {
             categoryList.appendChild(categoryItem);
         });
         
-        // Lade Container für jede Kategorie
-        loadContainers();
+        // Lade Container für jede Kategorie und übergebe die aktuellen Kategoriedaten direkt
+        // Dies verhindert, dass der Cache während der Drag & Drop-Operation null ist
+        loadContainers(forceRefresh, data);
     }
 
     document.getElementById('add-category').addEventListener('click', () => {
@@ -1999,13 +2005,14 @@ function setupRefreshInterval() {
                 console.log('Komplett neue Kategoriedaten erhalten:', freshData);
                 
                 // Rendere die UI mit den neuen Daten
-                renderCategories(freshData);
+                renderCategories(freshData, false);
                 
                 // Zweiter Render-Durchlauf mit verzögertem DOM-Update
                 setTimeout(() => {
                     console.log('Zweiten Render zum Sicherstellen der korrekten Anzeige starten');
                     // Kategorie-Container komplett leeren und neu aufbauen
                     if (categoryContainer) categoryContainer.innerHTML = '';
+                    // Erzwinge die Aktualisierung und übergebe die aktuellen Daten
                     renderCategories(freshData, true);
                     
                     // Scrolle zur neu positionierten Karte
@@ -2022,7 +2029,7 @@ function setupRefreshInterval() {
                 console.error('Fehler beim Neuladen der Kategorien:', error);
                 // Als Fallback loadCategories verwenden
                 const freshData = await loadCategories(true);
-                if (freshData) setTimeout(() => renderCategories(freshData), 300);
+                if (freshData) setTimeout(() => renderCategories(freshData, true), 300);
             }
             
             showNotification('success', `Container ${containerName} wurde neu angeordnet`);
@@ -2481,11 +2488,23 @@ function resetInstallButton(button, containerName) {
     // Direktes Zurücksetzen des Buttons (schneller als DOM-Neuaufbau)
     const originalText = button.originalHTML || 'Install';
     
-    // Direkte DOM-Manipulation statt kompletter Button-Ersetzung
+    // Überprüfe, ob das Button-Element ein Spin-Icon enthält und entferne es aktiv
+    if (button.querySelector('.fa-spinner')) {
+        console.log(`Spinner-Icon im Button für ${containerName} gefunden und wird entfernt`);
+    }
+    
+    // Stelle sicher, dass wir den Original-Text korrekt wiederherstellen
     button.disabled = false;
     button.innerHTML = originalText;
     button.removeAttribute('data-installing-container');
     button.classList.remove('loading');
+    
+    // Zusätzliche Überprüfung, ob der Spinner wirklich entfernt wurde
+    if (button.querySelector('.fa-spinner')) {
+        console.log(`WARNUNG: Spinner immer noch vorhanden nach Reset, erzwinge Entfernung`);
+        // Notfall-Fix: Ersetze den Button-Inhalt zu 100% neu
+        button.innerHTML = typeof originalText === 'string' ? originalText : 'Install';
+    }
     
     console.log(`Button für ${containerName} direkt zurückgesetzt`);
 }
@@ -4522,13 +4541,16 @@ function saveCompose() {
 }
 
 // Deklaration für loadContainers, die in renderCategories() aufgerufen wird
-async function loadContainers(forceRefresh = false) {
+async function loadContainers(forceRefresh = false, explicitCategoriesData = null) {
     const now = Date.now();
     const useCachedData = containerCache && !forceRefresh && (now - lastContainersFetch < CACHE_TTL);
     
+    // Verwende die explizit übergebenen Kategoriedaten, wenn vorhanden
+    const categoriesToUse = explicitCategoriesData || categoriesCache;
+    
     if (useCachedData) {
         console.log('Verwende zwischengespeicherte Container-Daten');
-        return renderContainers(containerCache, categoriesCache);
+        return renderContainers(containerCache, categoriesToUse);
     }
 
     console.log('Lade neue Container-Daten vom Server');
@@ -4540,8 +4562,8 @@ async function loadContainers(forceRefresh = false) {
         containerCache = data;
         lastContainersFetch = now;
         
-        // Rendere die UI mit den neuen Daten
-        return renderContainers(data, categoriesCache);
+        // Rendere die UI mit den neuen Daten und den expliziten oder gecachten Kategoriedaten
+        return renderContainers(data, categoriesToUse);
     } catch (error) {
         console.error('Error loading containers:', error);
         showNotification('error', 'Error loading containers');
