@@ -1957,19 +1957,70 @@ function setupRefreshInterval() {
             // Lösche explizit den Kategorien-Cache vor dem Neuladen
             categoriesCache = null;
             
+            // Vollständiger Cache-Reset und Neuladen der Seite
+            // Setze alle Caches zurück
+            categoriesCache = null;
+            containerCache = null;
+            lastCategoriesFetch = 0;
+            lastContainersFetch = 0;
+            
             // Führe einen Hard-Refresh der DOM-Elemente durch
             const categoryContainer = document.getElementById('container-grid');
             if (categoryContainer) {
-                categoryContainer.innerHTML = '<div class="loading-indicator"><i class="fa fa-spinner fa-spin"></i> Lade Container...</div>';
+                // Zeige Ladeanzeige mit Animation
+                categoryContainer.innerHTML = '<div class="loading-indicator" style="text-align: center; padding: 2rem;">' +
+                    '<i class="fa fa-spinner fa-spin" style="font-size: 2rem; color: var(--color-primary);"></i>' +
+                    '<p style="margin-top: 1rem;">Container werden neu angeordnet...</p></div>';
             }
             
-            // Lade die Kategorien mit Force-Refresh
-            const freshData = await loadCategories(true); // Force-Refresh, um sicherzustellen, dass wir die neuesten Daten erhalten
+            // Explizit auf Cache-Löschung warten
+            await new Promise(resolve => setTimeout(resolve, 300));
             
-            // Zusätzlicher Reload nach einer weiteren Verzögerung für hartnäckige Fälle
-            if (freshData) {
-                console.log('Zweiten Render zum Sicherstellen der korrekten Anzeige starten');
-                setTimeout(() => renderCategories(freshData), 200);
+            try {
+                // Umgehe Browser-Cache durch Hinzufügen eines Timestamps
+                const timestamp = new Date().getTime();
+                const response = await fetch(`/api/categories?t=${timestamp}`, {
+                    method: 'GET',
+                    headers: {
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Pragma': 'no-cache',
+                        'Expires': '0'
+                    },
+                    cache: 'no-store'
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Fehler beim Laden der Kategorien: ${response.status}`);
+                }
+                
+                const freshData = await response.json();
+                console.log('Komplett neue Kategoriedaten erhalten:', freshData);
+                
+                // Rendere die UI mit den neuen Daten
+                renderCategories(freshData);
+                
+                // Zweiter Render-Durchlauf mit verzögertem DOM-Update
+                setTimeout(() => {
+                    console.log('Zweiten Render zum Sicherstellen der korrekten Anzeige starten');
+                    // Kategorie-Container komplett leeren und neu aufbauen
+                    if (categoryContainer) categoryContainer.innerHTML = '';
+                    renderCategories(freshData, true);
+                    
+                    // Scrolle zur neu positionierten Karte
+                    setTimeout(() => {
+                        const movedCard = document.querySelector(`.container-card[data-container="${containerName}"]`);
+                        if (movedCard) {
+                            movedCard.classList.add('highlight-card');
+                            movedCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            setTimeout(() => movedCard.classList.remove('highlight-card'), 2000);
+                        }
+                    }, 300);
+                }, 500);
+            } catch (error) {
+                console.error('Fehler beim Neuladen der Kategorien:', error);
+                // Als Fallback loadCategories verwenden
+                const freshData = await loadCategories(true);
+                if (freshData) setTimeout(() => renderCategories(freshData), 300);
             }
             
             showNotification('success', `Container ${containerName} wurde neu angeordnet`);
@@ -2399,49 +2450,42 @@ function installContainer(name) {
 function resetInstallButton(button, containerName) {
     console.log(`Zurücksetzen des Install-Buttons für ${containerName}`); 
     if (!button) {
-        // Wenn kein Button übergeben wurde, versuchen wir ihn zu finden
+        // Beschleunigte Suche: Zuerst nach direktem Attribut suchen
         const buttons = document.querySelectorAll(`[data-installing-container="${containerName}"]`);
         if (buttons.length > 0) {
             button = buttons[0]; // Nehme den ersten gefundenen Button
+            console.log(`Gefunden: ${buttons.length} markierte Buttons für Container ${containerName}`);
         } else {
-            // Suche nach Buttons in der Container-Karte als Fallback
-            const cardButtons = document.querySelectorAll(`.card[data-name="${containerName}"] .install-btn, .card[data-container="${containerName}"] .install-btn`);
-            if (cardButtons.length > 0) {
-                button = cardButtons[0];
-                console.log(`Button in Container-Karte für ${containerName} gefunden`);
-            } else {
+            // Optimierte Suche nach Container-Karten mit dem Container-Namen
+            const containerCards = document.querySelectorAll('.container-card');
+            for (const card of containerCards) {
+                const cardName = card.querySelector('.container-name')?.textContent?.trim();
+                if (cardName === containerName) {
+                    button = card.querySelector('.install-btn');
+                    if (button) break;
+                }
+            }
+            
+            if (!button) {
                 console.warn(`Konnte keinen Button für ${containerName} finden`);
                 return;
             }
         }
     }
     
-    // Vollständiges Zurücksetzen des Buttons
+    // Für Debugging-Zwecke
     console.log(`Button-HTML vor Zurücksetzen: ${button.outerHTML}`);
     
-    // Ursprünglichen Text wiederherstellen
+    // Direktes Zurücksetzen des Buttons (schneller als DOM-Neuaufbau)
     const originalText = button.originalHTML || 'Install';
     
-    // Komplett neuen Button erstellen und den alten ersetzen
-    const newButton = document.createElement('button');
-    newButton.innerHTML = originalText;
-    newButton.className = button.className;
-    newButton.classList.remove('loading');
-    newButton.setAttribute('onclick', `installContainer('${containerName}')`);
-    newButton.classList.add('install-btn');
+    // Direkte DOM-Manipulation statt kompletter Button-Ersetzung
+    button.disabled = false;
+    button.innerHTML = originalText;
+    button.removeAttribute('data-installing-container');
+    button.classList.remove('loading');
     
-    // Ersetze den alten Button
-    if (button.parentNode) {
-        button.parentNode.replaceChild(newButton, button);
-        console.log(`Button für ${containerName} durch neuen Button ersetzt`);
-    } else {
-        // Fallback: Direktes Manipulieren des Buttons
-        button.disabled = false;
-        button.innerHTML = originalText;
-        button.removeAttribute('data-installing-container');
-        button.classList.remove('loading');
-        console.log(`Button für ${containerName} direkt zurückgesetzt`);
-    }
+    console.log(`Button für ${containerName} direkt zurückgesetzt`);
 }
 
 async function showInstallModal(containerName) {
