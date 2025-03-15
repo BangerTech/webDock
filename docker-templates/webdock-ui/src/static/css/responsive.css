@@ -13,6 +13,20 @@
     header {
         padding: 0.5rem;
     }
+    
+    /* Zusätzliche Sichtbarkeitsregeln für mobile Navigation */
+    .nav-containers, .nav-status, .nav-settings, .nav-special {
+        color: white !important;
+        visibility: visible !important;
+        display: flex !important;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Text in der mobilen Navigation ausblenden, nur Icons anzeigen */
+    .nav-text {
+        display: none;
+    }
 
     .logo {
         margin-bottom: 1rem;
@@ -33,16 +47,19 @@
         z-index: 1000;
         padding: 0;
         box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+        display: block !important;
+        visibility: visible !important;
     }
 
     nav ul {
         display: flex;
-        justify-content: space-between;
+        justify-content: space-around; /* Gleichmäßiger Abstand zwischen Elementen */
         align-items: center;
         padding: 0.2rem;
         margin: 0;
         height: 55px;
         width: 100%;
+        list-style-type: none; /* Keine Bullet-Points */
     }
 
     nav ul li {
@@ -51,7 +68,9 @@
         height: 100%;
         display: flex;
         justify-content: center;
+        align-items: center;
         min-width: 20%;
+        text-align: center;
     }
 
     /* Theme-Toggle Button neu positionieren für Mobile */
@@ -84,11 +103,18 @@
         justify-content: center;
         height: 100%;
         width: 100%;
+        color: white; /* Sicherstellen, dass alle Icons sichtbar sind */
     }
 
     nav a i {
-        font-size: 1.2rem;
+        font-size: 1.5rem; /* Größere Icons für bessere Sichtbarkeit */
         margin: 0;
+        display: block !important; /* Erzwinge die Anzeige der Icons */
+        visibility: visible !important;
+        color: white !important;
+        width: auto !important;
+        height: auto !important;
+        opacity: 1 !important;
     }
 
     /* Container-Grid für Mobilgeräte optimieren */

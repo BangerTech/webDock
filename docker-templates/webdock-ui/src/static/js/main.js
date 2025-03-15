@@ -69,15 +69,26 @@ function closeModal(containerName = null) {
     
     // Zusätzlich: Finde alle Install-Buttons, die deaktiviert sind (als Fallback)
     // Erweiterte Suche, um auch Buttons mit Spinner zu finden
-    const pendingButtons = document.querySelectorAll('.install-btn[disabled], .install-btn:has(.fa-spinner)');
+    const pendingButtons = document.querySelectorAll('.install-btn[disabled], .install-btn:has(.fa-spinner), .install-btn.loading-spinner-active, .install-btn.loading');
     pendingButtons.forEach(button => {
         const btnContainer = button.getAttribute('data-installing-container') || containerName || 'unknown';
         console.log(`Zurücksetzen eines deaktivierten Buttons für Container: ${btnContainer}`);
+        
+        // Vollständiger Reset
         button.disabled = false;
+        button.classList.remove('loading', 'loading-spinner-active');
+        
         // Stelle sicher, dass der Button wieder seinen ursprünglichen Text hat
-        button.innerHTML = button.originalHTML || 'Install';
+        const safeOriginalText = (button.originalHTML && typeof button.originalHTML === 'string') 
+            ? button.originalHTML 
+            : 'Install';
+            
+        button.innerHTML = safeOriginalText;
+        
         // Entferne das Attribut, falls es existiert
         button.removeAttribute('data-installing-container');
+        
+        console.log(`Button für ${btnContainer} vollständig zurückgesetzt`);
     });
     
     // Schließe alle gefundenen Modals
@@ -1829,6 +1840,10 @@ function setupRefreshInterval() {
     };
 
     async function moveContainer(containerName, sourceCategoryId, targetCategoryId, targetPosition = -1) {
+        // Zeige das Loading-Overlay an
+        const loadingOverlay = document.getElementById('loading-overlay');
+        if (loadingOverlay) loadingOverlay.style.display = 'flex';
+        
         try {
             // Stelle sicher, dass die sourceCategory immer definiert ist
             // Verwende 'Imported' als Fallback, wenn keine Quellkategorie angegeben wurde
@@ -1841,10 +1856,15 @@ function setupRefreshInterval() {
                 targetPosition
             });
             
+            // Zeige UI-Feedback an
+            showNotification('info', `Container ${containerName} wird verschoben...`, 1500);
+            
             const response = await fetch('/api/container/move', {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache'
                 },
                 body: JSON.stringify({
                     containerName: containerName,
@@ -1855,17 +1875,105 @@ function setupRefreshInterval() {
             });
 
             if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || 'Fehler beim Verschieben des Containers');
+                let errorMsg = 'Fehler beim Verschieben des Containers';
+                try {
+                    const errorData = await response.json();
+                    errorMsg = errorData.error || errorMsg;
+                } catch (e) {
+                    console.error('Fehler beim Parsen der Fehlermeldung:', e);
+                }
+                throw new Error(errorMsg);
             }
 
-            // Force-Refresh aller Daten
-            loadCategories(true);
-            loadContainers(true);
-            showNotification('success', `Container ${containerName} wurde in die Kategorie ${targetCategoryId} verschoben`);
+            console.log('Container erfolgreich verschoben, aktualisiere UI...');
+            
+            // Erhöhte Verzögerung hinzufügen, um sicherzustellen, dass der Server die Änderung verarbeitet hat
+            await new Promise(resolve => setTimeout(resolve, 700));
+            
+            // Vollständiger Cache-Reset
+            categoriesCache = null;
+            containerCache = null;
+            lastCategoriesFetch = 0;
+            lastContainersFetch = 0;
+            
+            // Visuelle Rückmeldung während des Updates
+            const categoryContainer = document.getElementById('category-container');
+            if (categoryContainer) {
+                categoryContainer.classList.add('refreshing');
+            }
+            
+            try {
+                // Direkte Kategoriedaten abrufen mit Cache-Umgehung
+                const timestamp = new Date().getTime();
+                const catResponse = await fetch(`/api/categories?t=${timestamp}`, {
+                    method: 'GET',
+                    headers: {
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Pragma': 'no-cache',
+                        'Expires': '0'
+                    },
+                    cache: 'no-store'
+                });
+                
+                if (!catResponse.ok) {
+                    throw new Error(`Fehler beim Laden der Kategorien: ${catResponse.status}`);
+                }
+                
+                const freshCatData = await catResponse.json();
+                console.log('Neue Kategoriedaten erhalten:', freshCatData);
+                
+                // Warte auf das vollständige Rendering der Kategorien bevor Container geladen werden
+                await renderCategories(freshCatData, true);
+                
+                // Direkt im Anschluss die Container laden mit den frisch geladenen Kategoriedaten
+                await loadContainers(true, freshCatData);
+                
+                // Nach dem Laden beide Aktualisierungen abschließen
+                if (categoryContainer) {
+                    categoryContainer.classList.remove('refreshing');
+                }
+                
+                // Scrolle zum verschobenen Container
+                setTimeout(() => {
+                    // Versuche verschiedene Selektoren, um den Container zuverlässig zu finden
+                    const containerSelectors = [
+                        `.container-card[data-container="${containerName}"]`,
+                        `.container-card[data-name="${containerName}"]`
+                    ];
+                    
+                    let movedCard = null;
+                    for (const selector of containerSelectors) {
+                        movedCard = document.querySelector(selector);
+                        if (movedCard) break;
+                    }
+                    
+                    if (movedCard) {
+                        movedCard.classList.add('highlight-card');
+                        movedCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        setTimeout(() => movedCard.classList.remove('highlight-card'), 2000);
+                    } else {
+                        console.warn(`Konnte verschobenen Container ${containerName} nicht in der UI finden`);
+                    }
+                }, 300);
+                
+                showNotification('success', `Container ${containerName} wurde in die Kategorie ${targetCategoryId} verschoben`);
+            } catch (error) {
+                console.error('Fehler beim Aktualisieren der UI nach Verschieben:', error);
+                // Zeige Fehlermeldung und Fallback
+                showNotification('error', `UI-Aktualisierung fehlgeschlagen: ${error.message}`);
+                setTimeout(() => {
+                    // Fallback: Force Refresh der Seite als letzte Maßnahme
+                    window.location.reload();
+                }, 1500);
+            }
         } catch (error) {
             console.error('Error moving container:', error);
             showNotification('error', `Fehler beim Verschieben des Containers: ${error.message}`);
+        } finally {
+            // Verstecke das Loading-Overlay, unabhängig vom Ergebnis
+            setTimeout(() => {
+                if (loadingOverlay) loadingOverlay.style.display = 'none';
+            }, 500); // Kurze Verzögerung um sicherzustellen, dass alles abgeschlossen ist
         }
     }
     
@@ -1921,21 +2029,14 @@ function setupRefreshInterval() {
             console.log(`  Von Position ${fromPosition} nach Position ${toPosition}`);
             
             // Zeige UI-Feedback an, dass etwas passiert
-            showNotification('info', `Container ${containerName} wird verschoben...`, 1000);
+            showNotification('info', `Container ${containerName} wird neu positioniert...`, 1000);
             
-            // Wir verwenden hier direkt den Container-Namen als Hauptidentifikator
-            // anstatt auf Positions-Indizes zu vertrauen, die zwischen Frontend und Backend
-            // unterschiedlich sein können
-            
-            console.log(`Sende Container-Neuordnung zum Server: ${containerName} vom aktuellen Platz nach Position ${toPosition}`);
-            
-            // Sende die Anfrage zum Server mit BEIDEN Informationen: 
-            // 1. Dem Container-Namen (primär)
-            // 2. Den Positionen (sekundär)
+            // Sende die Anfrage zum Server mit allen erforderlichen Informationen
             const response = await fetch('/api/container/reorder', {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'Cache-Control': 'no-cache, no-store, must-revalidate'
                 },
                 body: JSON.stringify({
                     containerName: containerName,  // Der Name des zu verschiebenden Containers (Primärschlüssel)
@@ -1945,6 +2046,7 @@ function setupRefreshInterval() {
                 })
             });
 
+            // Server-Antwort verarbeiten
             let result;
             try {
                 result = await response.json();
@@ -1954,40 +2056,32 @@ function setupRefreshInterval() {
             }
             
             if (!response.ok) {
-                throw new Error(result.error || 'Failed to reorder container');
+                throw new Error(result.error || 'Neuanordnung des Containers fehlgeschlagen');
             }
 
-            console.log('Container erfolgreich verschoben, lade nun UI-Daten neu');
+            console.log('Container erfolgreich neu positioniert, lade nun UI-Daten neu');
             
-            // Erhöhte Verzögerung hinzufügen, um sicherzustellen, dass der Server die Änderung verarbeitet hat
-            await new Promise(resolve => setTimeout(resolve, 500));
+            // Sicherstellen, dass der Server die Änderung verarbeitet hat
+            await new Promise(resolve => setTimeout(resolve, 700));
             
-            // Lösche explizit den Kategorien-Cache vor dem Neuladen
-            categoriesCache = null;
-            
-            // Vollständiger Cache-Reset und Neuladen der Seite
-            // Setze alle Caches zurück
+            // VOLLSTÄNDIGER RESET DES UI CACHE
             categoriesCache = null;
             containerCache = null;
             lastCategoriesFetch = 0;
             lastContainersFetch = 0;
             
-            // Führe einen Hard-Refresh der DOM-Elemente durch
-            const categoryContainer = document.getElementById('container-grid');
+            // Direkte visuelle Rückmeldung für Benutzer
+            const categoryContainer = document.getElementById('category-container');
             if (categoryContainer) {
-                // Zeige Ladeanzeige mit Animation
-                categoryContainer.innerHTML = '<div class="loading-indicator" style="text-align: center; padding: 2rem;">' +
-                    '<i class="fa fa-spinner fa-spin" style="font-size: 2rem; color: var(--color-primary);"></i>' +
-                    '<p style="margin-top: 1rem;">Container werden neu angeordnet...</p></div>';
+                categoryContainer.classList.add('refreshing');
             }
             
-            // Explizit auf Cache-Löschung warten
-            await new Promise(resolve => setTimeout(resolve, 300));
-            
             try {
-                // Umgehe Browser-Cache durch Hinzufügen eines Timestamps
+                // Timestamp für Cache-Busting
                 const timestamp = new Date().getTime();
-                const response = await fetch(`/api/categories?t=${timestamp}`, {
+                
+                // Direkte Kategoriedaten abrufen mit Cache-Umgehung
+                const catResponse = await fetch(`/api/categories?t=${timestamp}`, {
                     method: 'GET',
                     headers: {
                         'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -1997,48 +2091,66 @@ function setupRefreshInterval() {
                     cache: 'no-store'
                 });
                 
-                if (!response.ok) {
-                    throw new Error(`Fehler beim Laden der Kategorien: ${response.status}`);
+                if (!catResponse.ok) {
+                    throw new Error(`Fehler beim Laden der Kategorien: ${catResponse.status}`);
                 }
                 
-                const freshData = await response.json();
-                console.log('Komplett neue Kategoriedaten erhalten:', freshData);
+                const freshCatData = await catResponse.json();
+                console.log('Komplett neue Kategoriedaten erhalten:', freshCatData);
                 
-                // Rendere die UI mit den neuen Daten
-                renderCategories(freshData, false);
+                // Kategorien synchron rendern, damit wir auf die vollständige Aktualisierung warten können
+                await renderCategories(freshCatData, true);
                 
-                // Zweiter Render-Durchlauf mit verzögertem DOM-Update
+                // Direkt im Anschluss die Container laden mit den frisch geladenen Kategoriedaten
+                await loadContainers(true, freshCatData);
+                
+                // Nach dem Laden beide Aktualisierungen abschließen
+                if (categoryContainer) {
+                    categoryContainer.classList.remove('refreshing');
+                }
+                
+                // Scrolle zum verschobenen Container
                 setTimeout(() => {
-                    console.log('Zweiten Render zum Sicherstellen der korrekten Anzeige starten');
-                    // Kategorie-Container komplett leeren und neu aufbauen
-                    if (categoryContainer) categoryContainer.innerHTML = '';
-                    // Erzwinge die Aktualisierung und übergebe die aktuellen Daten
-                    renderCategories(freshData, true);
+                    // Versuche verschiedene Selektoren, um den Container zuverlässig zu finden
+                    const containerSelectors = [
+                        `.container-card[data-name="${containerName}"]`,
+                        `.container-card[data-container="${containerName}"]`
+                    ];
                     
-                    // Scrolle zur neu positionierten Karte
-                    setTimeout(() => {
-                        const movedCard = document.querySelector(`.container-card[data-container="${containerName}"]`);
-                        if (movedCard) {
-                            movedCard.classList.add('highlight-card');
-                            movedCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                            setTimeout(() => movedCard.classList.remove('highlight-card'), 2000);
-                        }
-                    }, 300);
-                }, 500);
+                    let movedCard = null;
+                    for (const selector of containerSelectors) {
+                        movedCard = document.querySelector(selector);
+                        if (movedCard) break;
+                    }
+                    
+                    if (movedCard) {
+                        movedCard.classList.add('highlight-card');
+                        movedCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        setTimeout(() => movedCard.classList.remove('highlight-card'), 2000);
+                    } else {
+                        console.warn(`Konnte neu positionierten Container ${containerName} nicht in der UI finden`);
+                    }
+                }, 300);
+                
+                showNotification('success', `Container ${containerName} wurde neu angeordnet`);
             } catch (error) {
-                console.error('Fehler beim Neuladen der Kategorien:', error);
-                // Als Fallback loadCategories verwenden
-                const freshData = await loadCategories(true);
-                if (freshData) setTimeout(() => renderCategories(freshData, true), 300);
+                console.error('Fehler beim Neuladen der UI-Daten nach Neuordnung:', error);
+                
+                // Notfall-Fallback: Zeige Fehlermeldung und Reload-Option
+                showNotification('error', `UI-Aktualisierung fehlgeschlagen: ${error.message}`);
+                setTimeout(() => {
+                    // Fallback: Force Refresh der Seite als letzte Maßnahme
+                    window.location.reload();
+                }, 1500);
             }
-            
-            showNotification('success', `Container ${containerName} wurde neu angeordnet`);
         } catch (error) {
             console.error('Error reordering container:', error);
             showNotification('error', `Fehler beim Neuanordnen des Containers: ${error.message}`);
         } finally {
             // Verstecke das Loading-Overlay, unabhängig vom Ergebnis
-            if (loadingOverlay) loadingOverlay.style.display = 'none';
+            setTimeout(() => {
+                if (loadingOverlay) loadingOverlay.style.display = 'none';
+            }, 500);
         }
     }
 
@@ -2434,6 +2546,7 @@ function installContainer(name) {
     // Speichere den ursprünglichen Button-Inhalt und deaktiviere den Button
     button.disabled = true;
     button.originalHTML = button.innerHTML; 
+    button.classList.add('loading-spinner-active'); // Füge Klasse für aktiven Spinner hinzu
     button.innerHTML = '<i class="fa fa-spinner fa-spin"></i>';
 
     console.log(`Installieren von Container ${name} initiiert, Button markiert und deaktiviert`);
@@ -2488,22 +2601,40 @@ function resetInstallButton(button, containerName) {
     // Direktes Zurücksetzen des Buttons (schneller als DOM-Neuaufbau)
     const originalText = button.originalHTML || 'Install';
     
+        // Entferne alle Spinner-bezogenen Klassen und Attribute
+    button.classList.remove('loading', 'loading-spinner-active');
+    
     // Überprüfe, ob das Button-Element ein Spin-Icon enthält und entferne es aktiv
     if (button.querySelector('.fa-spinner')) {
         console.log(`Spinner-Icon im Button für ${containerName} gefunden und wird entfernt`);
     }
     
-    // Stelle sicher, dass wir den Original-Text korrekt wiederherstellen
+    // Vollständiges Zurücksetzen des Buttons
     button.disabled = false;
-    button.innerHTML = originalText;
-    button.removeAttribute('data-installing-container');
-    button.classList.remove('loading');
     
-    // Zusätzliche Überprüfung, ob der Spinner wirklich entfernt wurde
+    // Optimierte Wiederherstellung des ursprünglichen Textes
+    // Versuche immer, vollständig zu ersetzen, um sicherzustellen, dass kein Spinner verbleibt
+    try {
+        const safeOriginalText = (originalText && typeof originalText === 'string' && originalText.length > 0) 
+            ? originalText 
+            : 'Install';
+        
+        // Notfall-Backup: Komplett neu erstellen
+        button.innerHTML = safeOriginalText;
+        
+        // Entferne alle Spinner-bezogenen Attribute
+        button.removeAttribute('data-installing-container');
+    } catch (e) {
+        console.error(`Fehler beim Zurücksetzen des Button-Textes: ${e.message}`);
+        // Absoluter Notfall: Hardcode
+        button.innerHTML = 'Install';
+    }
+    
+    // Finale Überprüfung
     if (button.querySelector('.fa-spinner')) {
-        console.log(`WARNUNG: Spinner immer noch vorhanden nach Reset, erzwinge Entfernung`);
-        // Notfall-Fix: Ersetze den Button-Inhalt zu 100% neu
-        button.innerHTML = typeof originalText === 'string' ? originalText : 'Install';
+        console.log(`KRITISCHER FEHLER: Spinner immer noch vorhanden nach vollständigem Reset, erzwinge Neuerstellung`);
+        // Letzter Ausweg: Komplett-Reset
+        button.innerHTML = 'Install';
     }
     
     console.log(`Button für ${containerName} direkt zurückgesetzt`);
@@ -2735,7 +2866,7 @@ async function showInstallModal(containerName) {
         const handleClose = () => {
             console.log(`Modal closed for container: ${containerName}`);
             
-            // Verwende die spezialisierte Funktion zum Zurücksetzen der Buttons
+            // Umfassende Suche nach Buttons, die zurückgesetzt werden müssen
             // 1. Versuche zuerst, Buttons zu finden, die explizit mit data-installing-container markiert sind
             const markedButtons = document.querySelectorAll(`[data-installing-container="${containerName}"]`);
             
@@ -2743,24 +2874,37 @@ async function showInstallModal(containerName) {
                 console.log(`Gefunden: ${markedButtons.length} markierte Buttons für Container ${containerName}`);
                 markedButtons.forEach(btn => resetInstallButton(btn, containerName));
             } else {
-                // 2. Suche alle Buttons in der Card des Containers
-                const containerButtons = document.querySelectorAll(`.card[data-name="${containerName}"] .install-btn, .card[data-container="${containerName}"] .install-btn`);
+                // 2. Suche alle Buttons in der Card des Containers (erweiterte Suche)
+                const containerButtons = document.querySelectorAll(`.card[data-name="${containerName}"] .install-btn, .card[data-container="${containerName}"] .install-btn, .container-card[data-container="${containerName}"] .install-btn`);
                 
                 if (containerButtons.length > 0) {
                     console.log(`Gefunden: ${containerButtons.length} Buttons in der Container-Card für ${containerName}`);
                     containerButtons.forEach(btn => resetInstallButton(btn, containerName));
                 } else {
-                    // 3. Fallback: Suche nach allen deaktivierten Install-Buttons (als letzter Ausweg)
-                    console.log(`Keine Buttons für ${containerName} gefunden, versuche allgemeine Fallback-Methode`);
-                    const disabledButtons = document.querySelectorAll('.install-btn[disabled]');
-                    if (disabledButtons.length > 0) {
-                        console.log(`Setze ${disabledButtons.length} deaktivierte Install-Buttons zurück`);
-                        disabledButtons.forEach(btn => resetInstallButton(btn, containerName));
+                    // 3. Erweiterte Suche nach allen Buttons die aktiv laden
+                    console.log(`Keine Buttons für ${containerName} gefunden, versuche erweiterte Suche`);
+                    const loadingButtons = document.querySelectorAll('.install-btn[disabled], .install-btn.loading-spinner-active, .install-btn:has(.fa-spinner)');
+                    if (loadingButtons.length > 0) {
+                        console.log(`Setze ${loadingButtons.length} aktive Loading-Buttons zurück`);
+                        loadingButtons.forEach(btn => resetInstallButton(btn, containerName));
                     }
                 }
             }
             
+            // Globale Funktion zum Schließen des Modals aufrufen
             closeModal(containerName);
+            
+            // Zusätzlich: Stelle absolut sicher, dass ALLE deaktivierten Install-Buttons zurückgesetzt werden
+            setTimeout(() => {
+                const anyRemainingLoadingButtons = document.querySelectorAll('.install-btn[disabled], .install-btn.loading-spinner-active, .install-btn:has(.fa-spinner)');
+                if (anyRemainingLoadingButtons.length > 0) {
+                    console.log(`WICHTIG: Nach Schließen des Modals gibt es noch ${anyRemainingLoadingButtons.length} deaktivierte Buttons!`);
+                    anyRemainingLoadingButtons.forEach(btn => {
+                        console.log(`Reset eines verbleibenden Buttons: ${btn.outerHTML}`);
+                        resetInstallButton(btn, containerName);
+                    });
+                }
+            }, 300); // Kurze Verzögerung, um sicherzustellen, dass das DOM aktualisiert wurde
         };
         
         cancelButton.addEventListener('click', handleClose);
@@ -4548,6 +4692,20 @@ async function loadContainers(forceRefresh = false, explicitCategoriesData = nul
     // Verwende die explizit übergebenen Kategoriedaten, wenn vorhanden
     const categoriesToUse = explicitCategoriesData || categoriesCache;
     
+    // Überprüfen, ob Kategoriedaten verfügbar sind - wichtig für korrekte Drag & Drop Funktionalität
+    if (!categoriesToUse) {
+        console.warn('Keine Kategoriedaten verfügbar für loadContainers! Lade Kategorien zuerst...');
+        try {
+            // Fallback: Kategorien laden, wenn nicht vorhanden
+            const catData = await loadCategories(true);
+            return loadContainers(forceRefresh, catData); // Rekursiver Aufruf mit den geladenen Kategoriedaten
+        } catch (error) {
+            console.error('Fehler beim Laden der Kategorien:', error);
+            showNotification('error', 'Fehler beim Laden der Kategoriedaten');
+            return null;
+        }
+    }
+    
     if (useCachedData) {
         console.log('Verwende zwischengespeicherte Container-Daten');
         return renderContainers(containerCache, categoriesToUse);
@@ -4555,7 +4713,20 @@ async function loadContainers(forceRefresh = false, explicitCategoriesData = nul
 
     console.log('Lade neue Container-Daten vom Server');
     try {
-        const response = await fetch('/api/containers');
+        // Cache-Busting durch Hinzufügen eines Timestamps
+        const timestamp = new Date().getTime();
+        const response = await fetch(`/api/containers?t=${timestamp}`, {
+            method: 'GET',
+            headers: {
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache'
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP Fehler ${response.status}`);
+        }
+        
         const data = await response.json();
         
         // Aktualisiere den Cache und Zeitstempel
@@ -4566,7 +4737,8 @@ async function loadContainers(forceRefresh = false, explicitCategoriesData = nul
         return renderContainers(data, categoriesToUse);
     } catch (error) {
         console.error('Error loading containers:', error);
-        showNotification('error', 'Error loading containers');
+        showNotification('error', 'Fehler beim Laden der Container: ' + (error.message || error));
+        return null;
     }
 }
 
