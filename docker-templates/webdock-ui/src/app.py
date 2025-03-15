@@ -1640,15 +1640,16 @@ def serve_image(filename):
         if os.path.isfile(file_path):
             # Die angeforderte Datei existiert
             target_file = file_path
-            max_age = 60 * 60 * 24 * 7  # 7 Tage für normale Bilder
+            # Längere Cache-Zeit für Icons/Bilder - 1 Monat
+            max_age = 60 * 60 * 24 * 30  # 30 Tage für normale Bilder
         elif os.path.isfile(default_icon):
             # Verwende default.png als Fallback
             target_file = default_icon
-            max_age = 3600  # 1 Stunde für Fallback-Icons
+            max_age = 60 * 60 * 24 * 7  # 7 Tage für Fallback-Icons
         elif os.path.isfile(webdock_icon):
             # Verwende webdock.png als letzten Fallback
             target_file = webdock_icon
-            max_age = 3600  # 1 Stunde für Fallback-Icons
+            max_age = 60 * 60 * 24 * 7  # 7 Tage für Fallback-Icons
         else:
             # Kein Bild gefunden, gib 404 zurück
             logger.warning(f"No image found for {filename} and no fallback available")
@@ -1659,7 +1660,11 @@ def serve_image(filename):
             response = Response(img_file.read(), mimetype='image/png')
         
         # Setze Cache-Header für optimales Caching
-        response.headers['Cache-Control'] = f'public, max-age={max_age}'
+        response.headers['Cache-Control'] = f'public, max-age={max_age}, stale-while-revalidate=86400'
+        
+        # Setze Immutable Flag für statische Bilder
+        if filename.endswith(('.png', '.jpg', '.jpeg', '.svg', '.gif')) and 'default' not in filename:
+            response.headers['Cache-Control'] += ', immutable'
         
         # Setze Last-Modified Header statt ETag
         mod_time = datetime.fromtimestamp(os.path.getmtime(target_file))
