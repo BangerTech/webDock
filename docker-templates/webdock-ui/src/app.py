@@ -2180,19 +2180,43 @@ def reorder_container():
                 found_container = False
                 found_position = -1
                 
+                # Ausführlicheres Logging zur Fehlersuche
+                logger.info(f"Suche Container '{container_name}' in Kategorie '{category_id}'")
+                logger.info(f"Angegebene Positionen: von={from_position}, nach={to_position}")
+                
                 for idx, cont in enumerate(category['containers']):
-                    cont_name = cont.get('name') if isinstance(cont, dict) else cont
+                    # Normalisiere den Container-Namen
+                    if isinstance(cont, dict):
+                        cont_name = cont.get('name')
+                    else:
+                        cont_name = cont
+                        
+                    logger.debug(f"  Vergleiche mit Container an Position {idx}: '{cont_name}'")
+                    
                     if cont_name == container_name:
                         found_container = True
                         found_position = idx
-                        logger.info(f"Found container {container_name} at position {idx}")
+                        logger.info(f"  ✔ Found container '{container_name}' at position {idx}")
                         break
                 
+                # Wenn der Container nicht gefunden wurde, akzeptiere die vom Frontend übergebene Position
                 if not found_container:
-                    # Wenn der Container nicht gefunden wurde, füge ihn zur Kategorie hinzu
-                    logger.warning(f"Container {container_name} not found in category {category_id}, adding it")
-                    category['containers'].append({'name': container_name})
-                    break
+                    if from_position >= 0 and from_position < len(category['containers']):
+                        logger.info(f"Container nicht nach Namen gefunden, verwende übergebene Position {from_position}")
+                        cont = category['containers'][from_position]
+                        cont_name = cont.get('name') if isinstance(cont, dict) else cont
+                        
+                        if cont_name != container_name:
+                            logger.warning(f"Container-Namen stimmen nicht überein! Erwartet: '{container_name}', Gefunden: '{cont_name}'")
+                            # Trotzdem fortfahren, verwende den übergebenen Namen
+                        
+                        found_container = True
+                        found_position = from_position
+                    else:
+                        # Wenn der Container nicht gefunden wurde, füge ihn zur Kategorie hinzu
+                        logger.warning(f"Container {container_name} nicht in Kategorie {category_id} gefunden, füge ihn hinzu")
+                        category['containers'].append({'name': container_name})
+                        break
                 
                 # Entferne den Container von seiner aktuellen Position
                 container = category['containers'].pop(found_position)

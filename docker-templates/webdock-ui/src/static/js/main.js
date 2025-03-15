@@ -928,63 +928,92 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // Category Management
-    function loadCategories() {
-        fetch('/api/categories')
-            .then(response => response.json())
-            .then(data => {
-                const categoryList = document.querySelector('.category-list');
-                categoryList.innerHTML = '';
-                
-                // Sortiere die Kategorien alphabetisch, aber stelle sicher dass "Other" am Ende ist
-                const sortedCategories = Object.entries(data.categories || {}).sort((a, b) => {
-                    if (a[1].name === 'Other') return 1;
-                    if (b[1].name === 'Other') return -1;
-                    return a[1].name.localeCompare(b[1].name);
-                });
+    // Cache-Objekte für Kategorien und Container
+    let categoriesCache = null;
+    let containerCache = null;
+    let lastCategoriesFetch = 0;
+    let lastContainersFetch = 0;
+    const CACHE_TTL = 60000; // Cache-Gültigkeit in Millisekunden (1 Minute)
 
-                sortedCategories.forEach(([id, category]) => {
-                    const categoryItem = document.createElement('div');
-                    categoryItem.className = 'category-item';
-                    categoryItem.dataset.id = id;
-                    categoryItem.draggable = true;
-                    
-                    const isImported = category.name === 'Imported';
-                    
-                    categoryItem.innerHTML = `
-                        <div class="drag-handle">
-                            <i class="fa fa-bars"></i>
-                        </div>
-                        <div class="category-info">
-                            <i class="fa ${category.icon}"></i>
-                            <span>${category.name}</span>
-                        </div>
-                        <div class="category-actions">
-                            <button class="edit-category" ${isImported ? 'disabled title="Default category cannot be edited"' : ''}>
-                                <i class="fa fa-edit"></i>
-                            </button>
-                            <button class="delete-category" ${isImported ? 'disabled title="Default category cannot be deleted"' : ''}>
-                                <i class="fa fa-trash"></i>
-                            </button>
-                        </div>
-                    `;
-                    
-                    // Event-Listener nur hinzufügen, wenn es nicht die "Imported" Kategorie ist
-                    if (!isImported) {
-                        categoryItem.querySelector('.edit-category').addEventListener('click', () => editCategory(id));
-                        categoryItem.querySelector('.delete-category').addEventListener('click', () => deleteCategory(id));
-                    }
-                    
-                    // Drag & Drop Event-Listener
-                    categoryItem.addEventListener('dragstart', handleDragStart);
-                    categoryItem.addEventListener('dragend', handleDragEnd);
-                    
-                    categoryList.appendChild(categoryItem);
-                });
-            })
-            .catch(error => {
-                console.error('Error loading categories:', error);
-                showNotification('Error loading categories', 'error');
-            });
+    async function loadCategories(forceRefresh = false) {
+        const now = Date.now();
+        const useCachedData = categoriesCache && !forceRefresh && (now - lastCategoriesFetch < CACHE_TTL);
+        
+        if (useCachedData) {
+            console.log('Verwende zwischengespeicherte Kategoriedaten');
+            renderCategories(categoriesCache);
+            return;
+        }
+
+        console.log('Lade neue Kategoriedaten vom Server');
+        try {
+            const response = await fetch('/api/categories');
+            const data = await response.json();
+            
+            // Aktualisiere den Cache und Zeitstempel
+            categoriesCache = data;
+            lastCategoriesFetch = now;
+            
+            // Rendere die UI mit den neuen Daten
+            renderCategories(data);
+        } catch (error) {
+            console.error('Error loading categories:', error);
+            showNotification('error', 'Error loading categories');
+        }
+    }
+
+    function renderCategories(data) {
+        const categoryList = document.querySelector('.category-list');
+        categoryList.innerHTML = '';
+        
+        // Sortiere die Kategorien alphabetisch, aber stelle sicher dass "Other" am Ende ist
+        const sortedCategories = Object.entries(data.categories || {}).sort((a, b) => {
+            if (a[1].name === 'Other') return 1;
+            if (b[1].name === 'Other') return -1;
+            return a[1].name.localeCompare(b[1].name);
+        });
+
+        sortedCategories.forEach(([id, category]) => {
+            const categoryItem = document.createElement('div');
+            categoryItem.className = 'category-item';
+            categoryItem.dataset.id = id;
+            categoryItem.draggable = true;
+            
+            const isImported = category.name === 'Imported';
+            
+            categoryItem.innerHTML = `
+                <div class="drag-handle">
+                    <i class="fa fa-bars"></i>
+                </div>
+                <div class="category-info">
+                    <i class="fa ${category.icon}"></i>
+                    <span>${category.name}</span>
+                </div>
+                <div class="category-actions">
+                    <button class="edit-category" ${isImported ? 'disabled title="Default category cannot be edited"' : ''}>
+                        <i class="fa fa-edit"></i>
+                    </button>
+                    <button class="delete-category" ${isImported ? 'disabled title="Default category cannot be deleted"' : ''}>
+                        <i class="fa fa-trash"></i>
+                    </button>
+                </div>
+            `;
+            
+            // Event-Listener nur hinzufügen, wenn es nicht die "Imported" Kategorie ist
+            if (!isImported) {
+                categoryItem.querySelector('.edit-category').addEventListener('click', () => editCategory(id));
+                categoryItem.querySelector('.delete-category').addEventListener('click', () => deleteCategory(id));
+            }
+            
+            // Drag & Drop Event-Listener
+            categoryItem.addEventListener('dragstart', handleDragStart);
+            categoryItem.addEventListener('dragend', handleDragEnd);
+            
+            categoryList.appendChild(categoryItem);
+        });
+        
+        // Lade Container für jede Kategorie
+        loadContainers();
     }
 
     document.getElementById('add-category').addEventListener('click', () => {
@@ -1528,25 +1557,46 @@ document.addEventListener('DOMContentLoaded', function() {
                                     Array.from(document.querySelectorAll('.category-section'))
                                         .find(section => section.querySelector('h2').textContent.trim() === categoryId);
                                         
+            // Verbesserte Container-Positions-Erfassung
+            let actualFromPosition = -1;
+            let actualToPosition = toPosition;
+            
             if (categorySection) {
                 const containerCards = Array.from(categorySection.querySelectorAll('.container-card'));
                 console.log(`Aktuelle Container in Kategorie '${categoryId}':`);
+                
+                // Finde die tatsächliche Position des Containers anhand des Namens
                 containerCards.forEach((card, idx) => {
-                    console.log(`  Pos ${idx}: ${card.getAttribute('data-name')}`);
+                    const cardName = card.getAttribute('data-name');
+                    console.log(`  Pos ${idx}: ${cardName}`);
+                    
+                    if (cardName === containerName) {
+                        actualFromPosition = idx;
+                        console.log(`  Gefunden: ${containerName} ist tatsächlich an Position ${actualFromPosition}`);
+                    }
                 });
+                
+                // Wenn wir die genaue Position nicht finden konnten, behalten wir die übergebene Position bei
+                if (actualFromPosition === -1) {
+                    console.log(`  Container ${containerName} wurde nicht in der DOM-Struktur gefunden, verwende übergebene Position`);
+                    actualFromPosition = fromPosition;
+                }
             }
             
-            // Sende die Anfrage zum Server
+            console.log(`Sende Container-Neuordnung zum Server: ${containerName} von ${actualFromPosition} nach ${actualToPosition}`);
+            
+            // Sende die Anfrage zum Server mit den korrigierten Positionen
+            // Wir verlassen uns jetzt primär auf den Container-Namen anstatt auf Positionen
             const response = await fetch('/api/container/reorder', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    containerName: containerName,  // Der Name des zu verschiebenden Containers
+                    containerName: containerName,  // Der Name des zu verschiebenden Containers (Primärschlüssel)
                     categoryId: categoryId,       // Die Kategorie-ID
-                    fromPosition: fromPosition,   // Startposition
-                    toPosition: toPosition        // Zielposition
+                    fromPosition: actualFromPosition, // Korrigierte tatsächliche Startposition
+                    toPosition: actualToPosition   // Zielposition
                 })
             });
 
@@ -1556,13 +1606,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 throw new Error(result.error || 'Failed to reorder container');
             }
 
-            console.log('Container erfolgreich verschoben, lade UI neu');
+            console.log('Container erfolgreich verschoben, lade nun UI-Daten neu');
             
             // Verzögerung hinzufügen, um sicherzustellen, dass der Server die Änderung verarbeitet hat
-            await new Promise(resolve => setTimeout(resolve, 500));
+            await new Promise(resolve => setTimeout(resolve, 300));
             
-            // Erzwinge eine vollständige Seiten-Aktualisierung
-            window.location.reload();
+            // Lade nur die Kategorien statt der gesamten Seite neu
+            loadCategories(true); // Force-Refresh, um sicherzustellen, dass wir die neuesten Daten erhalten
             
             showNotification('success', `Container ${containerName} wurde neu angeordnet`);
         } catch (error) {
@@ -3905,56 +3955,73 @@ function saveCompose() {
     });
 }
 
-function updateContainerStatus(forceRefresh = false) {
-    fetch('/api/containers')
-        .then(response => response.json())
-        .then(containers => {
-            console.log('Containers:', containers); // Debug log
-            // Hole Kategorien
-            return fetch('/api/categories')
-                .then(response => response.json())
-                .then(categories => {
-                    console.log('Categories:', categories); // Debug log
-                    return { containers, categories };
-                });
-        })
-        .then(({ containers, categories }) => {
-            const containerList = document.getElementById('container-list');
-            containerList.innerHTML = ''; // Clear existing containers
-            
-            // Iteriere über alle Kategorien
-            Object.entries(categories.categories).forEach(([categoryId, category]) => {
-                if (category.containers && category.containers.length > 0) {
-                    // Erstelle Kategorie-Header
-                    const categorySection = document.createElement('div');
-                    categorySection.className = 'category-section';
-                    categorySection.setAttribute('data-category', categoryId);
-                    
-                    const categoryHeader = document.createElement('h2');
-                    categoryHeader.innerHTML = `<i class="fa ${category.icon}"></i> ${category.name}`;
-                    categorySection.appendChild(categoryHeader);
-                    
-                    // Container-Grid für diese Kategorie
-                    const containerGrid = document.createElement('div');
-                    containerGrid.className = 'container-grid';
-                    
-                    // Füge Container dieser Kategorie hinzu
-                    category.containers.forEach(containerId => {
-                        const containerInfo = containers.find(c => c.name === containerId);
-                        if (containerInfo) {
-                            const containerCard = createContainerCard(containerInfo);
-                            containerGrid.appendChild(containerCard);
-                        }
-                    });
-                    
-                    if (containerGrid.children.length > 0) {
-                        categorySection.appendChild(containerGrid);
-                        containerList.appendChild(categorySection);
-                    }
+// Deklaration für loadContainers, die in renderCategories() aufgerufen wird
+async function loadContainers(forceRefresh = false) {
+    const now = Date.now();
+    const useCachedData = containerCache && !forceRefresh && (now - lastContainersFetch < CACHE_TTL);
+    
+    if (useCachedData) {
+        console.log('Verwende zwischengespeicherte Container-Daten');
+        return renderContainers(containerCache, categoriesCache);
+    }
+
+    console.log('Lade neue Container-Daten vom Server');
+    try {
+        const response = await fetch('/api/containers');
+        const data = await response.json();
+        
+        // Aktualisiere den Cache und Zeitstempel
+        containerCache = data;
+        lastContainersFetch = now;
+        
+        // Rendere die UI mit den neuen Daten
+        return renderContainers(data, categoriesCache);
+    } catch (error) {
+        console.error('Error loading containers:', error);
+        showNotification('error', 'Error loading containers');
+    }
+}
+
+function renderContainers(containers, categories) {
+    if (!containers || !categories) {
+        console.error('Missing data for rendering containers', { containers, categories });
+        return;
+    }
+
+    const containerSections = document.querySelectorAll('.container-section');
+    containerSections.forEach(section => {
+        const categoryId = section.getAttribute('data-category-id');
+        const containerGrid = section.querySelector('.container-grid') || document.createElement('div');
+        containerGrid.className = 'container-grid';
+        containerGrid.innerHTML = '';
+        
+        // Finde die Kategorie
+        const category = categories.categories[categoryId];
+        if (category && category.containers && category.containers.length > 0) {
+            // Füge Container dieser Kategorie hinzu
+            category.containers.forEach(containerId => {
+                const containerName = typeof containerId === 'string' ? containerId : containerId.name;
+                const containerInfo = containers.find(c => c.name === containerName);
+                if (containerInfo) {
+                    const containerCard = createContainerCard(containerInfo, categoryId);
+                    containerGrid.appendChild(containerCard);
                 }
             });
-        })
-        .catch(error => console.error('Error:', error));
+            
+            section.appendChild(containerGrid);
+        }
+    });
+}
+
+function updateContainerStatus(forceRefresh = false) {
+    // Verwende die loadContainers-Funktion, die bereits Caching implementiert
+    loadCategories(forceRefresh).then(() => {
+        // Kategorien wurden geladen, jetzt lade Container
+        // Container werden automatisch von loadContainers() geladen
+    }).catch(error => {
+        console.error('Error updating container status:', error);
+        showNotification('error', 'Error updating container status');
+    });
 }
 
 // Hilfsfunktionen für das Modal
