@@ -1,5 +1,18 @@
-// Definiere loadingOverlay global
+// Definiere globale Variablen
 let loadingOverlay;
+
+// Cache-Objekte für Kategorien und Container
+let categoriesCache = null;
+let containerCache = null;
+let lastCategoriesFetch = 0;
+let lastContainersFetch = 0;
+const CACHE_TTL = 60000; // Cache-Gültigkeit in Millisekunden (1 Minute)
+
+// Einstellungen für Auto-Refresh
+let statusUpdateInterval = null;
+const STATUS_UPDATE_INTERVAL = 5000; // Status alle 5 Sekunden aktualisieren
+const FULL_REFRESH_INTERVAL = 60000; // Vollständiges Neuladen alle 60 Sekunden
+let lastFullRefresh = 0;
 
 // Behalte die Scroll-Position
 let lastScrollPosition = 0;
@@ -928,12 +941,6 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // Category Management
-    // Cache-Objekte für Kategorien und Container
-    let categoriesCache = null;
-    let containerCache = null;
-    let lastCategoriesFetch = 0;
-    let lastContainersFetch = 0;
-    const CACHE_TTL = 60000; // Cache-Gültigkeit in Millisekunden (1 Minute)
 
     async function loadCategories(forceRefresh = false) {
         const now = Date.now();
@@ -4013,15 +4020,68 @@ function renderContainers(containers, categories) {
     });
 }
 
-function updateContainerStatus(forceRefresh = false) {
-    // Verwende die loadContainers-Funktion, die bereits Caching implementiert
-    loadCategories(forceRefresh).then(() => {
-        // Kategorien wurden geladen, jetzt lade Container
-        // Container werden automatisch von loadContainers() geladen
-    }).catch(error => {
+async function updateContainerStatus(forceRefresh = false) {
+    try {
+        if (forceRefresh) {
+            // Bei vollständiger Aktualisierung die volle Funktion verwenden
+            await loadCategories(true);
+            return;
+        }
+        
+        // Ansonsten nur die Status-Informationen abrufen (leichtgewichtiger API-Aufruf)
+        console.log('Aktualisiere nur Container-Status ohne vollständigen Reload');
+        const response = await fetch('/api/containers/status');
+        
+        if (!response.ok) {
+            throw new Error('Failed to fetch container status');
+        }
+        
+        const statusData = await response.json();
+        
+        // Aktualisiere nur die Status-Indikatoren, nicht die gesamte UI
+        statusData.forEach(container => {
+            const containerCards = document.querySelectorAll(`.container-card[data-name="${container.name}"]`);
+            
+            containerCards.forEach(card => {
+                // Finde den Status-Indikator
+                const statusIndicator = card.querySelector('.status-indicator');
+                const statusBtn = card.querySelector('.status-btn');
+                
+                if (statusIndicator) {
+                    // Entferne alle bestehenden Status-Klassen
+                    statusIndicator.classList.remove('running', 'stopped', 'error');
+                    // Füge die aktuelle Statusklasse hinzu
+                    statusIndicator.classList.add(container.status);
+                    // Aktualisiere den Text
+                    statusIndicator.setAttribute('title', `Status: ${container.status}`);
+                }
+                
+                // Aktualisiere auch den Status-Button, falls vorhanden
+                if (statusBtn) {
+                    statusBtn.classList.remove('running', 'stopped', 'error');
+                    statusBtn.classList.add(container.status);
+                    statusBtn.textContent = container.status === 'running' ? 'Stop' : 'Start';
+                }
+            });
+        });
+        
+        // Speichere den aktuellen Status zur späteren Referenz
+        const newContainerStates = new Map();
+        statusData.forEach(container => {
+            newContainerStates.set(container.name, container.status);
+        });
+        lastContainerStates = newContainerStates;
+        
+    } catch (error) {
         console.error('Error updating container status:', error);
-        showNotification('error', 'Error updating container status');
-    });
+        // Bei Fehlern, versuche die vollständige Aktualisierung
+        if (!forceRefresh) {
+            console.log('Fallback auf vollständigen Reload');
+            await loadCategories(true);
+        } else {
+            showNotification('error', 'Error updating container status');
+        }
+    }
 }
 
 // Hilfsfunktionen für das Modal

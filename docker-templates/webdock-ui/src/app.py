@@ -1507,9 +1507,23 @@ def update_container(container_name):
 @app.route('/static/img/<path:filename>')
 def serve_image(filename):
     try:
-        return send_from_directory(app.static_folder + '/img', filename)
+        # Versuche das angeforderte Bild zu finden
+        response = send_from_directory(app.static_folder + '/img', filename)
+        
+        # Setze Cache-Header für lange Caching-Dauer (1 Woche)
+        max_age = 60 * 60 * 24 * 7  # 7 Tage in Sekunden
+        response.headers['Cache-Control'] = f'public, max-age={max_age}'
+        
+        # Füge ETag für effizientes Caching hinzu
+        response.add_etag()
+        
+        return response
     except:
-        return send_from_directory(app.static_folder + '/img/icons', 'webdock.png')
+        # Fallback auf Standardbild
+        response = send_from_directory(app.static_folder + '/img/icons', 'webdock.png')
+        response.headers['Cache-Control'] = 'public, max-age=3600'  # 1 Stunde Cache für Fallback-Icon
+        response.add_etag()
+        return response
 
 @app.route('/api/system/status')
 def get_system_status():
@@ -2732,6 +2746,9 @@ def debug_compose_files():
 
 @app.route('/api/containers/status')
 def get_containers_status():
+    """Optimierter Endpunkt für Container-Statusabfragen.
+    Gibt ein Array von Containern mit Namen und Status zurück,
+    formatiert für schnelle Status-Updates im Frontend."""
     try:
         # Get running status
         cmd = ["docker", "ps", "-a", "--format", "{{.Names}}\t{{.State}}"]
@@ -2740,16 +2757,30 @@ def get_containers_status():
         # Get installed containers
         installed_containers = get_installed_containers()
         
-        status_dict = {}
+        # Erstelle ein Array für das Frontend (einfacher zu verarbeiten als verschachtelte Objekte)
+        status_list = []
         for line in result.stdout.strip().split('\n'):
             if line:
-                name, state = line.split('\t')
-                status_dict[name] = {
-                    'state': state,
-                    'installed': name in installed_containers
-                }
+                try:
+                    name, state = line.split('\t')
+                    # Normalisiere den Status für das Frontend
+                    status = 'running' if state.lower() == 'running' else 'stopped'
+                    
+                    # Füge nur Container hinzu, die wir verfolgen
+                    if name in installed_containers:
+                        status_list.append({
+                            'name': name,
+                            'status': status
+                        })
+                except ValueError:
+                    logger.warning(f"Konnte Zeile nicht verarbeiten: {line}")
+                    continue
         
-        return jsonify(status_dict)
+        # Setze Cache-Header für kurzzeitiges Caching (10 Sekunden)
+        response = jsonify(status_list)
+        response.headers['Cache-Control'] = 'private, max-age=10'
+        
+        return response
     except subprocess.CalledProcessError as e:
         logger.error(f"Docker command failed: {e.stderr}")
         return jsonify({'error': 'Docker command failed'}), 500
