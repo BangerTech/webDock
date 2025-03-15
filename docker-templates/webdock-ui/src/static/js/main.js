@@ -8,7 +8,10 @@ let lastCategoriesFetch = 0;
 let lastContainersFetch = 0;
 const CACHE_TTL = 60000; // Cache-Gültigkeit in Millisekunden (1 Minute)
 
-// Globale Timer-Variable für Container-Status-Updates
+// WebSocket-Verbindung für Echtzeit-Container-Updates
+let containerSocket = null;
+
+// Globale Timer-Variable für Container-Status-Updates (Fallback, wenn WebSockets nicht funktionieren)
 let containerStatusTimer = null;
 
 // Behalte die Scroll-Position
@@ -721,7 +724,94 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('theme-select').value = localStorage.getItem('theme') || 'system';
         document.getElementById('auto-update').checked = localStorage.getItem('autoUpdate') !== 'false';
         document.getElementById('refresh-interval').value = localStorage.getItem('refreshInterval') || '30';
+        
+        // Initialisiere WebSocket-Verbindung für Echtzeit-Updates
+        initializeContainerSocket();
     });
+    
+// Initialisierung der WebSocket-Verbindung für Container-Status-Updates
+function initializeContainerSocket() {
+    try {
+        console.log('Initialisiere WebSocket-Verbindung für Echtzeit-Container-Updates...');
+        
+        // Verbindung zum Socket.IO-Namespace für Container-Updates herstellen
+        containerSocket = io('/containers', {
+            reconnection: true,             // Automatische Wiederverbindung aktivieren
+            reconnectionAttempts: Infinity, // Unbegrenzt viele Versuche
+            reconnectionDelay: 1000,        // Anfängliche Verzögerung in ms
+            reconnectionDelayMax: 5000,     // Maximale Verzögerung in ms
+            timeout: 20000                  // Verbindungs-Timeout in ms
+        });
+        
+        // Event-Handler für Verbindungsereignisse
+        containerSocket.on('connect', () => {
+            console.log('✅ WebSocket-Verbindung hergestellt!');  
+            showNotification('success', 'Echtzeit-Updates für Container-Status aktiviert');
+            
+            // Fallback-Timer entfernen, wenn WebSocket funktioniert
+            if (containerStatusTimer) {
+                clearInterval(containerStatusTimer);
+                containerStatusTimer = null;
+            }
+        });
+        
+        containerSocket.on('connect_error', (error) => {
+            console.error('❌ WebSocket-Verbindungsfehler:', error);
+            setupStatusPollingFallback(); // Fallback zu regelmäßigem Polling
+        });
+        
+        containerSocket.on('disconnect', (reason) => {
+            console.warn('⚠️ WebSocket-Verbindung getrennt:', reason);
+            setupStatusPollingFallback(); // Fallback zu regelmäßigem Polling
+        });
+        
+        // Event-Handler für Container-Status-Updates
+        containerSocket.on('initial_status', (statusData) => {
+            console.log('Initialen Container-Status erhalten:', statusData);
+            updateContainerStatusUI(statusData);
+        });
+        
+        containerSocket.on('container_status_update', (containerData) => {
+            console.log('Echtzeit Container-Update empfangen:', containerData);
+            
+            // Einzelnes Container-Update verarbeiten
+            const container = {
+                name: containerData.name,
+                status: containerData.status
+            };
+            
+            // Update des UI nur für den einen Container
+            updateContainerStatusUI([container], true);
+        });
+        
+        containerSocket.on('container_status_refresh', (statusData) => {
+            console.log('Vollständiges Status-Refresh empfangen:', statusData);
+            updateContainerStatusUI(statusData);
+        });
+        
+        return true;
+    } catch (error) {
+        console.error('Fehler bei der Initialisierung der WebSocket-Verbindung:', error);
+        setupStatusPollingFallback(); // Fallback zu regelmäßigem Polling
+        return false;
+    }
+}
+
+// Fallback-Funktion, die reguläres Polling einrichtet, falls WebSockets nicht funktionieren
+function setupStatusPollingFallback() {
+    // Verhindere mehrere Timer
+    if (containerStatusTimer) return;
+    
+    console.log('Richte Fallback-Polling für Container-Status ein');
+    const interval = parseInt(localStorage.getItem('refreshInterval') || '30') * 1000;
+    
+    if (localStorage.getItem('autoUpdate') !== 'false') {
+        containerStatusTimer = setInterval(() => { 
+            console.log('Polling Container-Status (Fallback-Methode)...');
+            updateContainerStatus(false);
+        }, interval);
+    }
+}
 
     // Docker Version Info
     fetch('/api/docker/info')
@@ -732,7 +822,7 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .catch(error => console.error('Error getting Docker info:', error));
 
-    // Setup Refresh Interval
+    // Setup Refresh Interval - Nur für Systemstatus, Container-Status verwendet WebSockets
     function setupRefreshInterval() {
         const interval = parseInt(refreshInterval.value) * 1000;
         if (window.statusInterval) clearInterval(window.statusInterval);
@@ -742,6 +832,19 @@ document.addEventListener('DOMContentLoaded', function() {
                 updateContainerHealth();
                 updateSystemLogs();
             }, interval);
+        }
+        
+        // Aktualisiere auch die WebSocket-Verbindung, wenn die Einstellungen geändert wurden
+        // oder stelle sicher, dass der Fallback aktiviert ist, wenn WebSockets nicht verfügbar sind
+        if (containerSocket && containerSocket.connected) {
+            console.log('WebSocket-Verbindung aktiv, keine Änderung notwendig');
+        } else {
+            console.log('WebSocket-Verbindung nicht aktiv, versuche erneut zu verbinden');
+            if (!containerSocket) {
+                initializeContainerSocket();
+            } else {
+                setupStatusPollingFallback();
+            }
         }
     }
 
@@ -4045,6 +4148,7 @@ function renderContainers(containers, categories) {
     });
 }
 
+// Aktualisiert den Container-Status via API-Anfrage
 async function updateContainerStatus(forceRefresh = false) {
     try {
         if (forceRefresh) {
@@ -4064,71 +4168,83 @@ async function updateContainerStatus(forceRefresh = false) {
         
         const statusData = await response.json();
         
-        // Speichere den aktuellen Status zur späteren Referenz und Prüfung auf Änderungen
-        const previousStates = new Map(lastContainerStates);
-        lastContainerStates.clear(); // Zurücksetzen für neue Daten
-        
-        // Aktualisiere nur die Status-Indikatoren, nicht die gesamte UI
-        statusData.forEach(container => {
-            // Speichere aktuellen Status
-            lastContainerStates.set(container.name, container.status);
-            
-            // Prüfe, ob sich der Status geändert hat
-            const previousStatus = previousStates.get(container.name) || '';
-            const statusChanged = previousStatus !== container.status;
-            
-            // Finde alle Karten für diesen Container
-            const containerCards = document.querySelectorAll(`.container-card[data-name="${container.name}"]`);
-            
-            containerCards.forEach(card => {
-                // Finde den Status-Indikator
-                const statusIndicator = card.querySelector('.status-indicator');
-                const statusBtn = card.querySelector('.status-btn');
-                
-                if (statusIndicator) {
-                    // Entferne alle bestehenden Status-Klassen
-                    statusIndicator.classList.remove('running', 'stopped', 'error');
-                    // Füge die aktuelle Statusklasse hinzu
-                    statusIndicator.classList.add(container.status);
-                    // Aktualisiere den Text
-                    statusIndicator.setAttribute('title', `Status: ${container.status}`);
-                    
-                    // Kurze Animation bei Statusänderung für bessere Sichtbarkeit
-                    if (statusChanged) {
-                        // Kurze Animation hinzufügen
-                        statusIndicator.classList.add('status-update-flash');
-                        setTimeout(() => {
-                            statusIndicator.classList.remove('status-update-flash');
-                        }, 800);
-                    }
-                }
-                
-                // Aktualisiere auch den Status-Button, falls vorhanden
-                if (statusBtn) {
-                    statusBtn.classList.remove('running', 'stopped', 'error');
-                    statusBtn.classList.add(container.status);
-                    statusBtn.textContent = container.status === 'running' ? 'Stop' : 'Start';
-                }
-            });
-        });
-        
-        // Speichere den aktuellen Status zur späteren Referenz
-        const newContainerStates = new Map();
-        statusData.forEach(container => {
-            newContainerStates.set(container.name, container.status);
-        });
-        lastContainerStates = newContainerStates;
-        
+        // Verwende die gemeinsame Funktion zum Aktualisieren der UI
+        updateContainerStatusUI(statusData);
     } catch (error) {
         console.error('Error updating container status:', error);
-        // Bei Fehlern, versuche die vollständige Aktualisierung
-        if (!forceRefresh) {
-            console.log('Fallback auf vollständigen Reload');
-            await loadCategories(true);
-        } else {
-            showNotification('error', 'Error updating container status');
-        }
     }
+}
+
+// Aktualisiert die UI basierend auf Statusdaten (wird sowohl von API als auch WebSockets verwendet)
+function updateContainerStatusUI(statusData, isSingleContainerUpdate = false) {
+    if (!statusData || !Array.isArray(statusData)) {
+        console.error('Ungültige Statusdaten empfangen:', statusData);
+        return;
+    }
+    
+    // Speichere den aktuellen Status zur späteren Referenz und Prüfung auf Änderungen
+    const previousStates = new Map(lastContainerStates);
+    
+    // Bei einzelnem Container-Update nicht die Map zurücksetzen
+    if (!isSingleContainerUpdate) {
+        lastContainerStates.clear(); // Zurücksetzen für neue Daten
+    }
+    
+    // Aktualisiere nur die Status-Indikatoren, nicht die gesamte UI
+    statusData.forEach(container => {
+        // Speichere aktuellen Status
+        lastContainerStates.set(container.name, container.status);
+        
+        // Prüfe, ob sich der Status geändert hat
+        const previousStatus = previousStates.get(container.name) || '';
+        const statusChanged = previousStatus !== container.status;
+        
+        if (statusChanged) {
+            console.log(`Container ${container.name}: ${previousStatus} -> ${container.status} (geändert: ${statusChanged})`);
+        }
+        
+        // Finde alle Karten für diesen Container
+        const containerCards = document.querySelectorAll(`.container-card[data-name="${container.name}"]`);
+        
+        containerCards.forEach(card => {
+            // Finde den Status-Indikator
+            const statusIndicator = card.querySelector('.status-indicator');
+            const statusBtn = card.querySelector('.status-btn');
+            
+            if (statusIndicator) {
+                // Entferne alle bestehenden Status-Klassen
+                statusIndicator.classList.remove('running', 'stopped', 'error');
+                // Füge die aktuelle Statusklasse hinzu
+                statusIndicator.classList.add(container.status);
+                // Aktualisiere den Text
+                statusIndicator.setAttribute('title', `Status: ${container.status}`);
+                
+                // Kurze Animation bei Statusänderung für bessere Sichtbarkeit
+                if (statusChanged) {
+                    // Kurze Animation hinzufügen
+                    statusIndicator.classList.add('status-update-flash');
+                    setTimeout(() => {
+                        statusIndicator.classList.remove('status-update-flash');
+                    }, 1000);
+                }
+            }
+            
+            if (statusBtn) {
+                // Aktualisiere den Status-Button basierend auf dem Status
+                if (container.status === 'running') {
+                    statusBtn.innerHTML = '<i class="fa fa-stop"></i>';
+                    statusBtn.classList.remove('start');
+                    statusBtn.classList.add('stop');
+                    statusBtn.setAttribute('title', 'Stop Container');
+                } else {
+                    statusBtn.innerHTML = '<i class="fa fa-play"></i>';
+                    statusBtn.classList.remove('stop');
+                    statusBtn.classList.add('start');
+                    statusBtn.setAttribute('title', 'Start Container');
+                }
+            }
+        });
+    });
 }
 
 // Hilfsfunktionen für das Modal

@@ -19,8 +19,10 @@ import socket
 import stat
 import re
 from datetime import timedelta
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 import docker
+# Neue Importe für WebSocket-Unterstützung
+from flask_socketio import SocketIO, emit
 
 # Konfiguriere Logging
 logging.basicConfig(
@@ -36,6 +38,9 @@ app = Flask(__name__,
 )
 app.debug = False
 
+# SocketIO-Instanz initialisieren mit geeigneten CORS-Einstellungen
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+
 GITHUB_RAW_URL = "https://raw.githubusercontent.com/BangerTech/webDock/main/docker-templates"
 GITHUB_API_URL = "https://api.github.com/repos/BangerTech/webDock/contents/docker-templates"
 
@@ -47,6 +52,123 @@ config_cache = {}
 # Konstanten und Konfiguration
 # Bestimme den Basis-Pfad basierend auf dem aktuellen Verzeichnis der app.py oder dem Startverzeichnis
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Docker Events Monitor-Klasse
+class DockerEventsMonitor:
+    def __init__(self, socketio_instance):
+        self.client = docker.from_env()
+        self.socketio = socketio_instance
+        self.running = False
+        self.thread = None
+        self.last_event_time = time.time()
+        self.connected_clients = 0
+        logger.info("Docker Events Monitor initialisiert")
+    
+    def start(self):
+        if self.thread is None or not self.thread.is_alive():
+            self.running = True
+            self.thread = threading.Thread(target=self.monitor_events, daemon=True)
+            self.thread.start()
+            logger.info("Docker Events Monitor gestartet")
+    
+    def stop(self):
+        self.running = False
+        if self.thread and self.thread.is_alive():
+            self.thread.join(timeout=1.0)
+            logger.info("Docker Events Monitor gestoppt")
+    
+    def monitor_events(self):
+        try:
+            logger.info("Beginne mit der Überwachung von Docker-Events")
+            # Zeitstempel für Events
+            since = datetime.now()
+            
+            # Nur Container-Events filtern
+            filters = {'type': ['container']}
+            
+            while self.running:
+                try:
+                    # Events abrufen mit Timeout, damit wir den Thread beenden können
+                    for event in self.client.events(decode=True, since=since, filters=filters):
+                        if not self.running:
+                            break
+                            
+                        # Nur interessante Container-Events verarbeiten (create, start, die, stop, etc.)
+                        if event.get('Type') == 'container':
+                            self.process_container_event(event)
+                        
+                        # Update des Zeitstempels für das nächste Polling
+                        since = datetime.fromtimestamp(event.get('time'))
+                        
+                except docker.errors.APIError as e:
+                    logger.error(f"Docker API-Fehler: {e}")
+                    time.sleep(5)  # Kurze Pause bei Fehlern
+                    
+                # Kurze Pause, um CPU-Nutzung zu reduzieren
+                time.sleep(0.1)
+                
+        except Exception as e:
+            logger.error(f"Fehler im Docker Events Monitor: {e}")
+        
+        logger.info("Docker Events Monitor wurde beendet")
+    
+    def process_container_event(self, event):
+        """Verarbeitet ein einzelnes Container-Event und sendet Updates an Clients"""
+        try:
+            # Extrahiere die relevanten Informationen
+            event_type = event.get('Action', '')
+            container_id = event.get('Actor', {}).get('ID', '')
+            container_name = event.get('Actor', {}).get('Attributes', {}).get('name', '')
+            container_image = event.get('Actor', {}).get('Attributes', {}).get('image', '')
+            
+            # Status aus dem Event-Typ ableiten
+            status = 'unknown'
+            if event_type in ['start', 'unpause']:
+                status = 'running'
+            elif event_type in ['die', 'stop', 'kill', 'pause']:
+                status = 'stopped'
+            
+            # Logging für Debugging
+            logger.info(f"Docker-Event: {event_type} für Container {container_name} (Status: {status})")
+            
+            # Wenn wir verbundene Clients haben, senden wir ein Update
+            if self.connected_clients > 0:
+                container_data = {
+                    'id': container_id,
+                    'name': container_name,
+                    'status': status,
+                    'event_type': event_type,
+                    'timestamp': time.time()
+                }
+                
+                # Sende das Update an alle verbundenen Clients
+                self.socketio.emit('container_status_update', container_data, namespace='/containers')
+                logger.info(f"Status-Update für {container_name} an {self.connected_clients} Clients gesendet")
+        
+        except Exception as e:
+            logger.error(f"Fehler bei der Verarbeitung des Container-Events: {e}")
+    
+    def client_connected(self):
+        """Zähler für verbundene Clients erhöhen"""
+        self.connected_clients += 1
+        logger.info(f"Neuer Client verbunden. Insgesamt {self.connected_clients} Clients.")
+        
+        # Starte den Monitor, wenn der erste Client verbunden ist
+        if self.connected_clients == 1:
+            self.start()
+    
+    def client_disconnected(self):
+        """Zähler für verbundene Clients verringern"""
+        if self.connected_clients > 0:
+            self.connected_clients -= 1
+            logger.info(f"Client getrennt. Noch {self.connected_clients} Clients verbunden.")
+        
+        # Stoppe den Monitor, wenn keine Clients mehr verbunden sind
+        if self.connected_clients == 0:
+            self.stop()
+
+# Initialisiere den Docker Events Monitor
+docker_events_monitor = DockerEventsMonitor(socketio)
 
 # Bestimme den Installationspfad
 # Wenn die App in einem Container läuft, nutze den Container-Pfad
@@ -5794,6 +5916,38 @@ networks:
         logger.error(f"Node-RED setup failed: {str(e)}")
         return False
 
+# WebSocket-Ereignishandler
+@socketio.on('connect', namespace='/containers')
+def handle_connect():
+    """Ereignishandler für neue WebSocket-Verbindungen"""
+    logger.info("Neuer WebSocket-Client verbunden")
+    docker_events_monitor.client_connected()
+    
+    # Sende sofort den aktuellen Status aller Container
+    try:
+        # Nutze die bestehende Funktion, um den aktuellen Status zu erhalten
+        status_data = get_containers_status()
+        emit('initial_status', status_data)
+        logger.info(f"Initial status sent to new client with {len(status_data)} containers")
+    except Exception as e:
+        logger.error(f"Fehler beim Senden des initialen Status: {e}")
+
+@socketio.on('disconnect', namespace='/containers')
+def handle_disconnect():
+    """Ereignishandler für getrennte WebSocket-Verbindungen"""
+    logger.info("WebSocket-Client getrennt")
+    docker_events_monitor.client_disconnected()
+
+@socketio.on('request_status_refresh', namespace='/containers')
+def handle_status_refresh():
+    """Manuelles Aktualisieren des Container-Status auf Anfrage"""
+    try:
+        status_data = get_containers_status()
+        emit('container_status_refresh', status_data)
+        logger.info(f"Status refresh sent with {len(status_data)} containers")
+    except Exception as e:
+        logger.error(f"Fehler beim Aktualisieren des Status: {e}")
+
 if __name__ == '__main__':
     # Initialisiere die Anwendung
     init_app()
@@ -5805,4 +5959,6 @@ if __name__ == '__main__':
     logger.info(f"Static Folder: {app.static_folder}")
     logger.info(f"Template Folder: {app.template_folder}")
     
-    app.run(host='0.0.0.0', port=80) 
+    # Starte den SocketIO-Server statt des normalen Flask-Servers
+    logger.info("Starting SocketIO server on port 80")
+    socketio.run(app, host='0.0.0.0', port=80, debug=app.debug, use_reloader=False)
