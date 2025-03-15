@@ -2895,10 +2895,15 @@ def debug_compose_files():
     return jsonify(result)
 
 @app.route('/api/containers/status')
-def get_containers_status():
+def get_containers_status(return_json_response=True):
     """Optimierter Endpunkt für Container-Statusabfragen.
     Gibt ein Array von Containern mit Namen und Status zurück,
-    formatiert für schnelle Status-Updates im Frontend."""
+    formatiert für schnelle Status-Updates im Frontend.
+    
+    Args:
+        return_json_response (bool): Wenn True, gibt ein Flask Response-Objekt zurück.
+                                    Wenn False, gibt direkt eine Python-Liste zurück (für WebSockets).
+    """
     try:
         # Get running status
         cmd = ["docker", "ps", "-a", "--format", "{{.Names}}\t{{.State}}"]
@@ -2926,17 +2931,25 @@ def get_containers_status():
                     logger.warning(f"Konnte Zeile nicht verarbeiten: {line}")
                     continue
         
-        # Setze Cache-Header für kurzzeitiges Caching (10 Sekunden)
+        # Wenn wir eine direkte Liste für WebSockets zurückgeben sollen
+        if not return_json_response:
+            return status_list
+        
+        # Ansonsten für HTTP-Anfragen ein Response-Objekt zurückgeben
         response = jsonify(status_list)
         response.headers['Cache-Control'] = 'private, max-age=10'
         
         return response
     except subprocess.CalledProcessError as e:
         logger.error(f"Docker command failed: {e.stderr}")
-        return jsonify({'error': 'Docker command failed'}), 500
+        if return_json_response:
+            return jsonify({'error': 'Docker command failed'}), 500
+        return []
     except Exception as e:
         logger.exception("Error getting container status")
-        return jsonify({'error': str(e)}), 500
+        if return_json_response:
+            return jsonify({'error': str(e)}), 500
+        return []
 
 @app.route('/debug/icons')
 def debug_icons():
@@ -5930,8 +5943,9 @@ def handle_connect():
     
     # Sende sofort den aktuellen Status aller Container
     try:
-        # Nutze die bestehende Funktion, um den aktuellen Status zu erhalten
-        status_data = get_containers_status()
+        # Nutze die bestehende Funktion, um den aktuellen Status zu erhalten, aber mit return_json_response=False
+        # damit wir direkt eine Liste bekommen statt eines Response-Objekts
+        status_data = get_containers_status(return_json_response=False)
         emit('initial_status', status_data)
         logger.info(f"Initial status sent to new client with {len(status_data)} containers")
     except Exception as e:
@@ -5947,7 +5961,7 @@ def handle_disconnect():
 def handle_status_refresh():
     """Manuelles Aktualisieren des Container-Status auf Anfrage"""
     try:
-        status_data = get_containers_status()
+        status_data = get_containers_status(return_json_response=False)
         emit('container_status_refresh', status_data)
         logger.info(f"Status refresh sent with {len(status_data)} containers")
     except Exception as e:

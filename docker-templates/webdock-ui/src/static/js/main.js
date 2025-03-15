@@ -764,7 +764,7 @@ function initializeContainerSocket() {
         // Event-Handler für Verbindungsereignisse
         containerSocket.on('connect', () => {
             console.log('✅ WebSocket-Verbindung hergestellt!');  
-            showNotification('success', 'Echtzeit-Updates für Container-Status aktiviert');
+            // Keine Benachrichtigung mehr anzeigen
             
             // Fallback-Timer entfernen, wenn WebSocket funktioniert
             if (containerStatusTimer) {
@@ -785,12 +785,13 @@ function initializeContainerSocket() {
         
         // Event-Handler für Container-Status-Updates
         containerSocket.on('initial_status', (statusData) => {
-            console.log('Initialen Container-Status erhalten:', statusData);
+            console.log('Initialen Container-Status erhalten');
             updateContainerStatusUI(statusData);
         });
         
         containerSocket.on('container_status_update', (containerData) => {
-            console.log('Echtzeit Container-Update empfangen:', containerData);
+            // Keine ausführliche Logging-Nachricht mehr
+            console.log('Container-Status aktualisiert für:', containerData.name);
             
             // Einzelnes Container-Update verarbeiten
             const container = {
@@ -803,7 +804,7 @@ function initializeContainerSocket() {
         });
         
         containerSocket.on('container_status_refresh', (statusData) => {
-            console.log('Vollständiges Status-Refresh empfangen:', statusData);
+            console.log('Status-Aktualisierung empfangen');
             updateContainerStatusUI(statusData);
         });
         
@@ -2874,7 +2875,7 @@ function getContainerLogo(containerName) {
 
 function createContainerCard(container, categoryId) {
     const logoUrl = getContainerLogo(container.name);
-    // Verwende die Beschreibung aus der Container-Konfiguration oder hole sie aus unserer Funktion
+    // Verwende die Beschreibung nur für den Tooltip des Logos
     const description = container.description || getContainerDescription(container.name) || '';
     const isInstalled = container.installed || false;
     const state = container.status || 'stopped';
@@ -2932,7 +2933,7 @@ function createContainerCard(container, categoryId) {
                 ` : ''}
             </div>
             ${portDisplay}
-            <!-- Beschreibung wird absichtlich nicht angezeigt, nur als Tooltip beim Hover über das Logo -->
+            <!-- Keine Beschreibung in den Karten, nur als Tooltip beim Logo -->
 
             <div class="actions">
                 ${isInstalled ? `
