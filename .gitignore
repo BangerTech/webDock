@@ -2,7 +2,6 @@
 /webdock-data/
 /docker-compose-data/
 /webdock-templates/
-/docker-templates/
 
 # Common temporary files
 *.log

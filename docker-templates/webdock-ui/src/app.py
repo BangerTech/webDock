@@ -249,17 +249,41 @@ def load_categories():
                 
                 # Filtere Container basierend auf der Systemarchitektur
                 if categories and 'categories' in categories:
-                    for category_id, category in categories['categories'].items():
-                        if 'containers' in category:
-                            # Filtere ARM-spezifische Container
-                            if SYSTEM_INFO['is_arm']:
-                                # Entferne x86-spezifische Container
-                                if 'filestash' in category['containers']:
-                                    category['containers'].remove('filestash')
-                            else:  # x86/AMD64
-                                # Entferne ARM-spezifische Container
-                                if 'filebrowser' in category['containers']:
-                                    category['containers'].remove('filebrowser')
+                    # Prüfe, ob die Kategorien als Liste oder als Dictionary vorliegen
+                    if isinstance(categories['categories'], list):
+                        # Kategorien sind als Liste strukturiert (neues Format)
+                        for category in categories['categories']:
+                            # Überprüfe, ob die Kategorie 'containers' hat und ob es sich um eine Liste handelt
+                            if 'containers' in category and isinstance(category['containers'], list):
+                                # Filtere ARM-spezifische Container
+                                filtered_containers = []
+                                for container in category['containers']:
+                                    container_name = container if isinstance(container, str) else container.get('name')
+                                    
+                                    # Prüfe Architektur-spezifische Filter
+                                    if SYSTEM_INFO['is_arm']:
+                                        # Entferne x86-spezifische Container
+                                        if container_name != 'filestash':
+                                            filtered_containers.append(container)
+                                    else:  # x86/AMD64
+                                        # Entferne ARM-spezifische Container
+                                        if container_name != 'filebrowser':
+                                            filtered_containers.append(container)
+                                            
+                                category['containers'] = filtered_containers
+                    else:
+                        # Kategorien sind als Dictionary strukturiert (altes Format)
+                        for category_id, category in categories['categories'].items():
+                            if 'containers' in category:
+                                # Filtere ARM-spezifische Container
+                                if SYSTEM_INFO['is_arm']:
+                                    # Entferne x86-spezifische Container
+                                    if 'filestash' in category['containers']:
+                                        category['containers'].remove('filestash')
+                                else:  # x86/AMD64
+                                    # Entferne ARM-spezifische Container
+                                    if 'filebrowser' in category['containers']:
+                                        category['containers'].remove('filebrowser')
                 
                 return categories
         
@@ -278,7 +302,7 @@ def load_categories():
         
     except Exception as e:
         logger.error(f"Error loading categories: {e}")
-        return {'categories': {}}
+        return {'categories': []}
 
 @app.route('/api/categories', methods=['POST'])
 def add_category():
@@ -2082,11 +2106,15 @@ def reorder_container():
         from_position = data.get('fromPosition', -1)
         to_position = data.get('toPosition', -1)
         
+        # Log für Debugging
+        logger.info(f"Received reorder request: {data}")
+        
         # Wenn keine Kategorie-ID angegeben ist, verwende 'default'
         if not category_id or category_id == 'undefined':
             category_id = 'default'
             
         if not container_name or from_position < 0 or to_position < 0:
+            logger.error(f"Missing or invalid fields: container={container_name}, from={from_position}, to={to_position}")
             return jsonify({'error': 'Missing or invalid required fields'}), 400
             
         logger.info(f"Reordering container {container_name} in category {category_id} from position {from_position} to {to_position}")
@@ -2107,6 +2135,9 @@ def reorder_container():
                 categories_list.append(cat_data)
             categories_data['categories'] = categories_list
             
+        # Logge die Kategorien-Struktur für Debugging
+        logger.debug(f"Categories structure: {categories_data}")
+        
         # Finde die Kategorie
         category_found = False
         category = None  # Definiere die Variable category außerhalb der Schleife
@@ -2118,6 +2149,20 @@ def reorder_container():
                 category_found = True
                 if 'containers' not in category:
                     category['containers'] = []
+                
+                # Stelle sicher, dass containers eine Liste ist
+                if not isinstance(category['containers'], list):
+                    category['containers'] = []
+                    logger.warning(f"Containers was not a list in category {category_id}, reset to empty list")
+                
+                # Normalisiere die Container-Liste, falls sie verschiedene Formate enthält
+                normalized_containers = []
+                for container_item in category['containers']:
+                    if isinstance(container_item, str):
+                        normalized_containers.append({'name': container_item})
+                    else:
+                        normalized_containers.append(container_item)
+                category['containers'] = normalized_containers
                 
                 # Wenn wir hier sind, haben wir die richtige Kategorie gefunden
                 # Prüfe, ob die Position gültig ist
@@ -2168,7 +2213,7 @@ def reorder_container():
                 'id': category_id,
                 'name': category_id,
                 'icon': 'fa-cube',
-                'containers': []
+                'containers': [{'name': container_name}]  # Füge den Container direkt hinzu
             }
             categories_data['categories'].append(new_category)
             
