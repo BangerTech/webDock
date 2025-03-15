@@ -1902,15 +1902,13 @@ function setupRefreshInterval() {
             showNotification('info', `Container ${containerName} wird verschoben...`, 1000);
             
             // Bestimme tatsächliche Positionen
-            let actualFromPosition = fromPosition;
+            // Ignoriere die übergebene fromPosition und nutze immer die tatsächliche DOM-Position
+            // um Diskrepanzen zwischen Frontend und Backend zu vermeiden
+            const actualFromPosition = findActualContainerPosition(containerName, categoryId);
             let actualToPosition = toPosition;
             
-            // Wenn fromPosition ungültig ist, finde die tatsächliche Position im DOM
-            if (actualFromPosition < 0 || isNaN(actualFromPosition)) {
-                actualFromPosition = findActualContainerPosition(containerName, categoryId);
-            }
-            
-            console.log(`Sende Container-Neuordnung zum Server: ${containerName} von ${actualFromPosition} nach ${actualToPosition}`);
+            console.log(`Sende Container-Neuordnung zum Server: ${containerName} von ${actualFromPosition} (DOM-Position) nach ${actualToPosition}`);
+            console.log(`Hinweis: Die ursprüngliche Position war ${fromPosition}, wir verwenden die aktuelle DOM-Position ${actualFromPosition}`);
             
             // Sende die Anfrage zum Server mit den korrigierten Positionen
             // Wir verlassen uns jetzt primär auf den Container-Namen anstatt auf Positionen
@@ -2342,10 +2340,17 @@ function setupRefreshInterval() {
 // Container control functions
 function installContainer(name) {
     const button = event.target;
+    
+    // Markiere den Button mit dem Container-Namen für einfachere Identifikation später
+    button.setAttribute('data-installing-container', name);
+    
+    // Speichere den ursprünglichen Button-Inhalt und deaktiviere den Button
     button.disabled = true;
-    button.originalHTML = button.innerHTML; // Speichern des ursprünglichen Button-Textes
+    button.originalHTML = button.innerHTML; 
     button.innerHTML = '<i class="fa fa-spinner fa-spin"></i>';
 
+    console.log(`Installieren von Container ${name} initiiert, Button markiert und deaktiviert`);
+    
     // Hole zuerst den Data Location Pfad aus den Settings
     fetch('/api/settings/data-location')
         .then(response => response.json())
@@ -2358,9 +2363,30 @@ function installContainer(name) {
         .catch(error => {
             console.error('Error:', error);
             showNotification('error', `Error getting data location for ${name}`);
-            button.disabled = false;
-            button.innerHTML = 'Install';
+            // Im Fehlerfall den Button sofort zurücksetzen
+            resetInstallButton(button, name);
         });
+}
+
+// Hilfsfunktion zum Zurücksetzen des Install-Buttons
+function resetInstallButton(button, containerName) {
+    console.log(`Zurücksetzen des Install-Buttons für ${containerName}`); 
+    if (!button) {
+        // Wenn kein Button übergeben wurde, versuchen wir ihn zu finden
+        const buttons = document.querySelectorAll(`[data-installing-container="${containerName}"]`);
+        if (buttons.length > 0) {
+            button = buttons[0]; // Nehme den ersten gefundenen Button
+        } else {
+            console.warn(`Konnte keinen markierten Button für ${containerName} finden`);
+            return;
+        }
+    }
+    
+    // Button zurücksetzen
+    button.disabled = false;
+    button.innerHTML = button.originalHTML || 'Install';
+    button.removeAttribute('data-installing-container');
+    console.log(`Button für ${containerName} zurückgesetzt`);
 }
 
 async function showInstallModal(containerName) {
@@ -2547,14 +2573,33 @@ async function showInstallModal(containerName) {
 
         // Schließen-Funktionalität
         const handleClose = () => {
-            // Finde alle Buttons, die auf diesen Container verweisen
-            const containerButtons = document.querySelectorAll(`.install-btn`);
-            containerButtons.forEach(btn => {
-                if (btn.disabled && !btn.classList.contains('loading')) {
-                    btn.disabled = false;
-                    btn.innerHTML = btn.originalHTML || 'Install';
+            console.log(`Modal closed for container: ${containerName}`);
+            
+            // Verwende die spezialisierte Funktion zum Zurücksetzen der Buttons
+            // 1. Versuche zuerst, Buttons zu finden, die explizit mit data-installing-container markiert sind
+            const markedButtons = document.querySelectorAll(`[data-installing-container="${containerName}"]`);
+            
+            if (markedButtons.length > 0) {
+                console.log(`Gefunden: ${markedButtons.length} markierte Buttons für Container ${containerName}`);
+                markedButtons.forEach(btn => resetInstallButton(btn, containerName));
+            } else {
+                // 2. Suche alle Buttons in der Card des Containers
+                const containerButtons = document.querySelectorAll(`.card[data-name="${containerName}"] .install-btn, .card[data-container="${containerName}"] .install-btn`);
+                
+                if (containerButtons.length > 0) {
+                    console.log(`Gefunden: ${containerButtons.length} Buttons in der Container-Card für ${containerName}`);
+                    containerButtons.forEach(btn => resetInstallButton(btn, containerName));
+                } else {
+                    // 3. Fallback: Suche nach allen deaktivierten Install-Buttons (als letzter Ausweg)
+                    console.log(`Keine Buttons für ${containerName} gefunden, versuche allgemeine Fallback-Methode`);
+                    const disabledButtons = document.querySelectorAll('.install-btn[disabled]');
+                    if (disabledButtons.length > 0) {
+                        console.log(`Setze ${disabledButtons.length} deaktivierte Install-Buttons zurück`);
+                        disabledButtons.forEach(btn => resetInstallButton(btn, containerName));
+                    }
                 }
-            });
+            }
+            
             closeModal(containerName);
         };
         
