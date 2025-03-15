@@ -128,8 +128,9 @@ class DockerEventsMonitor:
             elif event_type in ['die', 'stop', 'kill', 'pause']:
                 status = 'stopped'
             
-            # Logging für Debugging
-            logger.info(f"Docker-Event: {event_type} für Container {container_name} (Status: {status})")
+            # Nur bestimmte wichtige Events loggen (start, stop), andere Events nur im Debug-Level
+            if event_type in ['start', 'stop', 'die']:
+                logger.info(f"Docker-Event: {event_type} für Container {container_name}")
             
             # Wenn wir verbundene Clients haben, senden wir ein Update
             if self.connected_clients > 0:
@@ -143,7 +144,7 @@ class DockerEventsMonitor:
                 
                 # Sende das Update an alle verbundenen Clients
                 self.socketio.emit('container_status_update', container_data, namespace='/containers')
-                logger.info(f"Status-Update für {container_name} an {self.connected_clients} Clients gesendet")
+                # Keine Status-Update-Nachricht mehr im Info-Level
         
         except Exception as e:
             logger.error(f"Fehler bei der Verarbeitung des Container-Events: {e}")
@@ -151,7 +152,7 @@ class DockerEventsMonitor:
     def client_connected(self):
         """Zähler für verbundene Clients erhöhen"""
         self.connected_clients += 1
-        logger.info(f"Neuer Client verbunden. Insgesamt {self.connected_clients} Clients.")
+        logger.debug(f"Neuer Client verbunden. Insgesamt {self.connected_clients} Clients.")
         
         # Starte den Monitor, wenn der erste Client verbunden ist
         if self.connected_clients == 1:
@@ -161,7 +162,7 @@ class DockerEventsMonitor:
         """Zähler für verbundene Clients verringern"""
         if self.connected_clients > 0:
             self.connected_clients -= 1
-            logger.info(f"Client getrennt. Noch {self.connected_clients} Clients verbunden.")
+            logger.debug(f"Client getrennt. Noch {self.connected_clients} Clients verbunden.")
         
         # Stoppe den Monitor, wenn keine Clients mehr verbunden sind
         if self.connected_clients == 0:
@@ -1197,11 +1198,11 @@ def get_containers():
         
         # Lade installierte Container - nur Container in docker-compose-data gelten als installiert
         installed_containers = get_installed_containers()
-        logger.info(f"Installed containers: {installed_containers}")
+        logger.debug(f"Found {len(installed_containers)} installed containers")
         
         # Lade laufende Container
         running_containers = get_running_containers()
-        logger.info(f"Running containers: {running_containers}")
+        logger.debug(f"Found {len(running_containers)} running containers")
         
         # Lade Kategorien
         categories = load_categories().get('categories', [])
@@ -1319,17 +1320,16 @@ def get_containers():
             # Hole das Icon für den Container
             icon = get_container_icon(dirname)
             
-            # Hole die Container-Beschreibung aus den Kategorien
-            description = _get_container_description(dirname)
-            
+            # Hole die Container-Beschreibung aus den Kategorien - wird nur noch für Tooltips verwendet
+            # und nicht mehr an den Client gesendet
             # Füge den Container zur entsprechenden Kategorie hinzu
             container_info = {
                 'name': dirname,
                 'status': status,
                 'installed': is_installed,
                 'port': port,
-                'icon': icon,
-                'description': description
+                'icon': icon
+                # Keine description mehr, um UI zu optimieren
             }
             
             if category_name in grouped_containers:
@@ -1359,7 +1359,7 @@ def get_containers():
 def install_container():
     try:
         data = request.json
-        logger.info(f"Received installation request with data: {data}")
+        logger.info(f"Installation request for container: {data.get('name', 'unknown')}")
         
         container_name = data.get('name')
         if not container_name:
@@ -1379,19 +1379,14 @@ def install_container():
             logger.error(error_msg)
             return jsonify({'error': error_msg}), 400
         
-        # Debug-Logging für spezielle Container
+        # Debug-Logging für spezielle Container (nur kritische Infos behalten)
         if container_name == 'mosquitto-broker':
-            logger.info("=== Mosquitto Installation Debug ===")
-            logger.info(f"Full request data: {data}")
-            logger.info(f"Mosquitto config: {data.get('mosquitto', {})}")
-            logger.info(f"Auth enabled: {data.get('mosquitto', {}).get('auth_enabled')}")
-            logger.info(f"Username: {data.get('mosquitto', {}).get('username')}")
-            logger.info(f"Password: {'*' * len(data.get('mosquitto', {}).get('password', ''))}")
+            logger.debug("=== Mosquitto Installation ===")
+            logger.debug(f"Auth enabled: {data.get('mosquitto', {}).get('auth_enabled')}")
+            logger.debug(f"Username set: {bool(data.get('mosquitto', {}).get('username'))}")
         elif container_name == 'dockge':
-            logger.info("=== Dockge Installation Debug ===")
-            logger.info(f"Full request data: {data}")
-            logger.info(f"Dockge config: {data.get('dockge', {})}")
-            logger.info(f"Stacks directory: {data.get('dockge', {}).get('stacks_dir')}")
+            logger.debug("=== Dockge Installation ===")
+            logger.debug(f"Stacks directory: {data.get('dockge', {}).get('stacks_dir')}")
         
         # Verwende den korrekten Pfad für die Installation
         install_path = os.path.join(COMPOSE_DATA_DIR, container_name)
@@ -1399,7 +1394,7 @@ def install_container():
         
         # Erstelle Basis-Verzeichnisse
         os.makedirs(install_path, exist_ok=True)
-        logger.info(f"Created directory: {install_path}")
+        logger.debug(f"Created directory: {install_path}")
         
         # Spezielle Behandlung für verschiedene Container
         try:
@@ -5947,14 +5942,15 @@ def handle_connect():
         # damit wir direkt eine Liste bekommen statt eines Response-Objekts
         status_data = get_containers_status(return_json_response=False)
         emit('initial_status', status_data)
-        logger.info(f"Initial status sent to new client with {len(status_data)} containers")
+        # Reduziertes Logging
+        logger.debug(f"Initial status sent to client")
     except Exception as e:
         logger.error(f"Fehler beim Senden des initialen Status: {e}")
 
 @socketio.on('disconnect', namespace='/containers')
 def handle_disconnect():
     """Ereignishandler für getrennte WebSocket-Verbindungen"""
-    logger.info("WebSocket-Client getrennt")
+    logger.debug("WebSocket-Client getrennt")
     docker_events_monitor.client_disconnected()
 
 @socketio.on('request_status_refresh', namespace='/containers')
