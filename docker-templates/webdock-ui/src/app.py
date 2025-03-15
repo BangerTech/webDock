@@ -2384,23 +2384,8 @@ def reorder_container():
                         category['containers'].append({'name': container_name})
                         break
                 
-                # Entferne den Container von seiner aktuellen Position
-                container = category['containers'].pop(found_position)
-                logger.info(f"Removed container at position {found_position}: {container}")
-                
                 # Aktualisiere die from_position für die richtige Position im Log
                 from_position = found_position
-                
-                # Wir verwenden den Container, der tatsächlich an der Position gefunden wurde
-                # anstatt zu prüfen, ob der Name übereinstimmt
-                container_name_in_list = container
-                if isinstance(container, dict):
-                    container_name_in_list = container.get('name')
-                    # Aktualisiere den Container-Namen für den Fall, dass wir ihn später einfügen
-                    container = container  # Behalte das Dictionary bei
-                else:
-                    # Wenn es ein String ist, konvertiere es in ein Dictionary
-                    container = {'name': container}
                 
                 # Wir müssen zum korrekten Index im Backend verschieben, der nicht mit dem DOM-Index übereinstimmt
                 
@@ -2430,8 +2415,18 @@ def reorder_container():
                     move_direction = "self"
                     adjusted_to_position = found_position  # Keine Änderung, gleiche Position
                     logger.info(f"Keine Verschiebung notwendig, bleibt an Position {found_position}")
-                    
-                # Entferne Container an der aktuellen Position
+                
+                # Wir verwenden den Container, der tatsächlich an der Position gefunden wurde
+                # anstatt zu prüfen, ob der Name übereinstimmt
+                container = category['containers'][found_position]
+                if isinstance(container, dict):
+                    container_name_in_list = container.get('name')
+                    # Behalte das Dictionary bei
+                else:
+                    # Wenn es ein String ist, konvertiere es in ein Dictionary
+                    container = {'name': container}
+                
+                # Entferne Container an der aktuellen Position - NUR EINMAL ENTFERNEN!
                 container = category['containers'].pop(found_position)
                 logger.info(f"Removed container at position {found_position}: {container}")
                 

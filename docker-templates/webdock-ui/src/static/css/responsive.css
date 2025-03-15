@@ -1,0 +1,166 @@
+/* Responsive Design für WebDock
+ * Zusätzliche Regeln für mobile Geräte, Tablets und kleine Bildschirme
+ * Nur die notwendigen Anpassungen, damit das Desktop-Design unangetastet bleibt
+ */
+
+/* Basis-Unterstützung für Mobilgeräte */
+@media (max-width: 767px) {
+    /* Anpassung des Headers für kleine Bildschirme */
+    header {
+        padding: 0.5rem;
+    }
+
+    .logo {
+        margin-bottom: 1rem;
+        padding-top: 0.5rem;
+    }
+
+    .logo-img {
+        height: 60px;
+    }
+
+    /* Navigation für Mobilgeräte optimieren */
+    nav ul {
+        flex-wrap: wrap;
+        justify-content: space-around;
+        gap: 0.5rem;
+        padding: 0 0.5rem;
+    }
+
+    nav ul li {
+        flex: 0 0 auto;
+    }
+
+    /* Theme-Toggle Button neu positionieren für Mobile */
+    nav ul li:last-child {
+        position: static;
+        margin-left: auto;
+    }
+
+    nav a {
+        padding: 0.5rem;
+        font-size: 0.9rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+    }
+
+    nav a i {
+        margin-bottom: 0.25rem;
+        font-size: 1.2rem;
+    }
+
+    /* Container-Grid für Mobilgeräte optimieren */
+    .container-grid {
+        padding: 1rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .container-card {
+        width: 90%;
+        max-width: 400px;
+        margin: 0 auto 1rem auto;
+    }
+
+    /* Filter-Buttons in der mobilen Ansicht anpassen */
+    .container-filters {
+        padding: 0.5rem;
+    }
+
+    .filter-buttons {
+        justify-content: center;
+    }
+
+    .filter-btn {
+        padding: 0.4rem 0.8rem;
+        font-size: 0.9rem;
+    }
+
+    /* Status-Seite für Mobilgeräte optimieren */
+    .status-page {
+        padding: 1rem;
+    }
+
+    .gauge-wrapper {
+        width: 150px;
+        height: 150px;
+    }
+
+    .gauge-value {
+        font-size: 1.8rem;
+    }
+}
+
+/* Anpassungen für Tablets und mittelgroße Bildschirme */
+@media (min-width: 768px) and (max-width: 1023px) {
+    .container-grid {
+        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+        padding: 1.5rem;
+    }
+
+    /* Zentrieren der Karten in einer Flex-Umgebung */
+    .container-groups .container-group {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+
+    .container-card {
+        flex: 0 0 45%;
+        margin: 1%;
+    }
+}
+
+/* iPhone-spezifische Anpassungen */
+@media screen and (max-width: 390px) {
+    /* Speziell für iPhone-ähnliche Größen */
+    .container-card {
+        width: 95%;
+    }
+
+    nav ul {
+        gap: 0.2rem;
+    }
+
+    nav a {
+        font-size: 0.8rem;
+        padding: 0.4rem;
+    }
+
+    /* Optimiere Abstand im Logo-Bereich */
+    .logo {
+        margin-bottom: 0.5rem;
+    }
+
+    /* Verbessere Container-Ansicht */
+    .container-grid {
+        padding: 0.5rem;
+    }
+
+    .container-card {
+        padding: 1rem;
+    }
+}
+
+/* Fix für Container-Gruppen-Darstellung */
+.container-group {
+    width: 100%;
+}
+
+.container-group h2 {
+    width: 100%;
+    text-align: center;
+    margin-bottom: 1rem;
+}
+
+/* Container-Grid als Flex-Container für bessere Zentrierung auf allen Geräten */
+@media (max-width: 1023px) {
+    .container-grid {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+}

@@ -2372,16 +2372,44 @@ function resetInstallButton(button, containerName) {
         if (buttons.length > 0) {
             button = buttons[0]; // Nehme den ersten gefundenen Button
         } else {
-            console.warn(`Konnte keinen markierten Button für ${containerName} finden`);
-            return;
+            // Suche nach Buttons in der Container-Karte als Fallback
+            const cardButtons = document.querySelectorAll(`.card[data-name="${containerName}"] .install-btn, .card[data-container="${containerName}"] .install-btn`);
+            if (cardButtons.length > 0) {
+                button = cardButtons[0];
+                console.log(`Button in Container-Karte für ${containerName} gefunden`);
+            } else {
+                console.warn(`Konnte keinen Button für ${containerName} finden`);
+                return;
+            }
         }
     }
     
-    // Button zurücksetzen
-    button.disabled = false;
-    button.innerHTML = button.originalHTML || 'Install';
-    button.removeAttribute('data-installing-container');
-    console.log(`Button für ${containerName} zurückgesetzt`);
+    // Vollständiges Zurücksetzen des Buttons
+    console.log(`Button-HTML vor Zurücksetzen: ${button.outerHTML}`);
+    
+    // Ursprünglichen Text wiederherstellen
+    const originalText = button.originalHTML || 'Install';
+    
+    // Komplett neuen Button erstellen und den alten ersetzen
+    const newButton = document.createElement('button');
+    newButton.innerHTML = originalText;
+    newButton.className = button.className;
+    newButton.classList.remove('loading');
+    newButton.setAttribute('onclick', `installContainer('${containerName}')`);
+    newButton.classList.add('install-btn');
+    
+    // Ersetze den alten Button
+    if (button.parentNode) {
+        button.parentNode.replaceChild(newButton, button);
+        console.log(`Button für ${containerName} durch neuen Button ersetzt`);
+    } else {
+        // Fallback: Direktes Manipulieren des Buttons
+        button.disabled = false;
+        button.innerHTML = originalText;
+        button.removeAttribute('data-installing-container');
+        button.classList.remove('loading');
+        console.log(`Button für ${containerName} direkt zurückgesetzt`);
+    }
 }
 
 async function showInstallModal(containerName) {
