@@ -1516,6 +1516,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     async function reorderContainer(containerName, categoryId, fromPosition, toPosition) {
         try {
+            // Zeige UI-Feedback an, dass etwas passiert
+            showNotification('info', `Container ${containerName} wird verschoben...`, 1000);
+            
             const response = await fetch('/api/container/reorder', {
                 method: 'POST',
                 headers: {
@@ -1529,12 +1532,20 @@ document.addEventListener('DOMContentLoaded', function() {
                 })
             });
 
+            const result = await response.json();
+            
             if (!response.ok) {
-                throw new Error('Failed to reorder container');
+                throw new Error(result.error || 'Failed to reorder container');
             }
 
-            // Aktualisiere die Anzeige vollständig durch Neuladen der Kategorien
-            loadCategories();
+            console.log('Container erfolgreich verschoben, lade UI neu');
+            
+            // Verzögerung hinzufügen, um sicherzustellen, dass der Server die Änderung verarbeitet hat
+            await new Promise(resolve => setTimeout(resolve, 200));
+            
+            // Erzwinge eine vollständige Seiten-Aktualisierung, um sicherzustellen, dass die UI mit dem Backend synchronisiert ist
+            window.location.reload();
+            
             showNotification('success', `Container ${containerName} wurde neu angeordnet`);
         } catch (error) {
             console.error('Error reordering container:', error);
