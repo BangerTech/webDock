@@ -598,6 +598,17 @@ button:disabled {
     color: var(--color-error);
 }
 
+/* Status-Update Flash Animation */
+.status-update-flash {
+    animation: status-flash 0.8s ease-in-out;
+}
+
+@keyframes status-flash {
+    0% { opacity: 0.5; transform: scale(0.95); }
+    50% { opacity: 1; transform: scale(1.1); }
+    100% { opacity: 1; transform: scale(1); }
+}
+
 /* Responsive Adjustments */
 @media (max-width: 768px) {
     .status-page {

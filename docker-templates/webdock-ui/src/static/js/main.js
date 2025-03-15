@@ -8,11 +8,8 @@ let lastCategoriesFetch = 0;
 let lastContainersFetch = 0;
 const CACHE_TTL = 60000; // Cache-Gültigkeit in Millisekunden (1 Minute)
 
-// Einstellungen für Auto-Refresh
-let statusUpdateInterval = null;
-const STATUS_UPDATE_INTERVAL = 5000; // Status alle 5 Sekunden aktualisieren
-const FULL_REFRESH_INTERVAL = 60000; // Vollständiges Neuladen alle 60 Sekunden
-let lastFullRefresh = 0;
+// Globale Timer-Variable für Container-Status-Updates
+let containerStatusTimer = null;
 
 // Behalte die Scroll-Position
 let lastScrollPosition = 0;
@@ -3776,8 +3773,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Lade die UI beim Start
     await loadCategories(true);
     
-    // Initialisiere den Status-Aktualisierungs-Timer
-    initStatusUpdateTimer();
+    // Initialisiere Status-Updates basierend auf Benutzereinstellungen
+    initContainerStatusUpdates();
     
     // Refresh Button einrichten
     const refreshButton = document.getElementById('refresh-button');
@@ -3788,36 +3785,35 @@ document.addEventListener('DOMContentLoaded', async () => {
             showNotification('info', 'Aktualisiere Container-Status...');
         });
     }
-    
-    // Zeige Benachrichtigung, dass Auto-Update aktiv ist
-    console.log(`Auto-Update aktiviert: Status alle ${STATUS_UPDATE_INTERVAL/1000} Sekunden, vollständiger Refresh alle ${FULL_REFRESH_INTERVAL/60000} Minuten`);
 });
 
 /**
- * Initialisiert den Timer für automatische Status-Updates
+ * Initialisiert und verwaltet die Container-Status-Updates basierend auf den Benutzereinstellungen
  */
-function initStatusUpdateTimer() {
-    if (statusUpdateInterval) {
-        clearInterval(statusUpdateInterval);
+function initContainerStatusUpdates() {
+    // Stoppe vorhandene Timer
+    if (containerStatusTimer) {
+        clearInterval(containerStatusTimer);
+        containerStatusTimer = null;
     }
     
-    // Setze den Zeitpunkt des letzten vollständigen Refreshs
-    lastFullRefresh = Date.now();
+    // Prüfe, ob Auto-Update aktiviert ist (aus den Benutzereinstellungen)
+    const autoUpdateEnabled = localStorage.getItem('autoUpdate') !== 'false';
+    if (!autoUpdateEnabled) {
+        console.log('Container Auto-Update ist deaktiviert');
+        return;
+    }
     
-    // Starte den Timer für Status-Updates
-    statusUpdateInterval = setInterval(() => {
-        const now = Date.now();
-        
-        // Prüfe, ob ein vollständiger Refresh fällig ist
-        if (now - lastFullRefresh >= FULL_REFRESH_INTERVAL) {
-            console.log('Durchführung eines vollständigen UI-Refreshs...');
-            updateContainerStatus(true);
-            lastFullRefresh = now;
-        } else {
-            // Ansonsten nur Status aktualisieren
-            updateContainerStatus(false);
-        }
-    }, STATUS_UPDATE_INTERVAL);
+    // Hole das Intervall aus den Benutzereinstellungen
+    const intervalSeconds = parseInt(localStorage.getItem('refreshInterval') || '30');
+    const updateInterval = intervalSeconds * 1000;
+    
+    console.log(`Container Status-Updates alle ${intervalSeconds} Sekunden aktiviert`);
+    
+    // Starte den Timer nur für Status-Updates (nie vollständige Refreshs)
+    containerStatusTimer = setInterval(() => {
+        updateContainerStatus(false); // Immer nur Status-Updates, nie vollständige Refreshs
+    }, updateInterval);
 }
 
 // Füge diese Funktion vor der updateContainerStatus Funktion hinzu
@@ -4053,6 +4049,7 @@ async function updateContainerStatus(forceRefresh = false) {
     try {
         if (forceRefresh) {
             // Bei vollständiger Aktualisierung die volle Funktion verwenden
+            console.log('Vollständige UI-Aktualisierung angefordert...');
             await loadCategories(true);
             return;
         }
@@ -4067,8 +4064,20 @@ async function updateContainerStatus(forceRefresh = false) {
         
         const statusData = await response.json();
         
+        // Speichere den aktuellen Status zur späteren Referenz und Prüfung auf Änderungen
+        const previousStates = new Map(lastContainerStates);
+        lastContainerStates.clear(); // Zurücksetzen für neue Daten
+        
         // Aktualisiere nur die Status-Indikatoren, nicht die gesamte UI
         statusData.forEach(container => {
+            // Speichere aktuellen Status
+            lastContainerStates.set(container.name, container.status);
+            
+            // Prüfe, ob sich der Status geändert hat
+            const previousStatus = previousStates.get(container.name) || '';
+            const statusChanged = previousStatus !== container.status;
+            
+            // Finde alle Karten für diesen Container
             const containerCards = document.querySelectorAll(`.container-card[data-name="${container.name}"]`);
             
             containerCards.forEach(card => {
@@ -4083,6 +4092,15 @@ async function updateContainerStatus(forceRefresh = false) {
                     statusIndicator.classList.add(container.status);
                     // Aktualisiere den Text
                     statusIndicator.setAttribute('title', `Status: ${container.status}`);
+                    
+                    // Kurze Animation bei Statusänderung für bessere Sichtbarkeit
+                    if (statusChanged) {
+                        // Kurze Animation hinzufügen
+                        statusIndicator.classList.add('status-update-flash');
+                        setTimeout(() => {
+                            statusIndicator.classList.remove('status-update-flash');
+                        }, 800);
+                    }
                 }
                 
                 // Aktualisiere auch den Status-Button, falls vorhanden
