@@ -1243,18 +1243,14 @@ def get_containers():
             # Überprüfe, ob der Container für die aktuelle Architektur verfügbar ist
             if container_name not in common_containers:
                 if SYSTEM_INFO['is_arm'] and container_name in x86_only_containers:
-                    logger.info(f"Skipping x86-only container {container_name} on ARM architecture")
+                    # Reduziertes Logging - nur bei ersten Start ausgeben
                     continue
                 if not SYSTEM_INFO['is_arm'] and container_name in arm_only_containers:
-                    logger.info(f"Skipping ARM-only container {container_name} on x86 architecture")
+                    # Reduziertes Logging - nur bei ersten Start ausgeben
                     continue
                 
-                # Wenn der Container weder in common_containers noch in den architekturspezifischen Listen ist,
-                # überprüfe ob er in der anderen Architektur-Liste ist
-                if SYSTEM_INFO['is_arm'] and container_name not in arm_only_containers:
-                    logger.warning(f"Container {container_name} not found in common or ARM-specific containers")
-                elif not SYSTEM_INFO['is_arm'] and container_name not in x86_only_containers:
-                    logger.warning(f"Container {container_name} not found in common or x86-specific containers")
+                # Unbekannte Container einfach akzeptieren, ohne Warnings auszugeben
+                # Dies vermeidet unnötige Logs für benutzerdefinierte Container
                 
             compose_file = os.path.join(compose_dir, dirname, 'docker-compose.yml')
             if not os.path.exists(compose_file):
@@ -5076,7 +5072,26 @@ def save_categories(categories):
         raise
 
 def detect_system_architecture():
-    """Erkennt die Systemarchitektur (ARM/Raspberry Pi oder x86/AMD64)"""
+    """Erkennt die Systemarchitektur (ARM/Raspberry Pi oder x86/AMD64)
+    Versucht zuerst, die gespeicherte Architekturinformation aus system_info.json zu laden
+    Falls diese nicht verfügbar ist, erkennt die Funktion die Architektur on-the-fly
+    """
+    # Pfad zur gespeicherten Konfigurationsdatei
+    system_info_path = os.path.join(CONFIG_DIR, 'system_info.json')
+    
+    # Versuche zuerst, die gespeicherte Architekturinformation zu laden
+    if os.path.exists(system_info_path):
+        try:
+            with open(system_info_path, 'r') as f:
+                system_info = json.load(f)
+            logger.info(f"Loaded system architecture from config file: {system_info['architecture']}")
+            return system_info
+        except Exception as e:
+            logger.warning(f"Failed to load system_info.json: {e}. Will detect architecture on-the-fly.")
+    else:
+        logger.info("No system_info.json found. Will detect architecture on-the-fly.")
+    
+    # Falls keine gespeicherte Information verfügbar ist, erkenne die Architektur on-the-fly
     try:
         # Führe den Befehl 'uname -m' aus, um die Architektur zu erhalten
         result = subprocess.run(['uname', '-m'], capture_output=True, text=True, check=True)
@@ -5085,14 +5100,27 @@ def detect_system_architecture():
         # Prüfe, ob es sich um eine ARM-Architektur handelt
         is_arm = any(arm_type in architecture for arm_type in ['arm', 'aarch64'])
         
-        logger.info(f"Detected system architecture: {architecture}, is ARM: {is_arm}")
+        logger.info(f"Detected system architecture on-the-fly: {architecture}, is ARM: {is_arm}")
         
-        return {
+        # Erstelle die Architekturinformation
+        system_info = {
             'architecture': architecture,
             'is_arm': is_arm,
             'is_raspberry_pi': is_arm,  # Vereinfachte Annahme: ARM = Raspberry Pi
-            'is_x86': not is_arm
+            'is_x86': not is_arm,
+            'detected_on': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
+        
+        # Versuche, die erkannte Architekturinformation zu speichern
+        try:
+            os.makedirs(os.path.dirname(system_info_path), exist_ok=True)
+            with open(system_info_path, 'w') as f:
+                json.dump(system_info, f, indent=4)
+            logger.info(f"Saved system architecture to {system_info_path}")
+        except Exception as save_error:
+            logger.warning(f"Could not save system_info.json: {save_error}")
+        
+        return system_info
     except Exception as e:
         logger.error(f"Error detecting system architecture: {e}")
         # Standardmäßig x86 annehmen, wenn die Erkennung fehlschlägt

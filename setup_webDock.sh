@@ -3,6 +3,36 @@
 # Einfaches Setup-Script für WebDock
 # Dieses Script automatisch erkennt, wo es ausgeführt wird und installiert WebDock entsprechend
 
+# Architekturerkennung durchführen und speichern
+detect_architecture() {
+    echo "Detecting system architecture..."
+    architecture=$(uname -m)
+    is_arm=false
+    is_x86=true
+    
+    if [[ "$architecture" == *"arm"* ]] || [[ "$architecture" == *"aarch64"* ]]; then
+        is_arm=true
+        is_x86=false
+        echo "  Detected ARM architecture: $architecture"
+    else
+        echo "  Detected x86 architecture: $architecture"
+    fi
+    
+    # Speichere die Architektur in einer Konfigurationsdatei
+    mkdir -p "$INSTALL_DIR/webdock-data/config"
+    cat > "$INSTALL_DIR/webdock-data/config/system_info.json" << EOF
+{
+    "architecture": "$architecture",
+    "is_arm": $is_arm,
+    "is_raspberry_pi": $is_arm,
+    "is_x86": $is_x86,
+    "detected_on": "$(date)"
+}
+EOF
+    
+    echo "  System architecture saved to config/system_info.json"
+}
+
 # Ermittle den aktuellen Ausführungspfad
 CURRENT_DIR="$(pwd)"
 
@@ -25,6 +55,9 @@ COMPOSE_DATA_DIR="$INSTALL_DIR/webdock-data"
 
 echo "=== Installing WebDock in $INSTALL_DIR ==="
 echo "    Container data will be stored in: $COMPOSE_DATA_DIR"
+
+# Systemarchitektur erkennen und speichern (vor dem Download der Container-Dateien)
+detect_architecture
 
 # Entferne alte docker-compose-data Verzeichnisse, wenn vorhanden
 if [ -e "$INSTALL_DIR/docker-compose-data" ]; then

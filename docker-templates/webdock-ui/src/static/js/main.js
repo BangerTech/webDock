@@ -1738,25 +1738,35 @@ function setupRefreshInterval() {
                 const allCards = Array.from(containerGrid.querySelectorAll('.container-card'));
                 const targetPosition = allCards.indexOf(dropTarget);
                 
+                // Stelle sicher, dass eine gültige Position verwendet wird
+                const fromPosition = typeof data.position === 'number' && data.position >= 0 ? data.position : -1;
+                
                 console.log('Drop auf Container-Karte:', {
                     container: data.name,
                     fromGroup: data.groupName,
                     fromCategory: sourceCategoryId,
                     toGroup: groupName,
                     toCategory: categoryId,
-                    fromPosition: data.position,
+                    fromPosition: fromPosition,
                     toPosition: targetPosition
                 });
                 
-                if (data.groupName !== groupName) {
-                    // Container in eine andere Gruppe verschieben
-                    moveContainer(data.name, sourceCategoryId, categoryId, targetPosition);
-                } else if (targetPosition !== data.position && targetPosition !== -1) {
-                    // Container innerhalb der gleichen Gruppe neu anordnen
-                    reorderContainer(data.name, categoryId, data.position, targetPosition);
-                } else if (loadingOverlay) {
-                    // Wenn keine Aktion ausgeführt wird, verstecke Loading-Anzeige
-                    loadingOverlay.style.display = 'none';
+                try {
+                    if (data.groupName !== groupName) {
+                        // Container in eine andere Gruppe verschieben
+                        moveContainer(data.name, sourceCategoryId, categoryId, targetPosition);
+                    } else if (targetPosition !== fromPosition && targetPosition !== -1) {
+                        // Finde die tatsächliche Position im DOM
+                        const actualFromPosition = findActualContainerPosition(data.name, categoryId);
+                        // Container innerhalb der gleichen Gruppe neu anordnen
+                        reorderContainer(data.name, categoryId, actualFromPosition, targetPosition);
+                    } else {
+                        // Wenn keine Aktion ausgeführt wird, verstecke Loading-Anzeige
+                        if (loadingOverlay) loadingOverlay.style.display = 'none';
+                    }
+                } catch (error) {
+                    console.error('Fehler beim Drop-Handling:', error);
+                    if (loadingOverlay) loadingOverlay.style.display = 'none';
                 }
             } else {
                 // Drop direkt auf eine Gruppe (nicht auf eine Karte)
@@ -1768,12 +1778,17 @@ function setupRefreshInterval() {
                     toCategory: categoryId
                 });
                 
-                if (data.groupName !== groupName) {
-                    // Container in eine andere Gruppe verschieben
-                    moveContainer(data.name, sourceCategoryId, categoryId);
-                } else if (loadingOverlay) {
-                    // Wenn keine Aktion ausgeführt wird, verstecke Loading-Anzeige
-                    loadingOverlay.style.display = 'none';
+                try {
+                    if (data.groupName !== groupName) {
+                        // Container in eine andere Gruppe verschieben
+                        moveContainer(data.name, sourceCategoryId, categoryId);
+                    } else {
+                        // Wenn keine Aktion ausgeführt wird, verstecke Loading-Anzeige
+                        if (loadingOverlay) loadingOverlay.style.display = 'none';
+                    }
+                } catch (error) {
+                    console.error('Fehler beim Drop auf Gruppe:', error);
+                    if (loadingOverlay) loadingOverlay.style.display = 'none';
                 }
             }
             
@@ -1832,7 +1847,52 @@ function setupRefreshInterval() {
         }
     }
     
+    // Hilfsfunktion zum Finden der tatsächlichen Position eines Containers im DOM
+    function findActualContainerPosition(containerName, categoryId) {
+        // Suche nach passenden Kategoriesektionen, sowohl via data-category-id als auch nach Text
+        const allCategorySections = Array.from(document.querySelectorAll('.group-section, .category-section'));
+        const categorySection = allCategorySections.find(section => {
+            if (section.getAttribute('data-category-id') === categoryId) return true;
+            const header = section.querySelector('h2');
+            return header && header.textContent.trim() === categoryId;
+        });
+        
+        if (!categorySection) {
+            console.warn(`Konnte keine Kategorie '${categoryId}' im DOM finden`);
+            return -1;
+        }
+        
+        // Suche nach Container-Grid innerhalb der Kategorie
+        const containerGrid = categorySection.querySelector('.container-grid');
+        if (!containerGrid) {
+            console.warn(`Konnte kein Container-Grid in Kategorie '${categoryId}' finden`);
+            return -1;
+        }
+        
+        // Sammle alle Container-Karten
+        const containerCards = Array.from(containerGrid.querySelectorAll('.container-card'));
+        console.log(`Suche nach Position von '${containerName}' in Kategorie '${categoryId}', gefunden ${containerCards.length} Karten`);
+        
+        // Suche nach der Position des Containers
+        for (let i = 0; i < containerCards.length; i++) {
+            const cardName = containerCards[i].getAttribute('data-name');
+            console.log(`  Karte ${i}: Name=${cardName}`);
+            
+            if (cardName === containerName) {
+                console.log(`  ✓ Container '${containerName}' gefunden an Position ${i} in Kategorie '${categoryId}'`);
+                return i;
+            }
+        }
+        
+        console.warn(`Container '${containerName}' nicht in Kategorie '${categoryId}' gefunden`);
+        return -1;
+    }
+
     async function reorderContainer(containerName, categoryId, fromPosition, toPosition) {
+        // Zeige das Loading-Overlay an
+        const loadingOverlay = document.getElementById('loading-overlay');
+        if (loadingOverlay) loadingOverlay.style.display = 'flex';
+        
         try {
             // Protokolliere die Anfrage mit Details für Debugging
             console.log(`reorderContainer aufgerufen: Container '${containerName}' in Kategorie '${categoryId}'`);
@@ -1841,35 +1901,13 @@ function setupRefreshInterval() {
             // Zeige UI-Feedback an, dass etwas passiert
             showNotification('info', `Container ${containerName} wird verschoben...`, 1000);
             
-            // Finde den Container in der Kategorie nach Namen
-            const categorySection = document.querySelector(`.category-section[data-category-id="${categoryId}"]`) || 
-                                    Array.from(document.querySelectorAll('.category-section'))
-                                        .find(section => section.querySelector('h2').textContent.trim() === categoryId);
-                                        
-            // Verbesserte Container-Positions-Erfassung
-            let actualFromPosition = -1;
+            // Bestimme tatsächliche Positionen
+            let actualFromPosition = fromPosition;
             let actualToPosition = toPosition;
             
-            if (categorySection) {
-                const containerCards = Array.from(categorySection.querySelectorAll('.container-card'));
-                console.log(`Aktuelle Container in Kategorie '${categoryId}':`);
-                
-                // Finde die tatsächliche Position des Containers anhand des Namens
-                containerCards.forEach((card, idx) => {
-                    const cardName = card.getAttribute('data-name');
-                    console.log(`  Pos ${idx}: ${cardName}`);
-                    
-                    if (cardName === containerName) {
-                        actualFromPosition = idx;
-                        console.log(`  Gefunden: ${containerName} ist tatsächlich an Position ${actualFromPosition}`);
-                    }
-                });
-                
-                // Wenn wir die genaue Position nicht finden konnten, behalten wir die übergebene Position bei
-                if (actualFromPosition === -1) {
-                    console.log(`  Container ${containerName} wurde nicht in der DOM-Struktur gefunden, verwende übergebene Position`);
-                    actualFromPosition = fromPosition;
-                }
+            // Wenn fromPosition ungültig ist, finde die tatsächliche Position im DOM
+            if (actualFromPosition < 0 || isNaN(actualFromPosition)) {
+                actualFromPosition = findActualContainerPosition(containerName, categoryId);
             }
             
             console.log(`Sende Container-Neuordnung zum Server: ${containerName} von ${actualFromPosition} nach ${actualToPosition}`);
@@ -1889,7 +1927,13 @@ function setupRefreshInterval() {
                 })
             });
 
-            const result = await response.json();
+            let result;
+            try {
+                result = await response.json();
+            } catch (parseError) {
+                console.error('Fehler beim Parsen der Serverantwort:', parseError);
+                throw new Error('Ungültige Serverantwort');
+            }
             
             if (!response.ok) {
                 throw new Error(result.error || 'Failed to reorder container');
@@ -1907,6 +1951,9 @@ function setupRefreshInterval() {
         } catch (error) {
             console.error('Error reordering container:', error);
             showNotification('error', `Fehler beim Neuanordnen des Containers: ${error.message}`);
+        } finally {
+            // Verstecke das Loading-Overlay, unabhängig vom Ergebnis
+            if (loadingOverlay) loadingOverlay.style.display = 'none';
         }
     }
 
