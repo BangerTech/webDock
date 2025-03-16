@@ -2055,27 +2055,46 @@ function setupRefreshInterval() {
                 // Stelle sicher, dass wirklich alle Caches geleert sind
                 clearAllCaches();
                 
-                // Direkt im Anschluss die Container mit zusätzlichen Parametern laden,
-                // um sicherzustellen, dass wir frische Daten vom Server bekommen
+                // Aktualisiere die Kategorien im globalen Cache
+                categoriesCache = freshCatData;
+                
+                // Direkt im Anschluss die Container mit zusätzlichen Parametern laden
                 try {
                     const urlParams = new URLSearchParams(window.location.search);
                     urlParams.set('refresh', Date.now());
                     history.replaceState(null, '', `${window.location.pathname}?${urlParams}`);
                     
-                    await loadContainers(true);
+                    console.log('Container werden mit frischen Kategoriedaten geladen...');
+                    // Wir übergeben die frischen Kategoriedaten explizit, um Rekursion zu vermeiden
+                    const containers = await loadContainers(true, freshCatData);
                     console.log('Container wurden neu geladen, UI aktualisiert.');
                     
-                    // Wir führen einen vollständigen Page Refresh durch, um sicherzustellen,
-                    // dass alle Änderungen korrekt angezeigt werden
-                    // Da wir die URL-Parameter bereits geändert haben, wird dies einen echten Server-Refresh auslösen
+                    // Wir speichern Info über den zuletzt verschobenen Container
+                    // und führen dann einen Soft-Refresh der UI durch (statt eines vollständigen Page-Refresh)
+                    // Dies spart Zeit und vermeidet potenzielle Socket.io Fehler
+                    console.log('Markiere Container für Hervorhebung...');
+                    sessionStorage.setItem('lastMovedContainer', containerName);
+                    sessionStorage.setItem('lastMovedCategory', targetCategoryId);
+                    
+                    // Suche und hebe den Container nach Abschluss des UI-Updates hervor
                     setTimeout(() => {
-                        console.log('Führe vollständigen Page-Refresh durch für sauberen Zustand...');
-                        // Speichere die Information, welcher Container verschoben wurde, um ihn später hervorzuheben
-                        sessionStorage.setItem('lastMovedContainer', containerName);
-                        sessionStorage.setItem('lastMovedCategory', targetCategoryId);
-                        // Lade die Seite vollständig neu - dies stellt einen konsistenten Zustand sicher
-                        window.location.reload();
-                    }, 2000);
+                        // Verwende die neue highlightMovedContainer Funktion aus container-highlight.js
+                        if (typeof highlightMovedContainer === 'function') {
+                            highlightMovedContainer(containerName, targetCategoryId);
+                        } else {
+                            console.warn('highlightMovedContainer Funktion nicht gefunden, wahrscheinlich ist container-highlight.js nicht geladen');
+                            // Fallback-Methode
+                            const categorySection = document.querySelector(`.group-section[data-category-id="${targetCategoryId}"]`);
+                            if (categorySection) {
+                                const containerCard = categorySection.querySelector(`.container-card[data-name="${containerName}"]`);
+                                if (containerCard) {
+                                    containerCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                    showNotification('success', `Container ${containerName} wurde in die Kategorie '${targetCategoryId}' verschoben`);
+                                }
+                            }
+                        }
+                        hideLoadingOverlay(); // Stelle sicher, dass das Loading-Overlay versteckt wird
+                    }, 1000);
                 } catch (loadError) {
                     console.error('Fehler beim Laden der Container:', loadError);
                 }
@@ -4888,93 +4907,121 @@ function saveCompose() {
 }
 
 // Deklaration für loadContainers, die in renderCategories() aufgerufen wird
+// Globaler Zustand, um rekursive Aufrufe zu verhindern
+let loadingContainersInProgress = false;
+
 async function loadContainers(forceRefresh = false, explicitCategoriesData = null) {
-    const now = Date.now();
-    const useCachedData = containerCache && !forceRefresh && (now - lastContainersFetch < CACHE_TTL);
+    // Anti-Rekursions-Schutz: Vermeidet mehrfache verschachtelte Aufrufe
+    if (loadingContainersInProgress) {
+        console.warn('Container-Ladung bereits im Gange, verhindere rekursiven Aufruf');
+        return null;
+    }
     
-    // Verwende die explizit übergebenen Kategoriedaten, wenn vorhanden
-    const categoriesToUse = explicitCategoriesData || categoriesCache;
+    loadingContainersInProgress = true;
     
-    // Überprüfen, ob Kategoriedaten verfügbar sind - wichtig für korrekte Drag & Drop Funktionalität
-    if (!categoriesToUse) {
-        console.warn('Keine Kategoriedaten verfügbar für loadContainers! Lade Kategorien zuerst...');
+    try {
+        const now = Date.now();
+        const useCachedData = containerCache && !forceRefresh && (now - lastContainersFetch < CACHE_TTL);
+        
+        // Verwende die explizit übergebenen Kategoriedaten, wenn vorhanden
+        let categoriesToUse = explicitCategoriesData || categoriesCache;
+        
+        // Überprüfen, ob Kategoriedaten verfügbar sind - wichtig für korrekte Drag & Drop Funktionalität
+        if (!categoriesToUse) {
+            console.warn('Keine Kategoriedaten verfügbar für loadContainers! Lade Kategorien...');
+            try {
+                // Direkt Kategorien laden, aber KEIN rekursiver Aufruf mehr
+                categoriesToUse = await loadCategories(true);
+                if (!categoriesToUse) {
+                    throw new Error('Kategorien konnten nicht geladen werden');
+                }
+            } catch (error) {
+                console.error('Fehler beim Laden der Kategorien:', error);
+                showNotification('error', 'Fehler beim Laden der Kategoriedaten');
+                loadingContainersInProgress = false;
+                return null;
+            }
+        }
+        
+        if (useCachedData) {
+            console.log('Verwende zwischengespeicherte Container-Daten');
+            loadingContainersInProgress = false;
+            return renderContainers(containerCache, categoriesToUse);
+        }
+        
+        console.log('Lade neue Container-Daten vom Server');
         try {
-            // Fallback: Kategorien laden, wenn nicht vorhanden
-            const catData = await loadCategories(true);
-            return loadContainers(forceRefresh, catData); // Rekursiver Aufruf mit den geladenen Kategoriedaten
+            // Cache-Busting durch Hinzufügen eines Timestamps
+            const timestamp = new Date().getTime();
+            const response = await fetch(`/api/containers?t=${timestamp}`, {
+                method: 'GET',
+                headers: {
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache'
+                }
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP Fehler ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            // Aktualisiere den Cache und Zeitstempel
+            containerCache = data;
+            lastContainersFetch = now;
+            
+            // Rendere die UI mit den neuen Daten und den expliziten oder gecachten Kategoriedaten
+            return renderContainers(data, categoriesToUse);
         } catch (error) {
-            console.error('Fehler beim Laden der Kategorien:', error);
-            showNotification('error', 'Fehler beim Laden der Kategoriedaten');
+            console.error('Error loading containers:', error);
+            showNotification('error', 'Fehler beim Laden der Container: ' + (error.message || error));
+            loadingContainersInProgress = false;
             return null;
         }
-    }
-    
-    if (useCachedData) {
-        console.log('Verwende zwischengespeicherte Container-Daten');
-        return renderContainers(containerCache, categoriesToUse);
-    }
-
-    console.log('Lade neue Container-Daten vom Server');
-    try {
-        // Cache-Busting durch Hinzufügen eines Timestamps
-        const timestamp = new Date().getTime();
-        const response = await fetch(`/api/containers?t=${timestamp}`, {
-            method: 'GET',
-            headers: {
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'Pragma': 'no-cache'
-            }
-        });
-        
-        if (!response.ok) {
-            throw new Error(`HTTP Fehler ${response.status}`);
-        }
-        
-        const data = await response.json();
-        
-        // Aktualisiere den Cache und Zeitstempel
-        containerCache = data;
-        lastContainersFetch = now;
-        
-        // Rendere die UI mit den neuen Daten und den expliziten oder gecachten Kategoriedaten
-        return renderContainers(data, categoriesToUse);
-    } catch (error) {
-        console.error('Error loading containers:', error);
-        showNotification('error', 'Fehler beim Laden der Container: ' + (error.message || error));
+    } catch (outerError) {
+        console.error('Outer error in loadContainers:', outerError);
+        showNotification('error', 'Fehler beim Laden der Container: ' + (outerError.message || outerError));
+        loadingContainersInProgress = false;
         return null;
     }
 }
 
 function renderContainers(containers, categories) {
-    if (!containers || !categories) {
-        console.error('Missing data for rendering containers', { containers, categories });
-        return;
-    }
-
-    const containerSections = document.querySelectorAll('.container-section');
-    containerSections.forEach(section => {
-        const categoryId = section.getAttribute('data-category-id');
-        const containerGrid = section.querySelector('.container-grid') || document.createElement('div');
-        containerGrid.className = 'container-grid';
-        containerGrid.innerHTML = '';
-        
-        // Finde die Kategorie
-        const category = categories.categories[categoryId];
-        if (category && category.containers && category.containers.length > 0) {
-            // Füge Container in derselben Reihenfolge wie in categories.yaml hinzu
-            // Dies ist wichtig für die korrekte Funktionalität von Drag & Drop
-            category.containers.forEach(containerId => {
-                const containerName = typeof containerId === 'string' ? containerId : containerId.name;
-                const containerInfo = containers.find(c => c.name === containerName);
-                if (containerInfo) {
-                    const containerCard = createContainerCard(containerInfo, categoryId);
-                    containerGrid.appendChild(containerCard);
-                }
-            });
-            
-            section.appendChild(containerGrid);
+    try {
+        if (!containers || !categories) {
+            console.error('Missing data for rendering containers', { containers, categories });
+            return;
         }
-    });
+
+        const containerSections = document.querySelectorAll('.container-section');
+        containerSections.forEach(section => {
+            const categoryId = section.getAttribute('data-category-id');
+            const containerGrid = section.querySelector('.container-grid') || document.createElement('div');
+            containerGrid.className = 'container-grid';
+            containerGrid.innerHTML = '';
+            
+            // Finde die Kategorie
+            const category = categories.categories[categoryId];
+            if (category && category.containers && category.containers.length > 0) {
+                // Füge Container in derselben Reihenfolge wie in categories.yaml hinzu
+                // Dies ist wichtig für die korrekte Funktionalität von Drag & Drop
+                category.containers.forEach(containerId => {
+                    const containerName = typeof containerId === 'string' ? containerId : containerId.name;
+                    const containerInfo = containers.find(c => c.name === containerName);
+                    if (containerInfo) {
+                        const containerCard = createContainerCard(containerInfo, categoryId);
+                        containerGrid.appendChild(containerCard);
+                    }
+                });
+                
+                section.appendChild(containerGrid);
+            }
+        });
+    } catch (error) {
+        console.error('Error rendering containers:', error);
+        showNotification('error', 'Fehler beim Anzeigen der Container');
+    }
 }
 
 // Aktualisiert den Container-Status via API-Anfrage
