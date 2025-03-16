@@ -129,6 +129,7 @@
         color: white; /* Sicherstellen, dass alle Icons sichtbar sind */
     }
 
+    /* Stärkere und spezifischere Regeln für alle Icons in der Navigation */
     nav a i,
     nav a .fa,
     nav li a i,
@@ -136,7 +137,16 @@
     .nav-item a i,
     .nav-item a .fa,
     .theme-toggle i,
-    .theme-toggle .fa {
+    .theme-toggle .fa,
+    .nav-containers i,
+    .nav-status i,
+    .nav-settings i,
+    .nav-special i,
+    li.nav-item a i,
+    li.nav-item a.nav-containers i,
+    li.nav-item a.nav-status i,
+    li.nav-item a.nav-settings i,
+    li.nav-item a.nav-special i {
         font-size: 1.5rem !important; /* Größere Icons für bessere Sichtbarkeit */
         margin: 0 !important;
         display: inline-block !important; /* Wichtig für Font Awesome Icons */
@@ -160,7 +170,11 @@
     .nav-containers .fa,
     .nav-status .fa,
     .nav-special .fa,
-    .nav-settings .fa {
+    .nav-settings .fa,
+    li.nav-item a.nav-containers .fa,
+    li.nav-item a.nav-status .fa,
+    li.nav-item a.nav-settings .fa,
+    li.nav-item a.nav-special .fa {
         display: inline-block !important;
         visibility: visible !important;
         opacity: 1 !important;
@@ -169,11 +183,25 @@
     }
     
     /* Explizite Regeln für spezifische Icons */
-    .fa-cubes, .fa-dashboard, .fa-terminal, .fa-cog, .fa-adjust {
+    .fa-cubes, 
+    .fa-dashboard, 
+    .fa-terminal, 
+    .fa-cog, 
+    .fa-adjust,
+    .nav-containers .fa-cubes,
+    .nav-status .fa-dashboard,
+    .nav-settings .fa-cog,
+    .nav-special .fa-terminal,
+    li.nav-item a.nav-containers .fa-cubes,
+    li.nav-item a.nav-status .fa-dashboard,
+    li.nav-item a.nav-settings .fa-cog,
+    li.nav-item a.nav-special .fa-terminal {
         display: inline-block !important;
         visibility: visible !important;
         min-width: 1em !important;
         min-height: 1em !important;
+        opacity: 1 !important;
+        color: white !important;
     }
 
     /* Container-Grid für Mobilgeräte optimieren */
