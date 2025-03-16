@@ -2205,11 +2205,11 @@ def move_container():
             category_id = category.get('id', '')
             category_name = category.get('name', '')
             
-            # Check for ID or name match
-            if category_id == source_category or category_name == source_category:
+            # Check for ID or name match (case-insensitive)
+            if category_id.lower() == source_category.lower() or category_name.lower() == source_category.lower():
                 source_category_data = category
                 
-            if category_id == target_category or category_name == target_category:
+            if category_id.lower() == target_category.lower() or category_name.lower() == target_category.lower():
                 target_category_data = category
         
         # If categories not found, create them
@@ -2296,9 +2296,16 @@ def move_container():
             logger.error(f"Error saving categories file: {e}")
             return jsonify({'error': f'Could not save categories file: {str(e)}'}), 500
             
-        # Cache leeren, um sicherzustellen, dass die Änderungen sofort wirksam werden
-        global _categories_cache
+        # Cache gründlich leeren, um sicherzustellen, dass die Änderungen sofort wirksam werden
+        global _categories_cache, _containers_cache, _container_status_cache
         _categories_cache = None
+        _containers_cache = None
+        _container_status_cache = {}
+        
+        # Erzwinge sofortiges Neuladen der Kategoriedaten
+        logger.info("Forcing immediate reload of category data to ensure consistency")
+        # Dieser zusätzliche Lese-Schritt stellt sicher, dass die Daten konsistent im Speicher gehalten werden
+        get_categories(force_refresh=True)
         
         return jsonify({'success': True})
         
