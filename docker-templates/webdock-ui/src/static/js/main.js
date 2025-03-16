@@ -8,6 +8,26 @@ let lastCategoriesFetch = 0;
 let lastContainersFetch = 0;
 const CACHE_TTL = 60000; // Cache-Gültigkeit in Millisekunden (1 Minute)
 
+// Hilfsfunktion zum vollständigen Löschen des Browser-Caches für Container und Kategorien
+function clearAllCaches() {
+    // In-Memory-Cache löschen
+    categoriesCache = null;
+    containerCache = null;
+    lastCategoriesFetch = 0;
+    lastContainersFetch = 0;
+    
+    // LocalStorage-Cache löschen
+    try {
+        localStorage.removeItem('containers');
+        localStorage.removeItem('containersTimestamp');
+        localStorage.removeItem('categories');
+        localStorage.removeItem('categoriesTimestamp');
+        console.log('Alle Caches in localStorage gelöscht');
+    } catch (e) {
+        console.warn('Konnte localStorage nicht leeren:', e);
+    }
+}
+
 // WebSocket-Verbindung für Echtzeit-Container-Updates
 let containerSocket = null;
 
@@ -1802,8 +1822,13 @@ function setupRefreshInterval() {
                         // Container in eine andere Gruppe verschieben
                         moveContainer(data.name, sourceCategoryId, categoryId, targetPosition);
                     } else if (targetPosition !== fromPosition && targetPosition !== -1) {
-                        // Finde die tatsächliche Position im DOM
-                        const actualFromPosition = findActualContainerPosition(data.name, categoryId);
+                        // Verwende die Position aus dem drag-start-Event für fromPosition, falls vorhanden
+                        // ansonsten finde die Position im DOM
+                        let actualFromPosition = fromPosition;
+                        if (actualFromPosition === -1 || actualFromPosition === undefined) {
+                            actualFromPosition = findActualContainerPosition(data.name, categoryId);
+                        }
+                        
                         if (actualFromPosition !== -1) {
                             // Nur reordern, wenn wir eine gültige Position gefunden haben
                             console.log(`Reordering container ${data.name} in category ${categoryId} from ${actualFromPosition} to ${targetPosition}`);
@@ -1865,6 +1890,14 @@ function setupRefreshInterval() {
         // Zeige das Loading-Overlay an
         const loadingOverlay = document.getElementById('loading-overlay');
         if (loadingOverlay) loadingOverlay.style.display = 'flex';
+        
+        // Wrapper-Funktion, um sicherzustellen, dass das Overlay immer versteckt wird
+        const hideLoadingOverlay = () => {
+            if (loadingOverlay) loadingOverlay.style.display = 'none';
+        };
+        
+        // Sicherstellen, dass das Overlay nach 10 Sekunden in jedem Fall verschwindet (Sicherheitsmaßnahme)
+        const safetyTimeout = setTimeout(hideLoadingOverlay, 10000);
         
         try {
             // Stelle sicher, dass die sourceCategory immer definiert ist
@@ -1928,13 +1961,13 @@ function setupRefreshInterval() {
             console.log('Container erfolgreich verschoben, aktualisiere UI...');
             
             // Erhöhte Verzögerung hinzufügen, um sicherzustellen, dass der Server die Änderung verarbeitet hat
-            await new Promise(resolve => setTimeout(resolve, 700));
+            // Verzögerung auf 2 Sekunden vergrößert, um sicherzustellen, dass der Server Zeit hat, die Änderung zu verarbeiten
+            await new Promise(resolve => setTimeout(resolve, 2000));
             
-            // Vollständiger Cache-Reset
-            categoriesCache = null;
-            containerCache = null;
-            lastCategoriesFetch = 0;
-            lastContainersFetch = 0;
+            // Vollständiger Cache-Reset aller Browser-Caches
+            clearAllCaches();
+            
+            console.log('Alle Caches wurden gelöscht, starte UI-Aktualisierung...');
             
             // Visuelle Rückmeldung während des Updates
             const categoryContainer = document.getElementById('category-container');
@@ -1964,6 +1997,12 @@ function setupRefreshInterval() {
                 
                 // Warte auf das vollständige Rendering der Kategorien bevor Container geladen werden
                 await renderCategories(freshCatData, true);
+                
+                // Stelle sicher, dass wirklich alle Caches geleert sind
+                clearAllCaches();
+                
+                // Wir deaktivieren für diesen Request explizit das Browser-Caching
+                // Dies ist wichtig, damit die UI nach dem Verschieben korrekt aktualisiert wird
                 
                 // Direkt im Anschluss die Container laden mit den frisch geladenen Kategoriedaten
                 await loadContainers(true, freshCatData);
@@ -1996,7 +2035,7 @@ function setupRefreshInterval() {
                     }
                 }, 300);
                 
-                showNotification('success', `Container ${containerName} wurde in die Kategorie ${targetCategoryId} verschoben`);
+                showNotification('success', `Container ${containerName} wurde in die Kategorie '${targetCategoryId}' verschoben`);
             } catch (error) {
                 console.error('Fehler beim Aktualisieren der UI nach Verschieben:', error);
                 // Zeige Fehlermeldung und Fallback
@@ -2010,9 +2049,12 @@ function setupRefreshInterval() {
             console.error('Error moving container:', error);
             showNotification('error', `Fehler beim Verschieben des Containers: ${error.message}`);
         } finally {
+            // Lösche den Sicherheits-Timeout, da wir hier normal ankommen
+            clearTimeout(safetyTimeout);
+            
             // Verstecke das Loading-Overlay, unabhängig vom Ergebnis
             setTimeout(() => {
-                if (loadingOverlay) loadingOverlay.style.display = 'none';
+                hideLoadingOverlay();
             }, 500); // Kurze Verzögerung um sicherzustellen, dass alles abgeschlossen ist
         }
     }
@@ -2021,35 +2063,72 @@ function setupRefreshInterval() {
     function findActualContainerPosition(containerName, categoryId) {
         // Suche nach passenden Kategoriesektionen, sowohl via data-category-id als auch nach Text
         const allCategorySections = Array.from(document.querySelectorAll('.group-section, .category-section'));
+        
+        // Weitere Debug-Informationen
+        console.log(`Suche nach Container '${containerName}' in Kategorie '${categoryId}'`);
+        console.log(`Gefundene Kategoriesektionen: ${allCategorySections.length}`);
+        
+        // Debug: Liste alle Kategoriesektionen und ihre Attribute auf
+        allCategorySections.forEach((section, index) => {
+            const id = section.getAttribute('data-category-id');
+            const headerElement = section.querySelector('h2');
+            const headerText = headerElement ? headerElement.textContent.trim() : 'kein Header';
+            console.log(`  Sektion ${index}: data-category-id='${id || 'nicht gesetzt'}', Header='${headerText}'`);
+        });
+        
         const categorySection = allCategorySections.find(section => {
-            if (section.getAttribute('data-category-id') === categoryId) return true;
+            const sectionId = section.getAttribute('data-category-id');
             const header = section.querySelector('h2');
-            return header && header.textContent.trim() === categoryId;
+            const headerText = header ? header.textContent.trim() : '';
+            
+            // Überprüfe beide Möglichkeiten: das Attribut oder den Header-Text
+            return (sectionId === categoryId) || (headerText === categoryId);
         });
         
         if (!categorySection) {
             console.warn(`Konnte keine Kategorie '${categoryId}' im DOM finden`);
+            // Versuche alternatives Matching über enthaltene Container
+            for (const section of allCategorySections) {
+                const cards = section.querySelectorAll(`.container-card[data-name="${containerName}"]`);
+                if (cards.length > 0) {
+                    console.log(`Kategorie durch Container-Übereinstimmung gefunden: '${section.getAttribute('data-category-id') || section.querySelector('h2')?.textContent.trim()}'`);
+                    return findContainerPosition(containerName, section);
+                }
+            }
             return -1;
         }
         
+        return findContainerPosition(containerName, categorySection);
+    }
+    
+    // Hilfsfunktion zur eigentlichen Containersuche innerhalb einer Sektion
+    function findContainerPosition(containerName, categorySection) {
         // Suche nach Container-Grid innerhalb der Kategorie
         const containerGrid = categorySection.querySelector('.container-grid');
         if (!containerGrid) {
-            console.warn(`Konnte kein Container-Grid in Kategorie '${categoryId}' finden`);
+            console.warn(`Konnte kein Container-Grid in der gefundenen Kategorie finden`);
             return -1;
         }
         
         // Sammle alle Container-Karten
         const containerCards = Array.from(containerGrid.querySelectorAll('.container-card'));
-        console.log(`Suche nach Position von '${containerName}' in Kategorie '${categoryId}', gefunden ${containerCards.length} Karten`);
+        console.log(`Suche nach Position von '${containerName}', gefunden ${containerCards.length} Karten`);
         
-        // Suche nach der Position des Containers
+        // Suche nach Container in der Kategorie mit allen möglichen Attributen
         for (let i = 0; i < containerCards.length; i++) {
-            const cardName = containerCards[i].getAttribute('data-name');
-            console.log(`  Karte ${i}: Name=${cardName}`);
+            const card = containerCards[i];
+            const cardNameAttribute = card.getAttribute('data-name');
+            const cardContainerAttribute = card.getAttribute('data-container');
+            const cardNameElement = card.querySelector('.container-name');
+            const cardNameText = cardNameElement ? cardNameElement.textContent.trim() : '';
             
-            if (cardName === containerName) {
-                console.log(`  ✓ Container '${containerName}' gefunden an Position ${i} in Kategorie '${categoryId}'`);
+            console.log(`  Karte ${i}: name-attr=${cardNameAttribute}, container-attr=${cardContainerAttribute}, text=${cardNameText}`);
+            
+            // Prüfe alle möglichen Übereinstimmungen
+            if (cardNameAttribute === containerName || 
+                cardContainerAttribute === containerName || 
+                cardNameText === containerName) {
+                console.log(`  ✓ Container '${containerName}' gefunden an Position ${i}`);
                 return i;
             }
         }
@@ -2062,6 +2141,14 @@ function setupRefreshInterval() {
         // Zeige das Loading-Overlay an
         const loadingOverlay = document.getElementById('loading-overlay');
         if (loadingOverlay) loadingOverlay.style.display = 'flex';
+        
+        // Wrapper-Funktion, um sicherzustellen, dass das Overlay immer versteckt wird
+        const hideLoadingOverlay = () => {
+            if (loadingOverlay) loadingOverlay.style.display = 'none';
+        };
+        
+        // Sicherstellen, dass das Overlay nach 10 Sekunden in jedem Fall verschwindet (Sicherheitsmaßnahme)
+        const safetyTimeout = setTimeout(hideLoadingOverlay, 10000);
         
         try {
             // Protokolliere die Anfrage mit Details für Debugging
@@ -2187,9 +2274,12 @@ function setupRefreshInterval() {
             console.error('Error reordering container:', error);
             showNotification('error', `Fehler beim Neuanordnen des Containers: ${error.message}`);
         } finally {
+            // Lösche den Sicherheits-Timeout, da wir hier normal ankommen
+            clearTimeout(safetyTimeout);
+            
             // Verstecke das Loading-Overlay, unabhängig vom Ergebnis
             setTimeout(() => {
-                if (loadingOverlay) loadingOverlay.style.display = 'none';
+                hideLoadingOverlay();
             }, 500);
         }
     }

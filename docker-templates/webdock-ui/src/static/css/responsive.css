@@ -24,6 +24,15 @@
         width: 100%;
         height: 100%;
         padding: 0;
+        opacity: 1 !important;
+    }
+    
+    /* Sicherstellen, dass alle Links in der Navigation sichtbar sind */
+    nav ul li a {
+        visibility: visible !important;
+        display: flex !important;
+        color: white !important;
+        opacity: 1 !important;
     }
 
     /* Text in der mobilen Navigation ausblenden, nur Icons anzeigen */
@@ -120,6 +129,17 @@
         opacity: 1 !important;
         align-items: center;
         justify-content: center;
+        position: static !important; /* Verhindert, dass Icons durch absolute Positionierung versteckt werden */
+        left: auto !important;
+        top: auto !important;
+        transform: none !important;
+    }
+    
+    /* Spezifische Regel für alle Font-Awesome-Icons in der Navigation */
+    nav a .fa {
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
     }
 
     /* Container-Grid für Mobilgeräte optimieren */
