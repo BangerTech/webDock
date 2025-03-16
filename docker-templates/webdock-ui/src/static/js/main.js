@@ -1,4 +1,36 @@
 // Definiere globale Variablen
+// Logging-Konfiguration - steuert die Ausführlichkeit der Konsolenausgaben
+window.WebDockLogger = {
+    // Log-Level: 0 = Nur Fehler, 1 = Warnungen, 2 = Info, 3 = Debug
+    level: 1,
+    
+    // Methoden zur Steuerung des Log-Levels
+    setLevel: function(newLevel) {
+        this.level = newLevel;
+        this.info(`Log-Level auf ${newLevel} gesetzt`);
+    },
+    
+    // Logging-Methoden
+    error: function(...args) {
+        console.error(...args);
+    },
+    
+    warn: function(...args) {
+        if (this.level >= 1) console.warn(...args);
+    },
+    
+    info: function(...args) {
+        if (this.level >= 2) console.log(...args);
+    },
+    
+    debug: function(...args) {
+        if (this.level >= 3) console.debug(...args);
+    }
+};
+
+// Legacy-Kompatibilität - wird nur verwendet, wenn debug explizit aktiviert werden soll
+window.verbose_logging = false;
+
 let loadingOverlay;
 
 // Cache-Objekte für Kategorien und Container
@@ -284,7 +316,9 @@ document.addEventListener('DOMContentLoaded', function() {
                                             groupedContainers[category.name].containers.push(container);
                                             assignedContainers.add(container.name); // Markiere Container als zugewiesen
                                             assigned = true;
-                                            console.debug(`Assigned ${container.name} to category ${category.name}`);
+                                            
+                                            // Detaillierte Debug-Logs nutzen WebDockLogger.debug
+                                            WebDockLogger.debug(`Assigned ${container.name} to category ${category.name}`);
                                         }
                                     }
                                 });
@@ -1271,7 +1305,7 @@ function setupRefreshInterval() {
             lastCategoriesFetch = now;
             
             // Rendere die UI mit den neuen Daten
-            console.log('Neue Kategoriedaten erhalten:', data);
+            WebDockLogger.debug('Neue Kategoriedaten erhalten:', data);
             renderCategories(data);
             
             return data;
@@ -2058,7 +2092,7 @@ function setupRefreshInterval() {
                 }
                 
                 const freshCatData = await catResponse.json();
-                console.log('Neue Kategoriedaten erhalten:', freshCatData);
+                WebDockLogger.debug('Neue Kategoriedaten erhalten:', freshCatData);
                 
                 // Setze explizit den DOM-Zustand zurück, damit wir sauber neu rendern können
                 const categoryContainer = document.getElementById('category-container');
@@ -2082,10 +2116,14 @@ function setupRefreshInterval() {
                     // Aktualisiere die UI mit den neuen Daten
                     renderCategories(freshCatData.categories);
                     
+                    // Container-Daten laden und neu rendern
+                    WebDockLogger.info('Lade Container-Daten nach Kategorieänderung...');
+                    fetchAndRenderContainers(false, freshCatData.categories);
+                    
                     // Warte kurz und scrolle dann zum verschobenen Container
                     setTimeout(() => {
                         highlightAndScrollToContainer(containerName, targetCategoryId);
-                    }, 500);
+                    }, 1000);
                 } catch (renderError) {
                     console.error('Fehler beim dynamischen Rendern:', renderError);
                     // Im Fehlerfall als Fallback doch einen Reload durchführen
@@ -4947,12 +4985,12 @@ async function loadContainers(forceRefresh = false, explicitCategoriesData = nul
         }
         
         if (useCachedData) {
-            console.log('Verwende zwischengespeicherte Container-Daten');
+            WebDockLogger.debug('Verwende zwischengespeicherte Container-Daten');
             loadingContainersInProgress = false;
             return renderContainers(containerCache, categoriesToUse);
         }
         
-        console.log('Lade neue Container-Daten vom Server');
+        WebDockLogger.info('Lade neue Container-Daten vom Server');
         try {
             // Cache-Busting durch Hinzufügen eines Timestamps
             const timestamp = new Date().getTime();
