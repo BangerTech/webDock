@@ -216,13 +216,10 @@ else:
 # Konfiguriere die Pfade relativ zum Basis-Pfad
 CONFIG_DIR = os.getenv('CONFIG_DIR', os.path.join(WEBDOCK_BASE_PATH, 'config'))
 TEMPLATE_DIR = os.path.join(APP_DIR, 'config')
+CATEGORIES_FILE = os.path.join(CONFIG_DIR, 'categories.yaml')
 COMPOSE_DIR = os.path.join(CONFIG_DIR, 'compose-files')
 COMPOSE_FILES_DIR = os.getenv('COMPOSE_FILES_DIR', os.path.join(WEBDOCK_BASE_PATH, 'webdock-templates'))
 COMPOSE_DATA_DIR = os.getenv('COMPOSE_DATA_DIR', os.path.join(WEBDOCK_BASE_PATH, 'webdock-data'))
-
-# Korrigierte Definition der Kategoriedatei, damit die bestehende Datei verwendet wird
-# Diese Datei befindet sich in webdock-data/webdock-ui/src/config/categories.yaml
-CATEGORIES_FILE = os.path.join(COMPOSE_DATA_DIR, 'webdock-ui', 'src', 'config', 'categories.yaml')
 
 # Logge die wichtigen Pfade
 logger.info(f"WebDock Base Path: {WEBDOCK_BASE_PATH}")
@@ -2143,15 +2140,14 @@ def move_container():
     logger.info(f"Moving container {container_name} from {source_category} to {target_category} at position {target_position}")
         
     try:
-        # Stelle sicher, dass das Verzeichnis für die Kategoriedatei existiert
+        # Stelle sicher, dass der Pfad für die Kategorien-Datei existiert
         os.makedirs(os.path.dirname(CATEGORIES_FILE), exist_ok=True)
         
-        # Lade Kategorien aus der global definierten Datei
+        # Lade Kategorien aus der global definierten Kategorien-Datei
         categories_file = CATEGORIES_FILE
         
         # Debug-Logging für Dateipfade
         logger.info(f"Using categories file: {categories_file}")
-        logger.info(f"Global CATEGORIES_FILE: {CATEGORIES_FILE}")
         
         # Check if file exists, if not create it with default structure
         if not os.path.exists(categories_file):
@@ -2294,7 +2290,21 @@ def move_container():
                 category['containers'] = cleaned_containers
             
         # SCHRITT 2: Füge den Container jetzt in die Zielkategorie ein
-        # Wichtig: Verwende hier immer das standardisierte container_data Format
+        # Wichtig: Verwende hier immer das standardisierte container_data Format mit allen Metadaten
+        # Suche nach vorhandenen Container-Daten in der Quellkategorie für vollständige Metadaten
+        for category in categories:
+            if not isinstance(category, dict) or 'containers' not in category:
+                continue
+                
+            if isinstance(category['containers'], list):
+                for c in category['containers']:
+                    if isinstance(c, dict) and 'name' in c and c['name'] == container_name:
+                        # Übernehme alle Metadaten (Beschreibung etc.) des Containers
+                        container_data = c.copy()
+                        logger.info(f"Übernehme Metadaten für Container {container_name}: {container_data}")
+                        break
+        
+        # Füge Container mit allen Metadaten in Zielkategorie ein
         if target_position >= 0 and target_position < len(target_category_data['containers']):
             # Füge an spezifischer Position ein
             target_category_data['containers'].insert(target_position, container_data)
