@@ -257,17 +257,30 @@ document.addEventListener('DOMContentLoaded', function() {
                         Object.values(data).forEach(group => {
                             group.containers.forEach(container => {
                                 let assigned = false;
-                                
-                                // Suche die passende Kategorie
+                                                                // Suche die passende Kategorie
                                 Object.entries(categories || {}).forEach(([id, category]) => {
-                                    if (category.containers) {
+                                    // Sicherstellen, dass die Kategorie existiert und ein containers-Array hat
+                                    if (category && Array.isArray(category.containers)) {
                                         // Check if container.name is in the category's containers list
-                                        const containerInCategory = category.containers.some(c => 
-                                            (typeof c === 'string' && c === container.name) || 
-                                            (c && c.name === container.name)
-                                        );
+                                        const containerInCategory = category.containers.some(c => {
+                                            // Sicherer Vergleich mit Typprüfung
+                                            if (typeof c === 'string') {
+                                                return c === container.name;
+                                            } else if (c && typeof c === 'object') {
+                                                return c.name === container.name;
+                                            }
+                                            return false;
+                                        });
                                         
                                         if (containerInCategory && !assignedContainers.has(container.name)) {
+                                            // Stelle sicher, dass die Kategorie in groupedContainers existiert
+                                            if (!groupedContainers[category.name]) {
+                                                groupedContainers[category.name] = {
+                                                    name: category.name,
+                                                    icon: category.icon || 'fa-cube',
+                                                    containers: []
+                                                };
+                                            }
                                             groupedContainers[category.name].containers.push(container);
                                             assignedContainers.add(container.name); // Markiere Container als zugewiesen
                                             assigned = true;
@@ -276,9 +289,26 @@ document.addEventListener('DOMContentLoaded', function() {
                                     }
                                 });
                                 
-                                // Wenn keine Kategorie gefunden wurde, füge zu "Other" hinzu
+                                // Wenn keine Kategorie gefunden wurde, füge zu "Other" oder "Imported" hinzu
                                 if (!assigned && !assignedContainers.has(container.name)) {
-                                    groupedContainers['Other'].containers.push(container);
+                                    // Sicherstellen, dass sowohl 'Other' als auch 'Imported' existieren und containers-Arrays haben
+                                    if (!groupedContainers['Other']) {
+                                        groupedContainers['Other'] = {
+                                            name: 'Other',
+                                            icon: 'fa-cubes',
+                                            containers: []
+                                        };
+                                    }
+                                    if (!groupedContainers['Imported']) {
+                                        groupedContainers['Imported'] = {
+                                            name: 'Imported',
+                                            icon: 'fa-cloud-download-alt',
+                                            containers: []
+                                        };
+                                    }
+                                    
+                                    // Verwende 'Imported' als Standardkategorie für nicht zugeordnete Container
+                                    groupedContainers['Imported'].containers.push(container);
                                     assignedContainers.add(container.name);
                                 }
                             });
@@ -2005,7 +2035,24 @@ function setupRefreshInterval() {
                 // Dies ist wichtig, damit die UI nach dem Verschieben korrekt aktualisiert wird
                 
                 // Direkt im Anschluss die Container laden mit den frisch geladenen Kategoriedaten
-                await loadContainers(true, freshCatData);
+                // Hier übergeben wir die frisch geladenen Kategorien, damit die Container korrekt zugeordnet werden
+                try {
+                    await loadContainers(true, freshCatData);
+                    console.log('Container wurden neu geladen, UI aktualisiert.');
+                    
+                    // Kurze Verzögerung und dann noch einen Refresh durchführen, um sicherzustellen, dass alle Änderungen angezeigt werden
+                    setTimeout(async () => {
+                        console.log('Führe abschließenden UI-Refresh durch...');
+                        try {
+                            await renderCategories(freshCatData, true);
+                            await loadContainers(true);
+                        } catch (refreshError) {
+                            console.error('Fehler beim finalen UI-Refresh:', refreshError);
+                        }
+                    }, 1000);
+                } catch (loadError) {
+                    console.error('Fehler beim Laden der Container:', loadError);
+                }
                 
                 // Nach dem Laden beide Aktualisierungen abschließen
                 if (categoryContainer) {

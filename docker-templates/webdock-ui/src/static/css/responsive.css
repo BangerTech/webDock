@@ -62,6 +62,17 @@
         display: block !important;
         visibility: visible !important;
     }
+    
+    /* Zusätzlich sicherstellen, dass keine importierten Stile die Icons verstecken */
+    .fa {
+        font-family: FontAwesome !important;
+        display: inline-block !important;
+        font: normal normal normal 14px/1 FontAwesome !important;
+        font-size: inherit !important;
+        text-rendering: auto !important;
+        -webkit-font-smoothing: antialiased !important;
+        -moz-osx-font-smoothing: grayscale !important;
+    }
 
     nav ul {
         display: flex;
@@ -118,28 +129,51 @@
         color: white; /* Sicherstellen, dass alle Icons sichtbar sind */
     }
 
-    nav a i {
-        font-size: 1.5rem; /* Größere Icons für bessere Sichtbarkeit */
-        margin: 0;
-        display: flex !important; /* Erzwinge die Anzeige der Icons als Flex */
+    nav a i,
+    nav a .fa,
+    nav li a i,
+    nav li a .fa,
+    .nav-item a i,
+    .nav-item a .fa,
+    .theme-toggle i,
+    .theme-toggle .fa {
+        font-size: 1.5rem !important; /* Größere Icons für bessere Sichtbarkeit */
+        margin: 0 !important;
+        display: inline-block !important; /* Wichtig für Font Awesome Icons */
         visibility: visible !important;
         color: white !important;
         width: auto !important;
         height: auto !important;
         opacity: 1 !important;
-        align-items: center;
-        justify-content: center;
         position: static !important; /* Verhindert, dass Icons durch absolute Positionierung versteckt werden */
         left: auto !important;
         top: auto !important;
         transform: none !important;
+        text-align: center !important;
+        line-height: normal !important;
+        z-index: 10 !important;
     }
     
     /* Spezifische Regel für alle Font-Awesome-Icons in der Navigation */
-    nav a .fa {
-        display: flex !important;
+    nav a .fa,
+    .nav-item a .fa,
+    .nav-containers .fa,
+    .nav-status .fa,
+    .nav-special .fa,
+    .nav-settings .fa {
+        display: inline-block !important;
         visibility: visible !important;
         opacity: 1 !important;
+        font-family: FontAwesome !important;
+        font-style: normal !important;
+    }
+    
+    /* Explizite Regeln für spezifische Icons */
+    .fa-cubes, .fa-dashboard, .fa-terminal, .fa-cog, .fa-adjust {
+        display: inline-block !important;
+        visibility: visible !important;
+        min-width: 1em !important;
+        min-height: 1em !important;
     }
 
     /* Container-Grid für Mobilgeräte optimieren */
