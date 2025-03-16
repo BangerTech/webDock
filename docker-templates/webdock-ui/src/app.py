@@ -2140,11 +2140,15 @@ def move_container():
     logger.info(f"Moving container {container_name} from {source_category} to {target_category} at position {target_position}")
         
     try:
-        # Ensure CONFIG_DIR exists
-        os.makedirs(CONFIG_DIR, exist_ok=True)
+        # Stelle sicher, dass das Verzeichnis für die Kategoriedatei existiert
+        os.makedirs(os.path.dirname(CATEGORIES_FILE), exist_ok=True)
         
-        # Load categories
-        categories_file = os.path.join(CONFIG_DIR, 'categories.yaml')
+        # Lade Kategorien aus der global definierten Datei
+        categories_file = CATEGORIES_FILE
+        
+        # Debug-Logging für Dateipfade
+        logger.info(f"Using categories file: {categories_file}")
+        logger.info(f"Global CATEGORIES_FILE: {CATEGORIES_FILE}")
         
         # Check if file exists, if not create it with default structure
         if not os.path.exists(categories_file):
