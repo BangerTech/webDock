@@ -2297,7 +2297,8 @@ function setupRefreshInterval() {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Cache-Control': 'no-cache, no-store, must-revalidate'
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache'
                 },
                 body: JSON.stringify({
                     containerName: containerName,
@@ -2307,42 +2308,72 @@ function setupRefreshInterval() {
                 })
             });
 
-            // Server-Antwort verarbeiten
-            let result;
-            try {
-                result = await response.json();
-            } catch (parseError) {
-                console.error('Fehler beim Parsen der Serverantwort:', parseError);
-                throw new Error('Ungültige Serverantwort');
-            }
-            
             if (!response.ok) {
-                throw new Error(result.error || 'Neuanordnung des Containers fehlgeschlagen');
+                let errorMsg = 'Fehler beim Neuordnen des Containers';
+                try {
+                    const errorData = await response.json();
+                    errorMsg = errorData.error || errorMsg;
+                } catch (e) {
+                    console.error('Fehler beim Parsen der Fehlermeldung:', e);
+                }
+                throw new Error(errorMsg);
             }
 
-            console.log('Container erfolgreich neu positioniert, lade nun UI-Daten neu');
+            console.log('Container erfolgreich neu positioniert, aktualisiere UI...');
             
-            // Sicherstellen, dass der Server die Änderung verarbeitet hat
-            await new Promise(resolve => setTimeout(resolve, 700));
+            // Wir führen einen expliziten Server-Cache-Reset durch
+            try {
+                console.log('Server-Cache für Kategorien wird zurückgesetzt...');
+                const resetResponse = await fetch('/api/categories/refresh', {
+                    method: 'POST',
+                    headers: {
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Pragma': 'no-cache'
+                    }
+                });
+                
+                if (resetResponse.ok) {
+                    console.log('Server-Cache für Kategorien erfolgreich zurückgesetzt');
+                } else {
+                    console.warn('Server-Cache-Reset lieferte Fehler:', resetResponse.status);
+                }
+            } catch (resetError) {
+                console.error('Fehler beim Server-Cache-Reset:', resetError);
+            }
             
-            // VOLLSTÄNDIGER RESET DES UI CACHE
-            categoriesCache = null;
-            containerCache = null;
-            lastCategoriesFetch = 0;
-            lastContainersFetch = 0;
+            // Erhöhte Verzögerung hinzufügen, um sicherzustellen, dass der Server die Änderung verarbeitet hat
+            await new Promise(resolve => setTimeout(resolve, 2000));
             
-            // Direkte visuelle Rückmeldung für Benutzer
+            // Vor dem Aktualisieren der UI führen wir einen vollständigen Client-Cache-Reset durch
+            console.log('Führe vollständigen Client-Cache-Reset durch...');
+            clearAllCaches();
+            
+            // Stelle sicher, dass wir keine veralteten Daten aus dem lokalen Storage verwenden
+            for (let i = 0; i < sessionStorage.length; i++) {
+                const key = sessionStorage.key(i);
+                if (key.startsWith('container_') || key.startsWith('category_')) {
+                    console.log(`Lösche Cache-Eintrag: ${key}`);
+                    sessionStorage.removeItem(key);
+                }
+            }
+            
+            console.log('Cache-Löschen abgeschlossen, starte UI-Aktualisierung...');
+            
+            // Visuelle Rückmeldung während des Updates
             const categoryContainer = document.getElementById('category-container');
             if (categoryContainer) {
                 categoryContainer.classList.add('refreshing');
             }
             
             try {
-                // Timestamp für Cache-Busting
-                const timestamp = new Date().getTime();
+                // Wir erhöhen die Verzögerung, um sicherzustellen, dass der Server
+                // genügend Zeit hatte, die Kategorieänderungen zu persistieren
+                console.log('Warte 3 Sekunden, damit der Server die Änderungen persistieren kann...');
+                await new Promise(resolve => setTimeout(resolve, 3000));
                 
-                // Direkte Kategoriedaten abrufen mit Cache-Umgehung
-                const catResponse = await fetch(`/api/categories?t=${timestamp}`, {
+                // Direkte Kategoriedaten abrufen mit Cache-Umgehung und zusätzlichem Parameter
+                const timestamp = new Date().getTime();
+                const catResponse = await fetch(`/api/categories?t=${timestamp}&_nocache=1`, {
                     method: 'GET',
                     headers: {
                         'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -2357,56 +2388,51 @@ function setupRefreshInterval() {
                 }
                 
                 const freshCatData = await catResponse.json();
-                console.log('Komplett neue Kategoriedaten erhalten:', freshCatData);
+                console.log('Neue Kategoriedaten erhalten:', freshCatData);
                 
-                // Kategorien synchron rendern, damit wir auf die vollständige Aktualisierung warten können
-                await renderCategories(freshCatData, true);
-                
-                // Direkt im Anschluss die Container laden mit den frisch geladenen Kategoriedaten
-                await loadContainers(true, freshCatData);
-                
-                // Nach dem Laden beide Aktualisierungen abschließen
+                // Setze explizit den DOM-Zustand zurück, damit wir sauber neu rendern können
                 if (categoryContainer) {
-                    categoryContainer.classList.remove('refreshing');
+                    // Leere den Container, damit wir komplett neu rendern können
+                    categoryContainer.innerHTML = '';
                 }
                 
-                // Scrolle zum verschobenen Container
-                setTimeout(() => {
-                    // Versuche verschiedene Selektoren, um den Container zuverlässig zu finden
-                    const containerSelectors = [
-                        `.container-card[data-name="${containerName}"]`,
-                        `.container-card[data-container="${containerName}"]`
-                    ];
-                    
-                    let movedCard = null;
-                    for (const selector of containerSelectors) {
-                        movedCard = document.querySelector(selector);
-                        if (movedCard) break;
-                    }
-                    
-                    if (movedCard) {
-                        movedCard.classList.add('highlight-card');
-                        movedCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        setTimeout(() => movedCard.classList.remove('highlight-card'), 2000);
-                    } else {
-                        console.warn(`Konnte neu positionierten Container ${containerName} nicht in der UI finden`);
-                    }
-                }, 300);
+                // Statt eines kompletten Seiten-Reloads rendern wir die UI dynamisch neu
+                console.log('Rendere UI dynamisch neu nach Container-Neuordnung...');
                 
-                showNotification('success', `Container ${containerName} wurde neu angeordnet`);
+                // Speichere Informationen zum verschobenen Container für die Hervorhebung
+                sessionStorage.setItem('lastMovedContainer', containerName);
+                sessionStorage.setItem('lastMovedCategory', categoryId);
+                
+                // Zeige Erfolgsmeldung an
+                showNotification('success', `Container ${containerName} wurde erfolgreich neu angeordnet!`, 1500);
+                
+                // Dynamisch die Kategorien und Container neu laden ohne Seiten-Reload
+                try {
+                    // Aktualisiere die UI mit den neuen Daten
+                    renderCategories(freshCatData.categories);
+                    
+                    // Container-Daten laden und neu rendern
+                    console.log('Lade Container-Daten nach Kategorieänderung...');
+                    await loadContainers(true, freshCatData);
+                    
+                    // Warte kurz und scrolle dann zum verschobenen Container
+                    setTimeout(() => {
+                        highlightAndScrollToContainer(containerName, categoryId);
+                    }, 1000);
+                } catch (renderError) {
+                    console.error('Fehler beim dynamischen Rendern:', renderError);
+                    // Im Fehlerfall als Fallback doch einen Reload durchführen
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1000);
+                }
             } catch (error) {
-                console.error('Fehler beim Neuladen der UI-Daten nach Neuordnung:', error);
-                
-                // Notfall-Fallback: Zeige Fehlermeldung und Reload-Option
-                showNotification('error', `UI-Aktualisierung fehlgeschlagen: ${error.message}`);
-                setTimeout(() => {
-                    // Fallback: Force Refresh der Seite als letzte Maßnahme
-                    window.location.reload();
-                }, 1500);
+                console.error('Fehler beim Neuladen der Kategorien:', error);
+                showNotification('error', `Fehler beim Aktualisieren: ${error.message}`, 3000);
             }
         } catch (error) {
             console.error('Error reordering container:', error);
-            showNotification('error', `Fehler beim Neuanordnen des Containers: ${error.message}`);
+            showNotification('error', `Fehler beim Neuordnen des Containers: ${error.message}`);
         } finally {
             // Lösche den Sicherheits-Timeout, da wir hier normal ankommen
             clearTimeout(safetyTimeout);
@@ -2414,7 +2440,7 @@ function setupRefreshInterval() {
             // Verstecke das Loading-Overlay, unabhängig vom Ergebnis
             setTimeout(() => {
                 hideLoadingOverlay();
-            }, 500);
+            }, 500); // Kurze Verzögerung um sicherzustellen, dass alles abgeschlossen ist
         }
     }
 
