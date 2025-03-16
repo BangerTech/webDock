@@ -2254,39 +2254,101 @@ function setupRefreshInterval() {
                 throw new Error(result.error || 'Neuanordnung des Containers fehlgeschlagen');
             }
 
-            // Bei erfolgreicher Neuordnung
-            showNotification('success', 'Container erfolgreich neu angeordnet');
-
-            // Aktualisiere die Container-Ansicht
-            const groupSection = document.querySelector(`.group-section[data-category-id="${categoryId}"]`);
-            if (groupSection) {
-                const containerGrid = groupSection.querySelector('.container-grid');
-                if (containerGrid) {
-                    const cards = Array.from(containerGrid.querySelectorAll('.container-card'));
-                    const movedCard = cards.find(card => card.getAttribute('data-container-name') === containerName);
+            console.log('Container erfolgreich neu positioniert, lade nun UI-Daten neu');
+            
+            // Sicherstellen, dass der Server die Änderung verarbeitet hat
+            await new Promise(resolve => setTimeout(resolve, 700));
+            
+            // VOLLSTÄNDIGER RESET DES UI CACHE
+            categoriesCache = null;
+            containerCache = null;
+            lastCategoriesFetch = 0;
+            lastContainersFetch = 0;
+            
+            // Direkte visuelle Rückmeldung für Benutzer
+            const categoryContainer = document.getElementById('category-container');
+            if (categoryContainer) {
+                categoryContainer.classList.add('refreshing');
+            }
+            
+            try {
+                // Timestamp für Cache-Busting
+                const timestamp = new Date().getTime();
+                
+                // Direkte Kategoriedaten abrufen mit Cache-Umgehung
+                const catResponse = await fetch(`/api/categories?t=${timestamp}`, {
+                    method: 'GET',
+                    headers: {
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Pragma': 'no-cache',
+                        'Expires': '0'
+                    },
+                    cache: 'no-store'
+                });
+                
+                if (!catResponse.ok) {
+                    throw new Error(`Fehler beim Laden der Kategorien: ${catResponse.status}`);
+                }
+                
+                const freshCatData = await catResponse.json();
+                console.log('Komplett neue Kategoriedaten erhalten:', freshCatData);
+                
+                // Kategorien synchron rendern, damit wir auf die vollständige Aktualisierung warten können
+                await renderCategories(freshCatData, true);
+                
+                // Direkt im Anschluss die Container laden mit den frisch geladenen Kategoriedaten
+                await loadContainers(true, freshCatData);
+                
+                // Nach dem Laden beide Aktualisierungen abschließen
+                if (categoryContainer) {
+                    categoryContainer.classList.remove('refreshing');
+                }
+                
+                // Scrolle zum verschobenen Container
+                setTimeout(() => {
+                    // Versuche verschiedene Selektoren, um den Container zuverlässig zu finden
+                    const containerSelectors = [
+                        `.container-card[data-name="${containerName}"]`,
+                        `.container-card[data-container="${containerName}"]`
+                    ];
+                    
+                    let movedCard = null;
+                    for (const selector of containerSelectors) {
+                        movedCard = document.querySelector(selector);
+                        if (movedCard) break;
+                    }
                     
                     if (movedCard) {
-                        containerGrid.removeChild(movedCard);
-                        if (toPosition >= cards.length) {
-                            containerGrid.appendChild(movedCard);
-                        } else {
-                            const referenceCard = cards[toPosition];
-                            containerGrid.insertBefore(movedCard, referenceCard);
-                        }
+                        movedCard.classList.add('highlight-card');
+                        movedCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        setTimeout(() => movedCard.classList.remove('highlight-card'), 2000);
+                    } else {
+                        console.warn(`Konnte neu positionierten Container ${containerName} nicht in der UI finden`);
                     }
-                }
+                }, 300);
+                
+                showNotification('success', `Container ${containerName} wurde neu angeordnet`);
+            } catch (error) {
+                console.error('Fehler beim Neuladen der UI-Daten nach Neuordnung:', error);
+                
+                // Notfall-Fallback: Zeige Fehlermeldung und Reload-Option
+                showNotification('error', `UI-Aktualisierung fehlgeschlagen: ${error.message}`);
+                setTimeout(() => {
+                    // Fallback: Force Refresh der Seite als letzte Maßnahme
+                    window.location.reload();
+                }, 1500);
             }
-
-            // Lade die Kategorien neu, um sicherzustellen, dass alles synchron ist
-            await loadCategories();
-            
         } catch (error) {
             console.error('Error reordering container:', error);
-            showNotification('error', error.message);
+            showNotification('error', `Fehler beim Neuanordnen des Containers: ${error.message}`);
         } finally {
-            // Bereinige den Safety-Timeout und verstecke das Overlay
+            // Lösche den Sicherheits-Timeout, da wir hier normal ankommen
             clearTimeout(safetyTimeout);
-            hideLoadingOverlay();
+            
+            // Verstecke das Loading-Overlay, unabhängig vom Ergebnis
+            setTimeout(() => {
+                hideLoadingOverlay();
+            }, 500);
         }
     }
 
