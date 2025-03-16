@@ -1826,127 +1826,62 @@ function setupRefreshInterval() {
                 return;
             }
             
-            // Hole den Gruppen-Namen und die Kategorie-ID aus der Gruppe
-            const groupNameElement = groupSection.querySelector('h2');
-            if (!groupNameElement) {
-                console.error('Konnte keinen h2-Header in der Gruppe finden');
+            // Hole die Kategorie-ID direkt aus dem data-category-id Attribut
+            const categoryId = groupSection.getAttribute('data-category-id');
+            if (!categoryId) {
+                console.error('Keine Kategorie-ID gefunden');
                 return;
             }
-            
-            const groupName = groupNameElement.textContent.trim();
-            if (!groupName) {
-                console.error('Gruppenelement hat keinen Text');
-                return;
-            }
-            
-            // Hole die Kategorie-ID aus dem data-category-id Attribut oder verwende den Gruppennamen als Fallback
-            const categoryId = groupSection.getAttribute('data-category-id') || groupName;
-            console.log('Gefundene Gruppe:', groupName, 'Kategorie-ID:', categoryId);
-            
+
             // Stelle sicher, dass wir eine valide sourceCategoryId haben
-            // Vermeide den String "undefined" - wandle in einen tatsächlichen undefined-Wert um
-            let sourceCategoryId = data.sourceCategoryId;
-            if (sourceCategoryId === 'undefined') {
-                sourceCategoryId = data.groupName || 'Imported';
-            } else {
-                sourceCategoryId = sourceCategoryId || data.groupName || 'Imported';
-            }
-            
-            // Finde das Container-Grid
-            const containerGrid = groupSection.querySelector('.container-grid');
-            if (!containerGrid) {
-                console.error('Kein Container-Grid in der Gruppe gefunden');
-                return;
-            }
-            
-            // Zeige visuelles Feedback an, dass eine Aktion im Gange ist
-            const loadingOverlay = document.getElementById('loading-overlay');
-            if (loadingOverlay) loadingOverlay.style.display = 'flex';
+            const sourceCategoryId = data.sourceCategoryId || data.groupName || categoryId;
             
             if (dropTarget) {
                 // Drop auf eine Container-Karte
+                const containerGrid = dropTarget.closest('.container-grid');
                 const allCards = Array.from(containerGrid.querySelectorAll('.container-card'));
                 const targetPosition = allCards.indexOf(dropTarget);
                 
-                // Stelle sicher, dass eine gültige Position verwendet wird
-                const fromPosition = typeof data.position === 'number' && data.position >= 0 ? data.position : -1;
-                
                 console.log('Drop auf Container-Karte:', {
-                    container: data.name,
+                    container: data.container,
                     fromGroup: data.groupName,
                     fromCategory: sourceCategoryId,
-                    toGroup: groupName,
+                    toGroup: categoryId,
                     toCategory: categoryId,
-                    fromPosition: fromPosition,
-                    toPosition: targetPosition
+                    targetPosition
                 });
                 
-                try {
-                    if (data.groupName !== groupName) {
-                        // Container in eine andere Gruppe verschieben
-                        moveContainer(data.name, sourceCategoryId, categoryId, targetPosition);
-                    } else if (targetPosition !== fromPosition && targetPosition !== -1) {
-                        // Verwende die Position aus dem drag-start-Event für fromPosition, falls vorhanden
-                        // ansonsten finde die Position im DOM
-                        let actualFromPosition = fromPosition;
-                        if (actualFromPosition === -1 || actualFromPosition === undefined) {
-                            actualFromPosition = findActualContainerPosition(data.name, categoryId);
-                        }
-                        
-                        if (actualFromPosition !== -1) {
-                            // Nur reordern, wenn wir eine gültige Position gefunden haben
-                            console.log(`Reordering container ${data.name} in category ${categoryId} from ${actualFromPosition} to ${targetPosition}`);
-                            // Container innerhalb der gleichen Gruppe neu anordnen
-                            reorderContainer(data.name, categoryId, actualFromPosition, targetPosition);
-                        } else {
-                            console.error(`Konnte Container ${data.name} nicht in Kategorie ${categoryId} finden für Neuordnung`);
-                            showNotification('error', `Konnte Container nicht neu anordnen: Position konnte nicht ermittelt werden`);
-                            // Loading-Overlay ausblenden, falls Aktion fehlschlägt
-                            if (loadingOverlay) loadingOverlay.style.display = 'none';
-                        }
-                    } else {
-                        // Wenn keine Aktion ausgeführt wird, verstecke Loading-Anzeige
-                        if (loadingOverlay) loadingOverlay.style.display = 'none';
-                    }
-                } catch (error) {
-                    console.error('Fehler beim Drop-Handling:', error);
-                    if (loadingOverlay) loadingOverlay.style.display = 'none';
+                if (sourceCategoryId === categoryId) {
+                    // Innerhalb der gleichen Kategorie
+                    console.log(`Reordering container ${data.container} in category ${categoryId} from ${data.position} to ${targetPosition}`);
+                    reorderContainer(data.container, categoryId, data.position, targetPosition);
+                } else {
+                    // Zwischen verschiedenen Kategorien
+                    console.log(`Moving container ${data.container} from ${sourceCategoryId} to ${categoryId} at position ${targetPosition}`);
+                    moveContainer(data.container, sourceCategoryId, categoryId, targetPosition);
                 }
             } else {
-                // Drop direkt auf eine Gruppe (nicht auf eine Karte)
+                // Drop direkt auf eine Gruppe
                 console.log('Drop direkt auf Gruppe:', {
-                    container: data.name,
+                    container: data.container,
                     fromGroup: data.groupName,
-                    fromCategory: sourceCategoryId,
-                    toGroup: groupName,
-                    toCategory: categoryId
+                    toGroup: categoryId
                 });
                 
-                try {
-                    if (data.groupName !== groupName) {
-                        // Container in eine andere Gruppe verschieben
-                        moveContainer(data.name, sourceCategoryId, categoryId);
-                    } else {
-                        // Wenn keine Aktion ausgeführt wird, verstecke Loading-Anzeige
-                        if (loadingOverlay) loadingOverlay.style.display = 'none';
-                    }
-                } catch (error) {
-                    console.error('Fehler beim Drop auf Gruppe:', error);
-                    if (loadingOverlay) loadingOverlay.style.display = 'none';
+                if (sourceCategoryId === categoryId) {
+                    // Innerhalb der gleichen Kategorie ans Ende
+                    const containerGrid = groupSection.querySelector('.container-grid');
+                    const lastPosition = containerGrid ? containerGrid.children.length : 0;
+                    reorderContainer(data.container, categoryId, data.position, lastPosition);
+                } else {
+                    // In eine andere Kategorie ans Ende
+                    moveContainer(data.container, sourceCategoryId, categoryId);
                 }
             }
             
-            // Entferne die Hervorhebung von allen Karten
-            document.querySelectorAll('.container-card').forEach(card => {
-                card.classList.remove('drag-over');
-            });
         } catch (error) {
             console.error('Fehler beim Drop-Handling:', error);
-            showNotification('error', `Fehler beim Verschieben: ${error.message}`);
-            
-            // Verstecke Loading-Anzeige im Fehlerfall
-            const loadingOverlay = document.getElementById('loading-overlay');
-            if (loadingOverlay) loadingOverlay.style.display = 'none';
+            showNotification('error', 'Fehler beim Verschieben des Containers');
         }
     };
 
@@ -2299,10 +2234,10 @@ function setupRefreshInterval() {
                     'Cache-Control': 'no-cache, no-store, must-revalidate'
                 },
                 body: JSON.stringify({
-                    containerName: containerName,  // Der Name des zu verschiebenden Containers (Primärschlüssel)
-                    categoryId: categoryId,       // Die Kategorie-ID
-                    fromPosition: fromPosition,   // Ursprüngliche Frontend-Position (kann vom Backend abweichen)
-                    toPosition: toPosition        // Gewünschte Zielposition
+                    containerName: containerName,
+                    categoryId: categoryId,
+                    fromPosition: fromPosition,
+                    toPosition: toPosition
                 })
             });
 
@@ -2319,101 +2254,39 @@ function setupRefreshInterval() {
                 throw new Error(result.error || 'Neuanordnung des Containers fehlgeschlagen');
             }
 
-            console.log('Container erfolgreich neu positioniert, lade nun UI-Daten neu');
-            
-            // Sicherstellen, dass der Server die Änderung verarbeitet hat
-            await new Promise(resolve => setTimeout(resolve, 700));
-            
-            // VOLLSTÄNDIGER RESET DES UI CACHE
-            categoriesCache = null;
-            containerCache = null;
-            lastCategoriesFetch = 0;
-            lastContainersFetch = 0;
-            
-            // Direkte visuelle Rückmeldung für Benutzer
-            const categoryContainer = document.getElementById('category-container');
-            if (categoryContainer) {
-                categoryContainer.classList.add('refreshing');
-            }
-            
-            try {
-                // Timestamp für Cache-Busting
-                const timestamp = new Date().getTime();
-                
-                // Direkte Kategoriedaten abrufen mit Cache-Umgehung
-                const catResponse = await fetch(`/api/categories?t=${timestamp}`, {
-                    method: 'GET',
-                    headers: {
-                        'Cache-Control': 'no-cache, no-store, must-revalidate',
-                        'Pragma': 'no-cache',
-                        'Expires': '0'
-                    },
-                    cache: 'no-store'
-                });
-                
-                if (!catResponse.ok) {
-                    throw new Error(`Fehler beim Laden der Kategorien: ${catResponse.status}`);
-                }
-                
-                const freshCatData = await catResponse.json();
-                console.log('Komplett neue Kategoriedaten erhalten:', freshCatData);
-                
-                // Kategorien synchron rendern, damit wir auf die vollständige Aktualisierung warten können
-                await renderCategories(freshCatData, true);
-                
-                // Direkt im Anschluss die Container laden mit den frisch geladenen Kategoriedaten
-                await loadContainers(true, freshCatData);
-                
-                // Nach dem Laden beide Aktualisierungen abschließen
-                if (categoryContainer) {
-                    categoryContainer.classList.remove('refreshing');
-                }
-                
-                // Scrolle zum verschobenen Container
-                setTimeout(() => {
-                    // Versuche verschiedene Selektoren, um den Container zuverlässig zu finden
-                    const containerSelectors = [
-                        `.container-card[data-name="${containerName}"]`,
-                        `.container-card[data-container="${containerName}"]`
-                    ];
-                    
-                    let movedCard = null;
-                    for (const selector of containerSelectors) {
-                        movedCard = document.querySelector(selector);
-                        if (movedCard) break;
-                    }
+            // Bei erfolgreicher Neuordnung
+            showNotification('success', 'Container erfolgreich neu angeordnet');
+
+            // Aktualisiere die Container-Ansicht
+            const groupSection = document.querySelector(`.group-section[data-category-id="${categoryId}"]`);
+            if (groupSection) {
+                const containerGrid = groupSection.querySelector('.container-grid');
+                if (containerGrid) {
+                    const cards = Array.from(containerGrid.querySelectorAll('.container-card'));
+                    const movedCard = cards.find(card => card.getAttribute('data-container-name') === containerName);
                     
                     if (movedCard) {
-                        movedCard.classList.add('highlight-card');
-                        movedCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        setTimeout(() => movedCard.classList.remove('highlight-card'), 2000);
-                    } else {
-                        console.warn(`Konnte neu positionierten Container ${containerName} nicht in der UI finden`);
+                        containerGrid.removeChild(movedCard);
+                        if (toPosition >= cards.length) {
+                            containerGrid.appendChild(movedCard);
+                        } else {
+                            const referenceCard = cards[toPosition];
+                            containerGrid.insertBefore(movedCard, referenceCard);
+                        }
                     }
-                }, 300);
-                
-                showNotification('success', `Container ${containerName} wurde neu angeordnet`);
-            } catch (error) {
-                console.error('Fehler beim Neuladen der UI-Daten nach Neuordnung:', error);
-                
-                // Notfall-Fallback: Zeige Fehlermeldung und Reload-Option
-                showNotification('error', `UI-Aktualisierung fehlgeschlagen: ${error.message}`);
-                setTimeout(() => {
-                    // Fallback: Force Refresh der Seite als letzte Maßnahme
-                    window.location.reload();
-                }, 1500);
+                }
             }
+
+            // Lade die Kategorien neu, um sicherzustellen, dass alles synchron ist
+            await loadCategories();
+            
         } catch (error) {
             console.error('Error reordering container:', error);
-            showNotification('error', `Fehler beim Neuanordnen des Containers: ${error.message}`);
+            showNotification('error', error.message);
         } finally {
-            // Lösche den Sicherheits-Timeout, da wir hier normal ankommen
+            // Bereinige den Safety-Timeout und verstecke das Overlay
             clearTimeout(safetyTimeout);
-            
-            // Verstecke das Loading-Overlay, unabhängig vom Ergebnis
-            setTimeout(() => {
-                hideLoadingOverlay();
-            }, 500);
+            hideLoadingOverlay();
         }
     }
 
