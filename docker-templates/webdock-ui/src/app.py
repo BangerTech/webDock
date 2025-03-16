@@ -2246,6 +2246,24 @@ def move_container():
             container_data = {'name': container_name}
             # Wir löschen nichts aus der Quellkategorie, da der Container dort nicht existiert
             
+        # Wichtig: Überprüfe und entferne den Container aus ALLEN anderen Kategorien
+        # Dadurch wird verhindert, dass der Container mehrfach in verschiedenen Kategorien erscheint
+        for category in categories:
+            # Überspringe die Quellkategorie (bereits geprüft) und Zielkategorie (dort fügen wir später hinzu)
+            if category == source_category_data or category == target_category_data:
+                continue
+                
+            # Entferne Container aus dieser Kategorie, falls vorhanden
+            if 'containers' in category:
+                cleaned_containers = []
+                for c in category['containers']:
+                    # Container könnte ein String oder ein Dict sein
+                    if isinstance(c, dict) and c.get('name') != container_name:
+                        cleaned_containers.append(c)
+                    elif isinstance(c, str) and c != container_name:
+                        cleaned_containers.append(c)
+                category['containers'] = cleaned_containers
+            
         # Add container to target category with position handling
         if target_position >= 0 and target_position < len(target_category_data['containers']):
             # Füge an spezifischer Position ein

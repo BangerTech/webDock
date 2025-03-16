@@ -1994,10 +1994,15 @@ function setupRefreshInterval() {
             // Verzögerung auf 2 Sekunden vergrößert, um sicherzustellen, dass der Server Zeit hat, die Änderung zu verarbeiten
             await new Promise(resolve => setTimeout(resolve, 2000));
             
-            // Vollständiger Cache-Reset aller Browser-Caches
-            clearAllCaches();
+            // Nur selektiven Cache-Reset durchführen, um zu verhindern, dass andere Container fälschlicherweise neu kategorisiert werden
+            // Wir löschen spezifisch nur den Cache für den betroffenen Container
+            const containerKey = `container_${containerName}`;
+            if (sessionStorage.getItem(containerKey)) {
+                console.log(`Lösche Cache-Eintrag für Container: ${containerKey}`);
+                sessionStorage.removeItem(containerKey);
+            }
             
-            console.log('Alle Caches wurden gelöscht, starte UI-Aktualisierung...');
+            console.log('Selektives Cache-Löschen abgeschlossen, starte UI-Aktualisierung...');
             
             // Visuelle Rückmeldung während des Updates
             const categoryContainer = document.getElementById('category-container');
