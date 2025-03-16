@@ -2340,10 +2340,8 @@ def reorder_container():
         from_position = data.get('fromPosition', -1)
         to_position = data.get('toPosition', -1)
         
-        # Umfassendes Logging für Debugging-Zwecke
         logger.info(f"Received reorder request: {data}")
         
-        # Wenn keine Kategorie-ID angegeben ist, verwende 'default'
         if not category_id or category_id == 'undefined':
             category_id = 'default'
             
@@ -2351,197 +2349,59 @@ def reorder_container():
             logger.error(f"Missing container name in request: {data}")
             return jsonify({'error': 'Container name is required'}), 400
             
-        if from_position < 0 or to_position < 0:
-            logger.warning(f"Invalid positions: from={from_position}, to={to_position}. Will attempt to find container by name.")
-            
         logger.info(f"Reordering container {container_name} in category {category_id} from position {from_position} to {to_position}")
         
-        # Kategorien laden - verwende die load_categories Funktion, die bereits Fehlerbehandlung enthält
+        # Kategorien laden
         categories_data = load_categories()
         
         if not categories_data or 'categories' not in categories_data:
-            # Wenn keine Kategorien gefunden wurden, erstelle eine leere Kategorie-Struktur
             categories_data = {'categories': []}
             
-        # Stelle sicher, dass categories eine Liste ist (für die Kompatibilität mit älteren Versionen)
-        if isinstance(categories_data['categories'], dict):
-            # Konvertiere das Dictionary in eine Liste von Kategorien
-            categories_list = []
-            for cat_id, cat_data in categories_data['categories'].items():
-                cat_data['id'] = cat_id
-                categories_list.append(cat_data)
-            categories_data['categories'] = categories_list
-            
-        # Logge die Kategorien-Struktur für Debugging
-        logger.debug(f"Categories structure: {categories_data}")
-        
         # Finde die Kategorie
-        category_found = False
-        category = None  # Definiere die Variable category außerhalb der Schleife
-        
+        category = None
         for cat in categories_data['categories']:
-            # Prüfe, ob die Kategorie-ID oder der Name mit der gesuchten ID übereinstimmt
-            if cat.get('id') == category_id or cat.get('name') == category_id:
-                category = cat  # Setze die gefundene Kategorie
-                category_found = True
-                if 'containers' not in category:
-                    category['containers'] = []
-                
-                # Stelle sicher, dass containers eine Liste ist
-                if not isinstance(category['containers'], list):
-                    category['containers'] = []
-                    logger.warning(f"Containers was not a list in category {category_id}, reset to empty list")
-                
-                # Normalisiere die Container-Liste, falls sie verschiedene Formate enthält
-                normalized_containers = []
-                for container_item in category['containers']:
-                    if isinstance(container_item, str):
-                        normalized_containers.append({'name': container_item})
-                    else:
-                        normalized_containers.append(container_item)
-                category['containers'] = normalized_containers
-                
-                # Wenn wir hier sind, haben wir die richtige Kategorie gefunden
-                
-                # Protokolliere die aktuellen Container in der Kategorie für besseres Debugging
-                logger.info(f"Current containers in category {category_id}:")
-                for i, c in enumerate(category['containers']):
-                    c_name = c.get('name') if isinstance(c, dict) else c
-                    logger.info(f"  Position {i}: {c_name}")
-                
-                # Finde den Container im Backend nach Namen und ignoriere zunächst die angegebene Position
-                # Dies ist zuverlässiger, da die UI-Position und die Backend-Position unterschiedlich sein können
-                found_container = False
-                found_position = -1
-                
-                # Ausführlicheres Logging zur Fehlersuche
-                logger.info(f"Suche Container '{container_name}' in Kategorie '{category_id}'")
-                logger.info(f"Angegebene Positionen: von={from_position}, nach={to_position}")
-                
-                # Erst suchen wir den Container nach Namen
-                for idx, cont in enumerate(category['containers']):
-                    # Normalisiere den Container-Namen
-                    if isinstance(cont, dict):
-                        cont_name = cont.get('name')
-                    else:
-                        cont_name = cont
-                        
-                    logger.debug(f"  Vergleiche mit Container an Position {idx}: '{cont_name}'")
-                    
-                    if cont_name == container_name:
-                        found_container = True
-                        found_position = idx
-                        logger.info(f"  ✔ Found container '{container_name}' at position {idx} (Backend)")
-                        logger.info(f"    Frontend gab Position {from_position} an, Backend-Position ist {idx}")
-                        break
-                
-                # Wenn der Container nicht gefunden wurde, akzeptiere die vom Frontend übergebene Position
-                if not found_container:
-                    if from_position >= 0 and from_position < len(category['containers']):
-                        logger.info(f"Container nicht nach Namen gefunden, verwende übergebene Position {from_position}")
-                        cont = category['containers'][from_position]
-                        cont_name = cont.get('name') if isinstance(cont, dict) else cont
-                        
-                        if cont_name != container_name:
-                            logger.warning(f"Container-Namen stimmen nicht überein! Erwartet: '{container_name}', Gefunden: '{cont_name}'")
-                            # Trotzdem fortfahren, verwende den übergebenen Namen
-                        
-                        found_container = True
-                        found_position = from_position
-                    else:
-                        # Wenn der Container nicht gefunden wurde, füge ihn zur Kategorie hinzu
-                        logger.warning(f"Container {container_name} nicht in Kategorie {category_id} gefunden, füge ihn hinzu")
-                        category['containers'].append({'name': container_name})
-                        break
-                
-                # Aktualisiere die from_position für die richtige Position im Log
-                from_position = found_position
-                
-                # Wir müssen zum korrekten Index im Backend verschieben, der nicht mit dem DOM-Index übereinstimmt
-                
-                # 1. Erst bestimmen wir, wo der Container tatsächlich hin soll relativ zur aktuellen Position
-                move_direction = ""  # nach oben, unten oder selbst
-                adjusted_to_position = 0
-                
-                # Wenn der Frontend-Index und Backend-Index von der Ausgangsposition unterschiedlich sind,
-                # verwenden wir die relative Verschiebung, um zu bestimmen, wo der Container hin soll
-                if from_position < to_position:
-                    # Verschiebung nach unten (höherer Index)
-                    move_direction = "down"
-                    # Berechne Offset zwischen Ziel und Start im Frontend
-                    offset = to_position - from_position
-                    # Wende diesen Offset auf die Backend-Position an
-                    adjusted_to_position = min(found_position + offset, len(category['containers']))
-                    logger.info(f"Verschiebe nach unten um {offset} Positionen: von {found_position} nach {adjusted_to_position}")
-                elif from_position > to_position:
-                    # Verschiebung nach oben (niedrigerer Index)
-                    move_direction = "up"
-                    # Berechne den Offset zwischen Start und Ziel im Frontend
-                    offset = from_position - to_position
-                    # Wende diesen Offset auf die Backend-Position an, aber nicht unter 0
-                    adjusted_to_position = max(0, found_position - offset)
-                    logger.info(f"Verschiebe nach oben um {offset} Positionen: von {found_position} nach {adjusted_to_position}")
-                else:  # from_position == to_position
-                    move_direction = "self"
-                    adjusted_to_position = found_position  # Keine Änderung, gleiche Position
-                    logger.info(f"Keine Verschiebung notwendig, bleibt an Position {found_position}")
-                
-                # Wir verwenden den Container, der tatsächlich an der Position gefunden wurde
-                # anstatt zu prüfen, ob der Name übereinstimmt
-                container = category['containers'][found_position]
-                if isinstance(container, dict):
-                    container_name_in_list = container.get('name')
-                    # Behalte das Dictionary bei
-                else:
-                    # Wenn es ein String ist, konvertiere es in ein Dictionary
-                    container = {'name': container}
-                
-                # Entferne Container an der aktuellen Position - NUR EINMAL ENTFERNEN!
-                container = category['containers'].pop(found_position)
-                logger.info(f"Removed container at position {found_position}: {container}")
-                
-                # Bei Verschiebung nach unten müssen wir eine Position abziehen, da wir bereits ein Element entfernt haben
-                if move_direction == "down" and adjusted_to_position > found_position:
-                    adjusted_to_position -= 1
-                    logger.info(f"Angepasste Zielposition nach Entfernen des Elements: {adjusted_to_position}")
-                    
-                # Füge den Container an der berechneten Position ein
-                if adjusted_to_position >= len(category['containers']):
-                    logger.info(f"Appending container to end of list (position {len(category['containers'])})")
-                    category['containers'].append(container)
-                else:
-                    logger.info(f"Inserting container at position {adjusted_to_position}")
-                    category['containers'].insert(adjusted_to_position, container)
+            if cat.get('id') == category_id:
+                category = cat
                 break
                 
-        if not category_found:
-            # Erstelle die Kategorie, wenn sie nicht existiert
-            logger.info(f"Kategorie {category_id} nicht gefunden, erstelle sie")
-            new_category = {
-                'id': category_id,
-                'name': category_id,
-                'icon': 'fa-cube',
-                'containers': [{'name': container_name}]  # Füge den Container direkt hinzu
-            }
-            categories_data['categories'].append(new_category)
+        if not category:
+            return jsonify({'error': f'Category {category_id} not found'}), 404
             
-            # Setze die Kategorie für die weitere Verarbeitung
-            category = new_category
-            category_found = True
+        if 'containers' not in category:
+            category['containers'] = []
             
-        # Speichere die aktualisierten Kategorien
-        categories_file = os.path.join(CONFIG_DIR, 'categories.yaml')
+        # Finde den Container in der Kategorie
+        container_index = -1
+        for i, container in enumerate(category['containers']):
+            if isinstance(container, dict) and container.get('name') == container_name:
+                container_index = i
+                break
+            elif isinstance(container, str) and container == container_name:
+                container_index = i
+                break
+                
+        if container_index == -1:
+            return jsonify({'error': f'Container {container_name} not found in category {category_id}'}), 404
+            
+        # Entferne den Container aus der aktuellen Position
+        container = category['containers'].pop(container_index)
         
-        # Stelle sicher, dass das Verzeichnis existiert
-        os.makedirs(os.path.dirname(categories_file), exist_ok=True)
-        
-        with open(categories_file, 'w') as f:
-            yaml.safe_dump(categories_data, f, default_flow_style=False)
+        # Füge den Container an der neuen Position ein
+        if to_position >= len(category['containers']):
+            category['containers'].append(container)
+        else:
+            category['containers'].insert(to_position, container)
             
-        return jsonify({'success': True})
+        # Speichere die aktualisierte Konfiguration
+        save_categories(categories_data)
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Container {container_name} reordered in category {category_id}'
+        })
         
     except Exception as e:
-        logger.exception(f"Error reordering container: {str(e)}")
+        logger.error(f"Error reordering container: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/categories/order', methods=['POST'])
