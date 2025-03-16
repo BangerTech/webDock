@@ -2304,8 +2304,8 @@ def move_container():
         
         # Erzwinge sofortiges Neuladen der Kategoriedaten
         logger.info("Forcing immediate reload of category data to ensure consistency")
-        # Dieser zusätzliche Lese-Schritt stellt sicher, dass die Daten konsistent im Speicher gehalten werden
-        get_categories(force_refresh=True)
+        # Rufen wir stattdessen refresh_categories auf, was keinen Parameter benötigt
+        refresh_categories()
         
         return jsonify({'success': True})
         
