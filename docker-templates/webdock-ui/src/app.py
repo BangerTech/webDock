@@ -216,13 +216,13 @@ else:
 # Konfiguriere die Pfade relativ zum Basis-Pfad
 CONFIG_DIR = os.getenv('CONFIG_DIR', os.path.join(WEBDOCK_BASE_PATH, 'config'))
 TEMPLATE_DIR = os.path.join(APP_DIR, 'config')
+COMPOSE_DIR = os.path.join(CONFIG_DIR, 'compose-files')
+COMPOSE_FILES_DIR = os.getenv('COMPOSE_FILES_DIR', os.path.join(WEBDOCK_BASE_PATH, 'webdock-templates'))
+COMPOSE_DATA_DIR = os.getenv('COMPOSE_DATA_DIR', os.path.join(WEBDOCK_BASE_PATH, 'webdock-data'))
 
 # Korrigierte Definition der Kategoriedatei, damit die bestehende Datei verwendet wird
 # Diese Datei befindet sich in webdock-data/webdock-ui/src/config/categories.yaml
 CATEGORIES_FILE = os.path.join(COMPOSE_DATA_DIR, 'webdock-ui', 'src', 'config', 'categories.yaml')
-COMPOSE_DIR = os.path.join(CONFIG_DIR, 'compose-files')
-COMPOSE_FILES_DIR = os.getenv('COMPOSE_FILES_DIR', os.path.join(WEBDOCK_BASE_PATH, 'webdock-templates'))
-COMPOSE_DATA_DIR = os.getenv('COMPOSE_DATA_DIR', os.path.join(WEBDOCK_BASE_PATH, 'webdock-data'))
 
 # Logge die wichtigen Pfade
 logger.info(f"WebDock Base Path: {WEBDOCK_BASE_PATH}")
