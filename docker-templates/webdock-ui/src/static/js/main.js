@@ -1994,15 +1994,21 @@ function setupRefreshInterval() {
             // Verzögerung auf 2 Sekunden vergrößert, um sicherzustellen, dass der Server Zeit hat, die Änderung zu verarbeiten
             await new Promise(resolve => setTimeout(resolve, 2000));
             
-            // Nur selektiven Cache-Reset durchführen, um zu verhindern, dass andere Container fälschlicherweise neu kategorisiert werden
-            // Wir löschen spezifisch nur den Cache für den betroffenen Container
-            const containerKey = `container_${containerName}`;
-            if (sessionStorage.getItem(containerKey)) {
-                console.log(`Lösche Cache-Eintrag für Container: ${containerKey}`);
-                sessionStorage.removeItem(containerKey);
+            // Vor dem Aktualisieren der UI führen wir einen vollständigen Cache-Reset durch
+            // Dies ist notwendig, da sonst alte Kategorie-Zuordnungen bestehen bleiben könnten
+            console.log('Führe vollständigen Cache-Reset durch...');
+            clearAllCaches();
+            
+            // Stelle sicher, dass wir keine veralteten Daten aus dem lokalen Storage verwenden
+            for (let i = 0; i < sessionStorage.length; i++) {
+                const key = sessionStorage.key(i);
+                if (key.startsWith('container_') || key.startsWith('category_')) {
+                    console.log(`Lösche Cache-Eintrag: ${key}`);
+                    sessionStorage.removeItem(key);
+                }
             }
             
-            console.log('Selektives Cache-Löschen abgeschlossen, starte UI-Aktualisierung...');
+            console.log('Cache-Löschen abgeschlossen, starte UI-Aktualisierung...');
             
             // Visuelle Rückmeldung während des Updates
             const categoryContainer = document.getElementById('category-container');
@@ -2011,9 +2017,15 @@ function setupRefreshInterval() {
             }
             
             try {
-                // Direkte Kategoriedaten abrufen mit Cache-Umgehung
+                // Wir erhöhen die Verzögerung auf 3 Sekunden, um sicherzustellen, dass der Server
+                // genügend Zeit hatte, die Kategorieänderungen zu persistieren
+                console.log('Warte 3 Sekunden, damit der Server die Änderungen persistieren kann...');
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                
+                // Direkte Kategoriedaten abrufen mit Cache-Umgehung und zusätzlichem Parameter
+                // Der _nocache Parameter stellt sicher, dass wir die Daten direkt vom Server bekommen
                 const timestamp = new Date().getTime();
-                const catResponse = await fetch(`/api/categories?t=${timestamp}`, {
+                const catResponse = await fetch(`/api/categories?t=${timestamp}&_nocache=1`, {
                     method: 'GET',
                     headers: {
                         'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -2030,31 +2042,40 @@ function setupRefreshInterval() {
                 const freshCatData = await catResponse.json();
                 console.log('Neue Kategoriedaten erhalten:', freshCatData);
                 
+                // Setze explizit den DOM-Zustand zurück, damit wir sauber neu rendern können
+                const categoryContainer = document.getElementById('category-container');
+                if (categoryContainer) {
+                    // Leere den Container, damit wir komplett neu rendern können
+                    categoryContainer.innerHTML = '';
+                }
+                
                 // Warte auf das vollständige Rendering der Kategorien bevor Container geladen werden
                 await renderCategories(freshCatData, true);
                 
                 // Stelle sicher, dass wirklich alle Caches geleert sind
                 clearAllCaches();
                 
-                // Wir deaktivieren für diesen Request explizit das Browser-Caching
-                // Dies ist wichtig, damit die UI nach dem Verschieben korrekt aktualisiert wird
-                
-                // Direkt im Anschluss die Container laden mit den frisch geladenen Kategoriedaten
-                // Hier übergeben wir die frisch geladenen Kategorien, damit die Container korrekt zugeordnet werden
+                // Direkt im Anschluss die Container mit zusätzlichen Parametern laden,
+                // um sicherzustellen, dass wir frische Daten vom Server bekommen
                 try {
-                    await loadContainers(true, freshCatData);
+                    const urlParams = new URLSearchParams(window.location.search);
+                    urlParams.set('refresh', Date.now());
+                    history.replaceState(null, '', `${window.location.pathname}?${urlParams}`);
+                    
+                    await loadContainers(true);
                     console.log('Container wurden neu geladen, UI aktualisiert.');
                     
-                    // Kurze Verzögerung und dann noch einen Refresh durchführen, um sicherzustellen, dass alle Änderungen angezeigt werden
-                    setTimeout(async () => {
-                        console.log('Führe abschließenden UI-Refresh durch...');
-                        try {
-                            await renderCategories(freshCatData, true);
-                            await loadContainers(true);
-                        } catch (refreshError) {
-                            console.error('Fehler beim finalen UI-Refresh:', refreshError);
-                        }
-                    }, 1000);
+                    // Wir führen einen vollständigen Page Refresh durch, um sicherzustellen,
+                    // dass alle Änderungen korrekt angezeigt werden
+                    // Da wir die URL-Parameter bereits geändert haben, wird dies einen echten Server-Refresh auslösen
+                    setTimeout(() => {
+                        console.log('Führe vollständigen Page-Refresh durch für sauberen Zustand...');
+                        // Speichere die Information, welcher Container verschoben wurde, um ihn später hervorzuheben
+                        sessionStorage.setItem('lastMovedContainer', containerName);
+                        sessionStorage.setItem('lastMovedCategory', targetCategoryId);
+                        // Lade die Seite vollständig neu - dies stellt einen konsistenten Zustand sicher
+                        window.location.reload();
+                    }, 2000);
                 } catch (loadError) {
                     console.error('Fehler beim Laden der Container:', loadError);
                 }

@@ -2130,8 +2130,12 @@ def move_container():
     target_category = data.get('targetCategory')
     target_position = data.get('targetPosition', -1)  # -1 bedeutet ans Ende anhängen
     
-    if not all([container_name, source_category, target_category]):
+    if not all([container_name, target_category]):
         return jsonify({'error': 'Missing required fields'}), 400
+        
+    # Lege fest, dass source_category ein gültiger Wert ist, auch wenn er nicht übergeben wurde
+    if not source_category or source_category == 'undefined':
+        source_category = 'Imported'
         
     logger.info(f"Moving container {container_name} from {source_category} to {target_category} at position {target_position}")
         
@@ -2158,6 +2162,12 @@ def move_container():
                         'name': 'Media',
                         'icon': 'fa-photo-video',
                         'containers': []
+                    },
+                    {
+                        'id': 'Imported',
+                        'name': 'Imported',
+                        'icon': 'fa-download',
+                        'containers': []
                     }
                 ]
             }
@@ -2169,33 +2179,39 @@ def move_container():
             try:
                 with open(categories_file, 'r') as f:
                     data = yaml.safe_load(f)
+                    
+                # Verifiziere, dass die Dateistruktur korrekt ist
+                if not data or 'categories' not in data or not isinstance(data['categories'], list):
+                    logger.error(f"Invalid categories file structure: {data}")
+                    data = {'categories': []}
             except Exception as e:
                 logger.error(f"Error loading categories file: {e}")
                 # Create default structure if file can't be loaded
                 data = {'categories': []}
-            
-        if not data or 'categories' not in data:
+        
+        # Ensure data structure is valid
+        if not data or 'categories' not in data or not isinstance(data['categories'], list):
             data = {'categories': []}
             
         categories = data['categories']
         source_category_data = None
         target_category_data = None
-        container_data = None
         
         # Find source and target categories by ID or name
         for category in categories:
-            # Check for ID match
-            if category.get('id') == source_category:
-                source_category_data = category
-            if category.get('id') == target_category:
-                target_category_data = category
+            if not isinstance(category, dict):
+                continue
                 
-            # Also check for name match as fallback
-            if not source_category_data and category.get('name') == source_category:
+            category_id = category.get('id', '')
+            category_name = category.get('name', '')
+            
+            # Check for ID or name match
+            if category_id == source_category or category_name == source_category:
                 source_category_data = category
-            if not target_category_data and category.get('name') == target_category:
-                target_category_data = category
                 
+            if category_id == target_category or category_name == target_category:
+                target_category_data = category
+        
         # If categories not found, create them
         if not source_category_data:
             logger.info(f"Creating source category: {source_category}")
@@ -2216,55 +2232,43 @@ def move_container():
                 'containers': []
             }
             categories.append(target_category_data)
-            
+        
         # Ensure containers lists exist
         if 'containers' not in source_category_data:
             source_category_data['containers'] = []
             
         if 'containers' not in target_category_data:
             target_category_data['containers'] = []
-            
-        # Find and remove container from source category
-        source_containers = source_category_data.get('containers', [])
-        container_found = False
         
-        for i, container in enumerate(source_containers):
-            if isinstance(container, dict) and container.get('name') == container_name:
-                container_data = source_category_data['containers'].pop(i)
-                container_found = True
-                break
-            elif isinstance(container, str) and container == container_name:
-                container_data = {'name': container_name}
-                source_category_data['containers'].pop(i)
-                container_found = True
-                break
+        # Prepare container data object
+        container_data = {'name': container_name}
         
-        # Wenn der Container nicht in der Quellkategorie gefunden wurde,
-        # erstelle einen neuen Eintrag (für nicht-installierte Container)
-        if not container_found:
-            logger.info(f"Container {container_name} wurde nicht in der Quellkategorie gefunden, erstelle neuen Eintrag")
-            container_data = {'name': container_name}
-            # Wir löschen nichts aus der Quellkategorie, da der Container dort nicht existiert
-            
-        # Wichtig: Überprüfe und entferne den Container aus ALLEN anderen Kategorien
-        # Dadurch wird verhindert, dass der Container mehrfach in verschiedenen Kategorien erscheint
+        # SCHRITT 1: Entferne den Container aus ALLEN Kategorien
+        # Dies ist entscheidend, um sicherzustellen, dass ein Container nie in mehreren Kategorien existiert
         for category in categories:
-            # Überspringe die Quellkategorie (bereits geprüft) und Zielkategorie (dort fügen wir später hinzu)
-            if category == source_category_data or category == target_category_data:
+            if not isinstance(category, dict) or 'containers' not in category:
                 continue
                 
-            # Entferne Container aus dieser Kategorie, falls vorhanden
-            if 'containers' in category:
+            # Erstelle eine neue Liste ohne den zu verschiebenden Container
+            if isinstance(category['containers'], list):
                 cleaned_containers = []
                 for c in category['containers']:
                     # Container könnte ein String oder ein Dict sein
-                    if isinstance(c, dict) and c.get('name') != container_name:
-                        cleaned_containers.append(c)
+                    keep_container = False
+                    
+                    if isinstance(c, dict) and 'name' in c and c['name'] != container_name:
+                        keep_container = True
                     elif isinstance(c, str) and c != container_name:
+                        keep_container = True
+                        
+                    if keep_container:
                         cleaned_containers.append(c)
+                        
+                # Aktualisiere die Kategorie mit der bereinigten Liste
                 category['containers'] = cleaned_containers
             
-        # Add container to target category with position handling
+        # SCHRITT 2: Füge den Container jetzt in die Zielkategorie ein
+        # Wichtig: Verwende hier immer das standardisierte container_data Format
         if target_position >= 0 and target_position < len(target_category_data['containers']):
             # Füge an spezifischer Position ein
             target_category_data['containers'].insert(target_position, container_data)
@@ -2274,14 +2278,28 @@ def move_container():
             target_category_data['containers'].append(container_data)
             logger.info(f"Container {container_name} am Ende eingefügt")
         
-        # Save updated categories
+        # SCHRITT 3: Speichere die aktualisierte Kategorie-Struktur
+        # Stelle sicher, dass wir mit fsync() auf die Festplatte schreiben
         try:
             with open(categories_file, 'w') as f:
                 yaml.safe_dump(data, f, default_flow_style=False)
+                f.flush()
+                os.fsync(f.fileno())  # Erzwinge, dass die Änderungen auf die Festplatte geschrieben werden
+                
+            logger.info(f"Categories file successfully updated: {categories_file}")
+            # Für Debug-Zwecke: Lese die Datei direkt nach dem Speichern
+            with open(categories_file, 'r') as f:
+                verification_data = yaml.safe_load(f)
+                logger.info(f"Verification of categories after save - found {len(verification_data.get('categories', []))} categories")
+                
         except Exception as e:
             logger.error(f"Error saving categories file: {e}")
             return jsonify({'error': f'Could not save categories file: {str(e)}'}), 500
             
+        # Cache leeren, um sicherzustellen, dass die Änderungen sofort wirksam werden
+        global _categories_cache
+        _categories_cache = None
+        
         return jsonify({'success': True})
         
     except Exception as e:
