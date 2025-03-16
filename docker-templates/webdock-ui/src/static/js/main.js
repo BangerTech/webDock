@@ -1921,12 +1921,12 @@ function setupRefreshInterval() {
         const loadingOverlay = document.getElementById('loading-overlay');
         if (loadingOverlay) loadingOverlay.style.display = 'flex';
         
-        // Wrapper-Funktion, um sicherzustellen, dass das Overlay immer versteckt wird
+        // Sicherstellen, dass das Overlay in jedem Fall geschlossen wird
         const hideLoadingOverlay = () => {
             if (loadingOverlay) loadingOverlay.style.display = 'none';
         };
         
-        // Sicherstellen, dass das Overlay nach 10 Sekunden in jedem Fall verschwindet (Sicherheitsmaßnahme)
+        // Sicherstellen, dass das Overlay nach 10 Sekunden in jedem Fall verschwindet
         const safetyTimeout = setTimeout(hideLoadingOverlay, 10000);
         
         try {
@@ -2067,92 +2067,35 @@ function setupRefreshInterval() {
                     categoryContainer.innerHTML = '';
                 }
                 
-                // Warte auf das vollständige Rendering der Kategorien bevor Container geladen werden
-                await renderCategories(freshCatData, true);
+                // Statt eines kompletten Seiten-Reloads rendern wir die UI dynamisch neu
+                console.log('Rendere UI dynamisch neu nach Container-Verschiebung...');
                 
-                // Stelle sicher, dass wirklich alle Caches geleert sind
-                clearAllCaches();
+                // Speichere Informationen zum verschobenen Container für die Hervorhebung
+                sessionStorage.setItem('lastMovedContainer', containerName);
+                sessionStorage.setItem('lastMovedCategory', targetCategoryId);
                 
-                // Aktualisiere die Kategorien im globalen Cache
-                categoriesCache = freshCatData;
+                // Zeige Erfolgsmeldung an
+                showNotification('success', `Container ${containerName} wurde erfolgreich in die Kategorie "${targetCategoryId}" verschoben!`, 1500);
                 
-                // Direkt im Anschluss die Container mit zusätzlichen Parametern laden
+                // Dynamisch die Kategorien und Container neu laden ohne Seiten-Reload
                 try {
-                    const urlParams = new URLSearchParams(window.location.search);
-                    urlParams.set('refresh', Date.now());
-                    history.replaceState(null, '', `${window.location.pathname}?${urlParams}`);
+                    // Aktualisiere die UI mit den neuen Daten
+                    renderCategories(freshCatData.categories);
                     
-                    console.log('Container werden mit frischen Kategoriedaten geladen...');
-                    // Wir übergeben die frischen Kategoriedaten explizit, um Rekursion zu vermeiden
-                    const containers = await loadContainers(true, freshCatData);
-                    console.log('Container wurden neu geladen, UI aktualisiert.');
-                    
-                    // Wir speichern Info über den zuletzt verschobenen Container
-                    // und führen dann einen Soft-Refresh der UI durch (statt eines vollständigen Page-Refresh)
-                    // Dies spart Zeit und vermeidet potenzielle Socket.io Fehler
-                    console.log('Markiere Container für Hervorhebung...');
-                    sessionStorage.setItem('lastMovedContainer', containerName);
-                    sessionStorage.setItem('lastMovedCategory', targetCategoryId);
-                    
-                    // Suche und hebe den Container nach Abschluss des UI-Updates hervor
+                    // Warte kurz und scrolle dann zum verschobenen Container
                     setTimeout(() => {
-                        // Direkte Implementierung der Highlight-Funktionalität
-                        const categorySection = document.querySelector(`.group-section[data-category-id="${targetCategoryId}"]`);
-                        if (categorySection) {
-                            const containerCard = categorySection.querySelector(`.container-card[data-name="${containerName}"]`);
-                            if (containerCard) {
-                                containerCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                                // Visuelles Hervorheben des verschobenen Containers
-                                containerCard.classList.add('highlight-moved');
-                                setTimeout(() => {
-                                    containerCard.classList.remove('highlight-moved');
-                                }, 3000);
-                                showNotification('success', `Container ${containerName} wurde in die Kategorie '${targetCategoryId}' verschoben`);
-                            }
-                        }
-                        hideLoadingOverlay(); // Stelle sicher, dass das Loading-Overlay versteckt wird
+                        highlightAndScrollToContainer(containerName, targetCategoryId);
+                    }, 500);
+                } catch (renderError) {
+                    console.error('Fehler beim dynamischen Rendern:', renderError);
+                    // Im Fehlerfall als Fallback doch einen Reload durchführen
+                    setTimeout(() => {
+                        window.location.reload();
                     }, 1000);
-                } catch (loadError) {
-                    console.error('Fehler beim Laden der Container:', loadError);
                 }
-                
-                // Nach dem Laden beide Aktualisierungen abschließen
-                if (categoryContainer) {
-                    categoryContainer.classList.remove('refreshing');
-                }
-                
-                // Scrolle zum verschobenen Container
-                setTimeout(() => {
-                    // Versuche verschiedene Selektoren, um den Container zuverlässig zu finden
-                    const containerSelectors = [
-                        `.container-card[data-container="${containerName}"]`,
-                        `.container-card[data-name="${containerName}"]`
-                    ];
-                    
-                    let movedCard = null;
-                    for (const selector of containerSelectors) {
-                        movedCard = document.querySelector(selector);
-                        if (movedCard) break;
-                    }
-                    
-                    if (movedCard) {
-                        movedCard.classList.add('highlight-card');
-                        movedCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        setTimeout(() => movedCard.classList.remove('highlight-card'), 2000);
-                    } else {
-                        console.warn(`Konnte verschobenen Container ${containerName} nicht in der UI finden`);
-                    }
-                }, 300);
-                
-                showNotification('success', `Container ${containerName} wurde in die Kategorie '${targetCategoryId}' verschoben`);
             } catch (error) {
-                console.error('Fehler beim Aktualisieren der UI nach Verschieben:', error);
-                // Zeige Fehlermeldung und Fallback
-                showNotification('error', `UI-Aktualisierung fehlgeschlagen: ${error.message}`);
-                setTimeout(() => {
-                    // Fallback: Force Refresh der Seite als letzte Maßnahme
-                    window.location.reload();
-                }, 1500);
+                console.error('Fehler beim Neuladen der Kategorien:', error);
+                showNotification('error', `Fehler beim Aktualisieren: ${error.message}`, 3000);
             }
         } catch (error) {
             console.error('Error moving container:', error);
@@ -2166,6 +2109,49 @@ function setupRefreshInterval() {
                 hideLoadingOverlay();
             }, 500); // Kurze Verzögerung um sicherzustellen, dass alles abgeschlossen ist
         }
+    }
+    
+    // Hilfsfunktion zum Hervorheben und Scrollen zu einem Container nach Verschiebung
+    function highlightAndScrollToContainer(containerName, categoryId) {
+        // Versuche zuerst, die richtige Kategoriesektion zu finden
+        const categorySection = document.querySelector(`.category-section[data-category-id="${categoryId}"]`) ||
+                               document.querySelector(`.group-section[data-category-id="${categoryId}"]`);
+        
+        if (!categorySection) {
+            console.warn(`Konnte Kategoriesektion für ${categoryId} nicht finden`);
+            return false;
+        }
+        
+        // Suche nach dem Container mit verschiedenen Selektoren
+        const containerSelectors = [
+            `.container-card[data-container="${containerName}"]`,
+            `.container-card[data-name="${containerName}"]`
+        ];
+        
+        let containerCard = null;
+        for (const selector of containerSelectors) {
+            const candidate = categorySection.querySelector(selector);
+            if (candidate) {
+                containerCard = candidate;
+                break;
+            }
+        }
+        
+        if (!containerCard) {
+            console.warn(`Konnte Container ${containerName} in Kategorie ${categoryId} nicht finden`);
+            return false;
+        }
+        
+        // Scrolle zum Container und hebe ihn hervor
+        containerCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        containerCard.classList.add('highlight-moved');
+        
+        // Entferne die Hervorhebung nach 3 Sekunden
+        setTimeout(() => {
+            containerCard.classList.remove('highlight-moved');
+        }, 3000);
+        
+        return true;
     }
     
     // Hilfsfunktion zum Finden der tatsächlichen Position eines Containers im DOM
