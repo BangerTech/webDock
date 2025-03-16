@@ -2118,7 +2118,7 @@ function setupRefreshInterval() {
                     
                     // Container-Daten laden und neu rendern
                     WebDockLogger.info('Lade Container-Daten nach Kategorieänderung...');
-                    loadContainers(true, freshCatData);
+                    fetchAndRenderContainers(false, freshCatData.categories);
                     
                     // Warte kurz und scrolle dann zum verschobenen Container
                     setTimeout(() => {
@@ -2182,17 +2182,11 @@ function setupRefreshInterval() {
         
         // Scrolle zum Container und hebe ihn hervor
         containerCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        
-        // Füge highlight-card Klasse hinzu (diese hat bereits definierte CSS-Styles)
-        containerCard.classList.add('highlight-card');
-        
-        // Füge auch die highlight-moved Klasse für weitere visuelle Effekte hinzu
         containerCard.classList.add('highlight-moved');
         
-        // Entferne die Hervorhebungen nach 3 Sekunden
+        // Entferne die Hervorhebung nach 3 Sekunden
         setTimeout(() => {
             containerCard.classList.remove('highlight-moved');
-            containerCard.classList.remove('highlight-card');
         }, 3000);
         
         return true;
