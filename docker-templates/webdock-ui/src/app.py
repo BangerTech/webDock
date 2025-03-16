@@ -4941,9 +4941,11 @@ def get_host_config():
 def refresh_categories():
     """Aktualisiert den Kategorien-Cache"""
     try:
-        global categories_cache, last_categories_update
-        categories_cache = None
-        last_categories_update = 0
+        global _categories_cache, _containers_cache, _container_status_cache
+        _categories_cache = None
+        _containers_cache = None
+        _container_status_cache = {}
+        logger.info("Refreshed all caches for categories and containers")
         return jsonify({'status': 'success'})
     except Exception as e:
         logger.error(f"Error refreshing categories: {str(e)}")
