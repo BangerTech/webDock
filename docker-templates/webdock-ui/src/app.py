@@ -216,7 +216,9 @@ else:
 # Konfiguriere die Pfade relativ zum Basis-Pfad
 CONFIG_DIR = os.getenv('CONFIG_DIR', os.path.join(WEBDOCK_BASE_PATH, 'config'))
 TEMPLATE_DIR = os.path.join(APP_DIR, 'config')
-CATEGORIES_FILE = os.path.join(CONFIG_DIR, 'categories.yaml')
+
+# Verwende die bestehende Kategoriedatei im webdock-ui Verzeichnis
+CATEGORIES_FILE = os.path.join(COMPOSE_DATA_DIR, 'webdock-ui', 'src', 'config', 'categories.yaml')
 COMPOSE_DIR = os.path.join(CONFIG_DIR, 'compose-files')
 COMPOSE_FILES_DIR = os.getenv('COMPOSE_FILES_DIR', os.path.join(WEBDOCK_BASE_PATH, 'webdock-templates'))
 COMPOSE_DATA_DIR = os.getenv('COMPOSE_DATA_DIR', os.path.join(WEBDOCK_BASE_PATH, 'webdock-data'))
@@ -2140,14 +2142,15 @@ def move_container():
     logger.info(f"Moving container {container_name} from {source_category} to {target_category} at position {target_position}")
         
     try:
-        # Stelle sicher, dass der Pfad für die Kategorien-Datei existiert
+        # Stelle sicher, dass das Verzeichnis für die Kategoriedatei existiert
         os.makedirs(os.path.dirname(CATEGORIES_FILE), exist_ok=True)
         
-        # Lade Kategorien aus der global definierten Kategorien-Datei
+        # Lade Kategorien aus der global definierten Datei
         categories_file = CATEGORIES_FILE
         
         # Debug-Logging für Dateipfade
         logger.info(f"Using categories file: {categories_file}")
+        logger.info(f"Global CATEGORIES_FILE: {CATEGORIES_FILE}")
         
         # Check if file exists, if not create it with default structure
         if not os.path.exists(categories_file):
@@ -2243,10 +2246,9 @@ def move_container():
         if 'containers' not in target_category_data:
             target_category_data['containers'] = []
         
-        # Finde die vollständigen Container-Daten (inklusive Beschreibung) aus der Quellkategorie
-        # oder aus anderen Kategorien, falls der Container bereits verschoben wurde
+        # WICHTIG: Finde alle Metadaten des Containers, bevor er aus der Quellkategorie entfernt wird
         container_data = {'name': container_name}
-        container_found = False
+        container_description = None
         
         # Durchsuche alle Kategorien nach dem Container und seinen Metadaten
         for category in categories:
@@ -2256,14 +2258,9 @@ def move_container():
             if isinstance(category['containers'], list):
                 for c in category['containers']:
                     if isinstance(c, dict) and 'name' in c and c['name'] == container_name:
-                        # Kopiere alle Eigenschaften des Containers
+                        # Speichere alle Metadaten des Containers
                         container_data = c.copy()
-                        container_found = True
-                        logger.info(f"Found existing container data for {container_name}: {container_data}")
                         break
-            
-            if container_found:
-                break
         
         # SCHRITT 1: Entferne den Container aus ALLEN Kategorien
         # Dies ist entscheidend, um sicherzustellen, dass ein Container nie in mehreren Kategorien existiert
@@ -2290,21 +2287,7 @@ def move_container():
                 category['containers'] = cleaned_containers
             
         # SCHRITT 2: Füge den Container jetzt in die Zielkategorie ein
-        # Wichtig: Verwende hier immer das standardisierte container_data Format mit allen Metadaten
-        # Suche nach vorhandenen Container-Daten in der Quellkategorie für vollständige Metadaten
-        for category in categories:
-            if not isinstance(category, dict) or 'containers' not in category:
-                continue
-                
-            if isinstance(category['containers'], list):
-                for c in category['containers']:
-                    if isinstance(c, dict) and 'name' in c and c['name'] == container_name:
-                        # Übernehme alle Metadaten (Beschreibung etc.) des Containers
-                        container_data = c.copy()
-                        logger.info(f"Übernehme Metadaten für Container {container_name}: {container_data}")
-                        break
-        
-        # Füge Container mit allen Metadaten in Zielkategorie ein
+        # Wichtig: Verwende hier immer das standardisierte container_data Format
         if target_position >= 0 and target_position < len(target_category_data['containers']):
             # Füge an spezifischer Position ein
             target_category_data['containers'].insert(target_position, container_data)
@@ -2315,16 +2298,14 @@ def move_container():
             logger.info(f"Container {container_name} am Ende eingefügt")
         
         # SCHRITT 3: Speichere die aktualisierte Kategorie-Struktur
-        # Stelle sicher, dass wir mit fsync() auf die Festplatte schreiben
+        # Verwende die globale save_categories Funktion
         try:
-            with open(categories_file, 'w') as f:
-                yaml.safe_dump(data, f, default_flow_style=False)
-                f.flush()
-                os.fsync(f.fileno())  # Erzwinge, dass die Änderungen auf die Festplatte geschrieben werden
-                
-            logger.info(f"Categories file successfully updated: {categories_file}")
+            # Speichere die aktualisierten Kategorien
+            save_categories({'categories': categories})
+            
+            logger.info(f"Categories file successfully updated: {CATEGORIES_FILE}")
             # Für Debug-Zwecke: Lese die Datei direkt nach dem Speichern
-            with open(categories_file, 'r') as f:
+            with open(CATEGORIES_FILE, 'r') as f:
                 verification_data = yaml.safe_load(f)
                 logger.info(f"Verification of categories after save - found {len(verification_data.get('categories', []))} categories")
                 
@@ -5181,10 +5162,16 @@ def import_compose():
 def save_categories(categories):
     """Speichert die Kategorien in die categories.yaml Datei"""
     try:
+        # Stelle sicher, dass das Verzeichnis existiert
+        os.makedirs(os.path.dirname(CATEGORIES_FILE), exist_ok=True)
+        
+        # Speichere die Kategorien in die Datei
         with open(CATEGORIES_FILE, 'w') as f:
             yaml.dump(categories, f, default_flow_style=False, sort_keys=False)
+        
         # Setze Berechtigungen
         os.chmod(CATEGORIES_FILE, 0o644)
+        logger.info(f"Categories saved to {CATEGORIES_FILE}")
     except Exception as e:
         logger.error(f"Error saving categories: {str(e)}")
         raise
