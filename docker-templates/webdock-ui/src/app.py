@@ -216,7 +216,10 @@ else:
 # Konfiguriere die Pfade relativ zum Basis-Pfad
 CONFIG_DIR = os.getenv('CONFIG_DIR', os.path.join(WEBDOCK_BASE_PATH, 'config'))
 TEMPLATE_DIR = os.path.join(APP_DIR, 'config')
-CATEGORIES_FILE = os.path.join(CONFIG_DIR, 'categories.yaml')
+
+# Korrigierte Definition der Kategoriedatei, damit die bestehende Datei verwendet wird
+# Diese Datei befindet sich in webdock-data/webdock-ui/src/config/categories.yaml
+CATEGORIES_FILE = os.path.join(COMPOSE_DATA_DIR, 'webdock-ui', 'src', 'config', 'categories.yaml')
 COMPOSE_DIR = os.path.join(CONFIG_DIR, 'compose-files')
 COMPOSE_FILES_DIR = os.getenv('COMPOSE_FILES_DIR', os.path.join(WEBDOCK_BASE_PATH, 'webdock-templates'))
 COMPOSE_DATA_DIR = os.getenv('COMPOSE_DATA_DIR', os.path.join(WEBDOCK_BASE_PATH, 'webdock-data'))
@@ -2244,8 +2247,27 @@ def move_container():
         if 'containers' not in target_category_data:
             target_category_data['containers'] = []
         
-        # Prepare container data object
+        # Finde die vollständigen Container-Daten (inklusive Beschreibung) aus der Quellkategorie
+        # oder aus anderen Kategorien, falls der Container bereits verschoben wurde
         container_data = {'name': container_name}
+        container_found = False
+        
+        # Durchsuche alle Kategorien nach dem Container und seinen Metadaten
+        for category in categories:
+            if not isinstance(category, dict) or 'containers' not in category:
+                continue
+                
+            if isinstance(category['containers'], list):
+                for c in category['containers']:
+                    if isinstance(c, dict) and 'name' in c and c['name'] == container_name:
+                        # Kopiere alle Eigenschaften des Containers
+                        container_data = c.copy()
+                        container_found = True
+                        logger.info(f"Found existing container data for {container_name}: {container_data}")
+                        break
+            
+            if container_found:
+                break
         
         # SCHRITT 1: Entferne den Container aus ALLEN Kategorien
         # Dies ist entscheidend, um sicherzustellen, dass ein Container nie in mehreren Kategorien existiert
