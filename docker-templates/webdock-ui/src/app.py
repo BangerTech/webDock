@@ -2357,10 +2357,10 @@ def reorder_container():
         if not categories_data or 'categories' not in categories_data:
             categories_data = {'categories': []}
             
-        # Finde die Kategorie
+        # Finde die Kategorie (case-insensitive)
         category = None
         for cat in categories_data['categories']:
-            if cat.get('id') == category_id:
+            if cat.get('id', '').lower() == category_id.lower():
                 category = cat
                 break
                 
