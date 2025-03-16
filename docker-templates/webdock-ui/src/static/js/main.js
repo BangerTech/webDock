@@ -1990,13 +1990,31 @@ function setupRefreshInterval() {
 
             console.log('Container erfolgreich verschoben, aktualisiere UI...');
             
+            // Wir führen einen expliziten Server-Cache-Reset durch, um sicherzustellen dass alle Kategoriezuordnungen korrekt persistiert werden
+            try {
+                console.log('Server-Cache für Kategorien wird zurückgesetzt...');
+                const resetResponse = await fetch('/api/categories/refresh', {
+                    method: 'POST',
+                    headers: {
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Pragma': 'no-cache'
+                    }
+                });
+                
+                if (resetResponse.ok) {
+                    console.log('Server-Cache für Kategorien erfolgreich zurückgesetzt');
+                } else {
+                    console.warn('Server-Cache-Reset lieferte Fehler:', resetResponse.status);
+                }
+            } catch (resetError) {
+                console.error('Fehler beim Server-Cache-Reset:', resetError);
+            }
+            
             // Erhöhte Verzögerung hinzufügen, um sicherzustellen, dass der Server die Änderung verarbeitet hat
-            // Verzögerung auf 2 Sekunden vergrößert, um sicherzustellen, dass der Server Zeit hat, die Änderung zu verarbeiten
             await new Promise(resolve => setTimeout(resolve, 2000));
             
-            // Vor dem Aktualisieren der UI führen wir einen vollständigen Cache-Reset durch
-            // Dies ist notwendig, da sonst alte Kategorie-Zuordnungen bestehen bleiben könnten
-            console.log('Führe vollständigen Cache-Reset durch...');
+            // Vor dem Aktualisieren der UI führen wir einen vollständigen Client-Cache-Reset durch
+            console.log('Führe vollständigen Client-Cache-Reset durch...');
             clearAllCaches();
             
             // Stelle sicher, dass wir keine veralteten Daten aus dem lokalen Storage verwenden
@@ -2078,19 +2096,18 @@ function setupRefreshInterval() {
                     
                     // Suche und hebe den Container nach Abschluss des UI-Updates hervor
                     setTimeout(() => {
-                        // Verwende die neue highlightMovedContainer Funktion aus container-highlight.js
-                        if (typeof highlightMovedContainer === 'function') {
-                            highlightMovedContainer(containerName, targetCategoryId);
-                        } else {
-                            console.warn('highlightMovedContainer Funktion nicht gefunden, wahrscheinlich ist container-highlight.js nicht geladen');
-                            // Fallback-Methode
-                            const categorySection = document.querySelector(`.group-section[data-category-id="${targetCategoryId}"]`);
-                            if (categorySection) {
-                                const containerCard = categorySection.querySelector(`.container-card[data-name="${containerName}"]`);
-                                if (containerCard) {
-                                    containerCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                                    showNotification('success', `Container ${containerName} wurde in die Kategorie '${targetCategoryId}' verschoben`);
-                                }
+                        // Direkte Implementierung der Highlight-Funktionalität
+                        const categorySection = document.querySelector(`.group-section[data-category-id="${targetCategoryId}"]`);
+                        if (categorySection) {
+                            const containerCard = categorySection.querySelector(`.container-card[data-name="${containerName}"]`);
+                            if (containerCard) {
+                                containerCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                // Visuelles Hervorheben des verschobenen Containers
+                                containerCard.classList.add('highlight-moved');
+                                setTimeout(() => {
+                                    containerCard.classList.remove('highlight-moved');
+                                }, 3000);
+                                showNotification('success', `Container ${containerName} wurde in die Kategorie '${targetCategoryId}' verschoben`);
                             }
                         }
                         hideLoadingOverlay(); // Stelle sicher, dass das Loading-Overlay versteckt wird
