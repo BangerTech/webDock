@@ -41,10 +41,17 @@ let lastContainersFetch = 0;
 const CACHE_TTL = 60000; // Cache-Gültigkeit in Millisekunden (1 Minute)
 
 // Alias für loadContainers, um Kompatibilität mit moveContainer zu gewährleisten
-const fetchAndRenderContainers = async (forceRefresh, categories) => {
+const fetchAndRenderContainers = async (forceRefresh = false, explicitCategoriesData = null) => {
     console.log('fetchAndRenderContainers aufgerufen (Alias für loadContainers)');
-    // Wir erzwingen einen Neuaufruf, auch wenn bereits ein Ladevorgang läuft
-    return loadContainers(forceRefresh, categories, true);
+    
+    // Setze eine globale Variable, um zu verhindern, dass loadContainers den Aufruf blockiert
+    window._forceContainerLoad = true;
+    
+    // Warte kurz, um sicherzustellen, dass die UI-Updates abgeschlossen sind
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // Rufe loadContainers mit den übergebenen Parametern auf
+    return await loadContainers(forceRefresh, explicitCategoriesData);
 };
 
 // Hilfsfunktion zum vollständigen Löschen des Browser-Caches für Container und Kategorien
@@ -2159,58 +2166,46 @@ function setupRefreshInterval() {
     
     // Hilfsfunktion zum Hervorheben und Scrollen zu einem Container nach Verschiebung
     function highlightAndScrollToContainer(containerName, categoryId) {
-        console.log(`Versuche Container ${containerName} in Kategorie ${categoryId} zu finden und hervorzuheben...`);
-        
-        // Warten, bis das DOM vollständig aktualisiert wurde
+        // Verzögere die Suche, um sicherzustellen, dass das DOM aktualisiert wurde
         setTimeout(() => {
-            try {
-                // Finde die Kategorie-Sektion
-                const categorySection = document.querySelector(`[data-category-id="${categoryId}"]`);
-                if (!categorySection) {
-                    console.warn(`Konnte Kategoriesektion für ${categoryId} nicht finden`);
-                    
-                    // Versuche es mit allen Kategorien
-                    const allCategories = document.querySelectorAll('.category-section');
-                    console.log(`Suche in ${allCategories.length} Kategorien nach Container ${containerName}...`);
-                    
-                    for (const catSection of allCategories) {
-                        const containerCard = catSection.querySelector(`[data-container-name="${containerName}"]`);
-                        if (containerCard) {
-                            console.log(`Container ${containerName} in Kategorie ${catSection.dataset.categoryId} gefunden!`);
-                            highlightAndScrollToElement(containerCard);
-                            return;
-                        }
-                    }
-                    
-                    console.warn(`Container ${containerName} konnte in keiner Kategorie gefunden werden`);
-                    return;
+            // Versuche zuerst, die richtige Kategoriesektion zu finden
+            const categorySection = document.querySelector(`.category-section[data-category-id="${categoryId}"]`) ||
+                                   document.querySelector(`.group-section[data-category-id="${categoryId}"]`);
+            
+            if (!categorySection) {
+                console.warn(`Konnte Kategoriesektion für ${categoryId} nicht finden`);
+                // Versuche es mit allen Kategoriesektionen
+                const allContainers = document.querySelectorAll(`.container-card[data-container="${containerName}"]`);
+                if (allContainers.length > 0) {
+                    highlightAndScrollToElement(allContainers[0]);
+                    return true;
                 }
-                
-                // Finde die Container-Karte
-                const containerCard = categorySection.querySelector(`[data-container-name="${containerName}"]`);
-                if (!containerCard) {
-                    console.warn(`Container ${containerName} konnte in Kategorie ${categoryId} nicht gefunden werden`);
-                    return;
-                }
-                
-                highlightAndScrollToElement(containerCard);
-            } catch (error) {
-                console.error('Fehler beim Hervorheben des Containers:', error);
+                return false;
             }
-        }, 500); // Kurze Verzögerung, um sicherzustellen, dass das DOM aktualisiert wurde
-    }
-    
-    function highlightAndScrollToElement(element) {
-        // Zum Container scrollen
-        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        
-        // Hervorhebungseffekt hinzufügen
-        element.classList.add('highlight-container');
-        
-        // Nach 2 Sekunden Hervorhebung entfernen
-        setTimeout(() => {
-            element.classList.remove('highlight-container');
-        }, 2000);
+            
+            // Suche nach dem Container mit verschiedenen Selektoren
+            const containerSelectors = [
+                `.container-card[data-container="${containerName}"]`,
+                `.container-card[data-name="${containerName}"]`
+            ];
+            
+            let containerCard = null;
+            for (const selector of containerSelectors) {
+                const candidate = categorySection.querySelector(selector);
+                if (candidate) {
+                    containerCard = candidate;
+                    break;
+                }
+            }
+            
+            if (!containerCard) {
+                console.warn(`Konnte Container ${containerName} in Kategorie ${categoryId} nicht finden`);
+                return false;
+            }
+            
+            // Verwende die neue Hilfsfunktion zum Hervorheben und Scrollen
+            return highlightAndScrollToElement(containerCard);
+        }, 500); // Erhöhe die Verzögerung auf 500ms für bessere Zuverlässigkeit
     }
     
     // Hilfsfunktion zum Finden der tatsächlichen Position eines Containers im DOM
@@ -2431,7 +2426,7 @@ function setupRefreshInterval() {
                     // Container-Daten laden und neu rendern
                     console.log('Lade Container-Daten nach Kategorieänderung...');
                     // Hier ist der Hauptunterschied: Wir verwenden fetchAndRenderContainers wie in moveContainer
-                    await fetchAndRenderContainers(true, freshCatData.categories);
+                    fetchAndRenderContainers(false, freshCatData.categories);
                     
                     // Warte kurz und scrolle dann zum verschobenen Container
                     setTimeout(() => {
@@ -3770,7 +3765,6 @@ function createContainerCard(container, categoryId) {
         ondragenter="handleContainerDragEnter(event)"
         ondragleave="handleContainerDragLeave(event)"
         ondrop="handleContainerDrop(event)"
-        data-container-name="${container.name}"
     `;
     
     // Bestimme das richtige Protokoll (HTTP oder HTTPS)
@@ -3797,7 +3791,7 @@ function createContainerCard(container, categoryId) {
             : 'N/A'}</p>`;
     }
     
-    containerCard.innerHTML = `
+    return `
         <div class="container-card" data-name="${container.name}"${dragAttributes}>
             <div class="status-indicator ${container.status}" title="Status: ${container.status}"></div>
             <div class="container-logo">
@@ -3833,8 +3827,6 @@ function createContainerCard(container, categoryId) {
             </div>
         </div>
     `;
-    
-    return containerCard;
 }
 
 async function openInfo(containerName) {
@@ -5009,14 +5001,20 @@ function saveCompose() {
 // Globaler Zustand, um rekursive Aufrufe zu verhindern
 let loadingContainersInProgress = false;
 
-async function loadContainers(forceRefresh = false, explicitCategoriesData = null, forceReload = false) {
-    // Rekursionsschutz, aber mit Möglichkeit zum Überschreiben
-    if (window.loadingContainers && !forceReload) {
-        console.log('Container-Ladung bereits im Gange, verhindere rekursiven Aufruf');
-        return;
+async function loadContainers(forceRefresh = false, explicitCategoriesData = null) {
+    // Anti-Rekursions-Schutz: Vermeidet mehrfache verschachtelte Aufrufe
+    if (loadingContainersInProgress && !window._forceContainerLoad) {
+        console.warn('Container-Ladung bereits im Gange, verhindere rekursiven Aufruf');
+        return null;
     }
     
-    window.loadingContainers = true;
+    // Zurücksetzen der Force-Variable, falls sie gesetzt war
+    if (window._forceContainerLoad) {
+        console.log('Erzwungenes Laden der Container, ignoriere Rekursionsschutz');
+        window._forceContainerLoad = false;
+    }
+    
+    loadingContainersInProgress = true;
     
     try {
         const now = Date.now();
@@ -5083,9 +5081,6 @@ async function loadContainers(forceRefresh = false, explicitCategoriesData = nul
         showNotification('error', 'Fehler beim Laden der Container: ' + (outerError.message || outerError));
         loadingContainersInProgress = false;
         return null;
-    } finally {
-        // Rekursionsschutz zurücksetzen
-        window.loadingContainers = false;
     }
 }
 
@@ -5093,6 +5088,8 @@ function renderContainers(containers, categories) {
     try {
         if (!containers || !categories) {
             console.error('Missing data for rendering containers', { containers, categories });
+            // Stelle sicher, dass die Sperre aufgehoben wird
+            loadingContainersInProgress = false;
             return;
         }
 
@@ -5120,9 +5117,15 @@ function renderContainers(containers, categories) {
                 section.appendChild(containerGrid);
             }
         });
+        
+        // Stelle sicher, dass die Sperre am Ende aufgehoben wird
+        loadingContainersInProgress = false;
+        return containers;
     } catch (error) {
         console.error('Error rendering containers:', error);
         showNotification('error', 'Fehler beim Anzeigen der Container');
+        // Stelle sicher, dass die Sperre auch im Fehlerfall aufgehoben wird
+        loadingContainersInProgress = false;
     }
 }
 
@@ -5433,4 +5436,98 @@ async function saveConfigFile(containerName, filePath) {
             saveBtn.innerHTML = '<i class="fa fa-save"></i> Save & Restart';
         }
     }
+}
+
+// Hilfsfunktion zum Hervorheben und Scrollen zu einem Element
+function highlightAndScrollToElement(element) {
+    if (!element) return false;
+    
+    // Scrolle zum Element und hebe es hervor
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    element.classList.add('highlight-moved');
+    
+    // Entferne die Hervorhebung nach 3 Sekunden
+    setTimeout(() => {
+        element.classList.remove('highlight-moved');
+    }, 3000);
+    
+    return true;
+}
+
+// Hilfsfunktion zum Finden der tatsächlichen Position eines Containers im DOM
+function findActualContainerPosition(containerName, categoryId) {
+    // Suche nach passenden Kategoriesektionen, sowohl via data-category-id als auch nach Text
+    const allCategorySections = Array.from(document.querySelectorAll('.group-section, .category-section'));
+    
+    // Weitere Debug-Informationen
+    console.log(`Suche nach Container '${containerName}' in Kategorie '${categoryId}'`);
+    console.log(`Gefundene Kategoriesektionen: ${allCategorySections.length}`);
+    
+    // Debug: Liste alle Kategoriesektionen und ihre Attribute auf
+    allCategorySections.forEach((section, index) => {
+        const id = section.getAttribute('data-category-id');
+        const headerElement = section.querySelector('h2');
+        const headerText = headerElement ? headerElement.textContent.trim() : 'kein Header';
+        console.log(`  Sektion ${index}: data-category-id='${id || 'nicht gesetzt'}', Header='${headerText}'`);
+    });
+    
+    const categorySection = allCategorySections.find(section => {
+        const sectionId = section.getAttribute('data-category-id');
+        const header = section.querySelector('h2');
+        const headerText = header ? header.textContent.trim() : '';
+        
+        // Überprüfe beide Möglichkeiten: das Attribut oder den Header-Text
+        return (sectionId === categoryId) || (headerText === categoryId);
+    });
+    
+    if (!categorySection) {
+        console.warn(`Konnte keine Kategorie '${categoryId}' im DOM finden`);
+        // Versuche alternatives Matching über enthaltene Container
+        for (const section of allCategorySections) {
+            const cards = section.querySelectorAll(`.container-card[data-name="${containerName}"]`);
+            if (cards.length > 0) {
+                console.log(`Kategorie durch Container-Übereinstimmung gefunden: '${section.getAttribute('data-category-id') || section.querySelector('h2')?.textContent.trim()}'`);
+                return findContainerPosition(containerName, section);
+            }
+        }
+        return -1;
+    }
+    
+    return findContainerPosition(containerName, categorySection);
+}
+
+// Hilfsfunktion zur eigentlichen Containersuche innerhalb einer Sektion
+function findContainerPosition(containerName, categorySection) {
+    // Suche nach Container-Grid innerhalb der Kategorie
+    const containerGrid = categorySection.querySelector('.container-grid');
+    if (!containerGrid) {
+        console.warn(`Konnte kein Container-Grid in der gefundenen Kategorie finden`);
+        return -1;
+    }
+    
+    // Sammle alle Container-Karten
+    const containerCards = Array.from(containerGrid.querySelectorAll('.container-card'));
+    console.log(`Suche nach Position von '${containerName}', gefunden ${containerCards.length} Karten`);
+    
+    // Suche nach Container in der Kategorie mit allen möglichen Attributen
+    for (let i = 0; i < containerCards.length; i++) {
+        const card = containerCards[i];
+        const cardNameAttribute = card.getAttribute('data-name');
+        const cardContainerAttribute = card.getAttribute('data-container');
+        const cardNameElement = card.querySelector('.container-name');
+        const cardNameText = cardNameElement ? cardNameElement.textContent.trim() : '';
+        
+        console.log(`  Karte ${i}: name-attr=${cardNameAttribute}, container-attr=${cardContainerAttribute}, text=${cardNameText}`);
+        
+        // Prüfe alle möglichen Übereinstimmungen
+        if (cardNameAttribute === containerName || 
+            cardContainerAttribute === containerName || 
+            cardNameText === containerName) {
+            console.log(`  ✓ Container '${containerName}' gefunden an Position ${i}`);
+            return i;
+        }
+    }
+    
+    console.warn(`Container '${containerName}' nicht in Kategorie '${categoryId}' gefunden`);
+    return -1;
 }
