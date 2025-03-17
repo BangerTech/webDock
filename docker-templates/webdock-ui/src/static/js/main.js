@@ -3631,31 +3631,14 @@ function getContainerLogo(containerName) {
 
 function createContainerCard(container, categoryId, position = -1) {
     const logoUrl = getContainerLogo(container.name);
-    
     // Verwende die Beschreibung nur für den Tooltip des Logos
-    // Priorisiere explizit die Beschreibung aus der categories.yaml
-    let description = '';
-    
-    // Checke zuerst direkt die globale yamlContainerDescriptions Variable
-    if (window.yamlContainerDescriptions && window.yamlContainerDescriptions[container.name]) {
-        description = window.yamlContainerDescriptions[container.name];
-        console.log(`[DEBUG] Container ${container.name}: Verwendete YAML-Beschreibung: "${description}"`);
-    }
-    // Falls nicht gefunden, verwende container.description
-    else if (container.description) {
-        description = container.description;
-        console.log(`[DEBUG] Container ${container.name}: Verwendete container.description: "${description}"`);
-    }
-    // Als letztes Fallback auf getContainerDescription
-    else {
-        description = getContainerDescription(container.name) || '';
-        console.log(`[DEBUG] Container ${container.name}: Verwendete Fallback-Beschreibung: "${description}"`);
-    }
-    
-    console.log(`[DEBUG] Container ${container.name}: Position = ${position}, Kategorie = ${categoryId}`);
-
+    const description = container.description || getContainerDescription(container.name) || '';
     const isInstalled = container.installed || false;
     const state = container.status || 'stopped';
+    
+    // Debug-Ausgabe für die Position
+    WebDockLogger.debug(`[DEBUG] Container ${container.name}: Verwendete YAML-Beschreibung: "${description}"`);
+    WebDockLogger.debug(`[DEBUG] Container ${container.name}: Position = ${position}, Kategorie = ${categoryId}`);
     
     // Add drag & drop attributes for all containers
     const dragAttributes = `
@@ -5124,8 +5107,13 @@ function renderContainers(containers, categories) {
                     if (containerInfo) {
                         // Erstelle die Container-Karte mit exakter Position aus der YAML
                         WebDockLogger.debug(`Container ${containerName}: Position ${index} in Kategorie ${categoryId}`);
-                        const containerCard = createContainerCard(containerInfo, categoryId, index);
-                        containerGrid.appendChild(containerCard);
+                        
+                        // Erstelle die Container-Karte mit der korrekten Position
+                        const containerCard = document.createElement('div');
+                        containerCard.innerHTML = createContainerCard(containerInfo, categoryId, index);
+                        
+                        // Füge die Karte zum Grid hinzu
+                        containerGrid.appendChild(containerCard.firstElementChild);
                     } else {
                         WebDockLogger.warn(`Container ${containerName} in YAML, aber nicht in API-Daten gefunden`);
                     }
