@@ -397,11 +397,12 @@ document.addEventListener('DOMContentLoaded', function() {
                         Object.entries(groupedContainers)
                             .filter(([name, group]) => group.containers.length > 0)
                             .forEach(([name, group]) => {
+                                // WICHTIG: Für das data-category-id Attribut den Namen direkt verwenden
                                 groups.innerHTML += `
                                     <div class="group-section" data-category-id="${name}">
                                         <h2><i class="fa ${group.icon}"></i> ${name}</h2>
                                         <div class="container-grid">
-                                            ${group.containers.map(container => createContainerCard(container, name)).join('')}
+                                            ${group.containers.map((container, index) => createContainerCard(container, name, index)).join('')}
                                         </div>
                                     </div>
                                 `;
@@ -1783,9 +1784,15 @@ function setupRefreshInterval() {
         const containerCard = e.target.closest('.container-card');
         const containerGrid = containerCard.closest('.container-grid');
         
-        // Füge die DOM-Position des Elements hinzu, um Sortierung innerhalb einer Kategorie zu ermöglichen
-        const containerCards = Array.from(containerGrid.querySelectorAll('.container-card'));
-        const position = containerCards.indexOf(containerCard);
+        // Lade die Position entweder aus dem data-attribute oder berechne sie
+        let position = -1;
+        if (containerCard.hasAttribute('data-position')) {
+            position = parseInt(containerCard.getAttribute('data-position'), 10);
+        } else {
+            // Fallback: Berechne Position aus der DOM-Reihenfolge
+            const containerCards = Array.from(containerGrid.querySelectorAll('.container-card'));
+            position = containerCards.indexOf(containerCard);
+        }
         
         // Speichere die Kategorie-ID und den Gruppen-Namen
         const groupSection = containerGrid.closest('.group-section');
@@ -3622,7 +3629,7 @@ function getContainerLogo(containerName) {
     return `/static/img/icons/${logoFile}`;
 }
 
-function createContainerCard(container, categoryId) {
+function createContainerCard(container, categoryId, position = -1) {
     const logoUrl = getContainerLogo(container.name);
     // Verwende die Beschreibung nur für den Tooltip des Logos
     const description = container.description || getContainerDescription(container.name) || '';
@@ -3638,6 +3645,10 @@ function createContainerCard(container, categoryId) {
         ondragenter="handleContainerDragEnter(event)"
         ondragleave="handleContainerDragLeave(event)"
         ondrop="handleContainerDrop(event)"
+        data-container="${container.name}"
+        data-name="${container.name}"
+        data-position="${position}"
+        data-category="${categoryId}"
     `;
     
     // Bestimme das richtige Protokoll (HTTP oder HTTPS)
@@ -3665,7 +3676,7 @@ function createContainerCard(container, categoryId) {
     }
     
     return `
-        <div class="container-card" data-name="${container.name}"${dragAttributes}>
+        <div class="container-card" ${dragAttributes}>
             <div class="status-indicator ${container.status}" title="Status: ${container.status}"></div>
             <div class="container-logo">
                 <img src="${logoUrl}" 
