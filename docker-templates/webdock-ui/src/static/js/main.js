@@ -154,8 +154,8 @@
                         <span>${this._escapeHTML(message)}</span>
                     </div>
                     <button class="notification-close">
-                        <i class="fa fa-times"></i>
-                    </button>
+            <i class="fa fa-times"></i>
+        </button>
                 </div>
             `;
         },
@@ -182,10 +182,10 @@
             });
             
             // Animation starten
-            setTimeout(() => notification.classList.add('show'), 10);
-            
+    setTimeout(() => notification.classList.add('show'), 10);
+    
             // Automatisches Schließen nach Ablauf der Dauer
-            if (duration) {
+    if (duration) {
                 setTimeout(() => this.close(notification), duration);
             }
             
@@ -332,7 +332,7 @@
                 }
                 
                 fetch('/api/containers/status')
-                    .then(response => response.json())
+            .then(response => response.json())
                     .then(statusData => {
                         if (typeof updateContainerStatusUI === 'function') {
                             updateContainerStatusUI(statusData);
@@ -351,9 +351,9 @@
             // Verhindere mehrfache Verbindungsversuche
             if (this._status.isConnecting) {
                 WebDockLogger.warn('Verbindungsaufbau bereits im Gange, warte...');
-                return false;
-            }
-            
+                        return false;
+                    }
+                    
             this._status.isConnecting = true;
             WebDockLogger.info('Initialisiere WebSocket-Verbindung für Echtzeit-Container-Updates...');
             
@@ -460,7 +460,7 @@
             this._socket.on('container_status_refresh', (statusData) => {
                 WebDockLogger.info('Vollständiges Container-Status-Refresh erhalten');
                 if (typeof updateContainerStatusUI === 'function') {
-                    updateContainerStatusUI(statusData);
+            updateContainerStatusUI(statusData);
                 }
             });
         },
@@ -529,7 +529,7 @@
                 const config = await response.json();
                 
                 // Container-Installation starten
-                const installResponse = await fetch('/api/container/install', {
+                const installResponse = await fetch('/api/install', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -569,9 +569,9 @@
                 
                 const response = await fetch(`/api/container/${containerName}/update`, {
                     method: 'POST'
-                });
-                
-                if (!response.ok) {
+            });
+            
+            if (!response.ok) {
                     throw new Error(`HTTP-Fehler ${response.status}`);
                 }
                 
@@ -585,7 +585,7 @@
                 }, 1000);
                 
                 return result;
-            } catch (error) {
+        } catch (error) {
                 WebDockLogger.error(`Fehler bei der Aktualisierung von ${containerName}:`, error);
                 NotificationManager.error(`Fehler bei der Aktualisierung: ${error.message}`);
                 return { error: error.message };
@@ -870,12 +870,12 @@
                 // Zielposition bestimmen
                 if (targetElement.hasAttribute('data-position')) {
                     targetPosition = parseInt(targetElement.dataset.position, 10);
-                } else {
+                        } else {
                     // Fallback: Position aus dem DOM berechnen
                     const containerCards = Array.from(groupSection.querySelectorAll('.container-card'));
                     targetPosition = containerCards.indexOf(targetElement);
-                }
-            } else {
+                        }
+                    } else {
                 // Drop auf eine Kategorie
                 targetCategoryId = targetElement.dataset.categoryId;
                 // Am Ende der Kategorie einfügen
@@ -889,7 +889,7 @@
             if (sourceCategoryId === targetCategoryId) {
                 // Neu anordnen innerhalb derselben Kategorie
                 await this.reorderContainer(containerName, sourceCategoryId, dragData.position, targetPosition);
-            } else {
+                    } else {
                 // Zwischen Kategorien verschieben
                 await this.moveContainer(containerName, sourceCategoryId, targetCategoryId, targetPosition);
             }
@@ -908,22 +908,22 @@
                 
                 // Verwende die moveContainer-Funktion mit gleicher Quell- und Zielkategorie
                 // Dies funktioniert besser als die separate reorderContainer-Funktion
-                const response = await fetch('/api/container/move', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Cache-Control': 'no-cache, no-store, must-revalidate',
-                        'Pragma': 'no-cache'
-                    },
-                    body: JSON.stringify({
-                        containerName: containerName,
+            const response = await fetch('/api/container/move', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache'
+                },
+                body: JSON.stringify({
+                    containerName: containerName,
                         sourceCategory: categoryId,
                         targetCategory: categoryId,
                         targetPosition: toPosition
-                    })
-                });
-                
-                if (!response.ok) {
+                })
+            });
+
+            if (!response.ok) {
                     throw new Error(`HTTP-Fehler ${response.status}`);
                 }
                 
@@ -982,8 +982,8 @@
                 NotificationManager.success(`Container ${containerName} wurde erfolgreich verschoben`);
                 
                 // Lade die Seite neu, um die Änderungen zu übernehmen
-                setTimeout(() => {
-                    window.location.reload();
+                    setTimeout(() => {
+                        window.location.reload();
                 }, 500);
                 
                 return await response.json();
@@ -1005,8 +1005,8 @@
             WebDockLogger.info('Rendere Container...');
             
             // Loading-Overlay anzeigen
-            const loadingOverlay = document.getElementById('loading-overlay');
-            if (loadingOverlay) loadingOverlay.style.display = 'flex';
+        const loadingOverlay = document.getElementById('loading-overlay');
+        if (loadingOverlay) loadingOverlay.style.display = 'flex';
             
             try {
                 // YAML-Kategorien laden
@@ -1193,9 +1193,9 @@
                             if (!assigned && !assignedContainers.has(container.name)) {
                                 groupedContainers['Imported'].containers.push(container);
                                 assignedContainers.add(container.name);
-                            }
-                        });
-                    });
+                }
+            });
+        });
                     
                     // Container in YAML-Reihenfolge rendern
                     sortedCategories.forEach(category => {
@@ -1290,14 +1290,14 @@
                             containerGrid.appendChild(containerCard);
                         }
                     });
-                } else {
+            } else {
                     // Fallback: Alle Container der Gruppe rendern
                     groupData.containers.forEach((container, index) => {
                         const containerCard = this._createContainerCard(container, categoryId, index);
                         containerGrid.appendChild(containerCard);
                     });
                 }
-            } else {
+        } else {
                 // Kein YAML vorhanden: Einfach alle Container rendern
                 groupData.containers.forEach((container, index) => {
                     const containerCard = this._createContainerCard(container, categoryId, index);
@@ -1334,48 +1334,48 @@
             }
             
             // Bestimme Container-Status
-            const isInstalled = container.installed || false;
-            const state = container.status || 'stopped';
-            
+    const isInstalled = container.installed || false;
+    const state = container.status || 'stopped';
+    
             // Bestimme das richtige Protokoll
             const protocol = container.name === 'scrypted' ? 'https' : 'http';
             
             // Drag & Drop-Attribute
-            const dragAttributes = `
-                draggable="true"
-                ondragstart="handleContainerDragStart(event, '${container.name}', '${categoryId}')"
-                ondragend="handleContainerDragEnd(event)"
-                ondragover="handleContainerDragOver(event)"
-                ondragenter="handleContainerDragEnter(event)"
-                ondragleave="handleContainerDragLeave(event)"
-                ondrop="handleContainerDrop(event)"
+    const dragAttributes = `
+        draggable="true"
+        ondragstart="handleContainerDragStart(event, '${container.name}', '${categoryId}')"
+        ondragend="handleContainerDragEnd(event)"
+        ondragover="handleContainerDragOver(event)"
+        ondragenter="handleContainerDragEnter(event)"
+        ondragleave="handleContainerDragLeave(event)"
+        ondrop="handleContainerDrop(event)"
                 data-container="${container.name}"
                 data-name="${container.name}"
                 data-position="${position}"
                 data-category="${categoryId}"
-            `;
-            
+    `;
+    
             // Spezielle Port-Anzeige für WatchYourLAN
-            let portDisplay = '';
-            if (container.name === 'watchyourlan' || container.name === 'watchyourlanarm') {
+    let portDisplay = '';
+    if (container.name === 'watchyourlan' || container.name === 'watchyourlanarm') {
                 // Für WatchYourLAN zeigen wir den GUI-Port an
                 const guiPort = container.port || '8840';
-                portDisplay = `<p>Port: <a href="${protocol}://${window.location.hostname}:${guiPort}" 
-                                target="_blank" 
-                                class="port-link"
-                                title="Open WatchYourLAN interface"
-                            >${guiPort}</a></p>`;
-            } else {
-                // Standard-Port-Anzeige für andere Container
-                portDisplay = `<p>Port: ${container.port ? 
-                    `<a href="${protocol}://${window.location.hostname}:${container.port}" 
+        portDisplay = `<p>Port: <a href="${protocol}://${window.location.hostname}:${guiPort}" 
                         target="_blank" 
                         class="port-link"
-                        title="Open container interface"
-                    >${container.port}</a>` 
-                    : 'N/A'}</p>`;
-            }
-            
+                        title="Open WatchYourLAN interface"
+                    >${guiPort}</a></p>`;
+    } else {
+        // Standard-Port-Anzeige für andere Container
+        portDisplay = `<p>Port: ${container.port ? 
+            `<a href="${protocol}://${window.location.hostname}:${container.port}" 
+                target="_blank" 
+                class="port-link"
+                title="Open container interface"
+            >${container.port}</a>` 
+            : 'N/A'}</p>`;
+    }
+    
             // Container-Karte erstellen
             const containerCard = document.createElement('div');
             containerCard.className = 'container-card';
@@ -1395,37 +1395,37 @@
             
             // Container-Karte-HTML setzen
             containerCard.innerHTML = `
-                <div class="status-indicator ${container.status}" title="Status: ${container.status}"></div>
-                <div class="container-logo">
-                    <img src="${logoUrl}" 
-                         alt="${container.name} logo" 
-                         title="${description}" 
-                         onerror="this.src='/static/img/icons/bangertech.png'">
-                </div>
-                <div class="name-with-settings">
+            <div class="status-indicator ${container.status}" title="Status: ${container.status}"></div>
+            <div class="container-logo">
+                <img src="${logoUrl}" 
+                     alt="${container.name} logo" 
+                     title="${description}" 
+                     onerror="this.src='/static/img/icons/bangertech.png'">
+            </div>
+            <div class="name-with-settings">
                     <h3 ${isInstalled && container.port ? `onclick="window.open('${protocol}://${window.location.hostname}:${container.port}', '_blank')" style="cursor: pointer;"` : ''}>${container.name}</h3>
-                    ${isInstalled ? `
+                ${isInstalled ? `
                         <button class="info-btn" onclick="window.WebDock.getContainerInfo('${container.name}')" title="Container Information">
-                            <i class="fa fa-info-circle"></i>
-                        </button>
-                    ` : ''}
-                </div>
-                ${portDisplay}
-                <div class="actions">
-                    ${isInstalled ? `
-                        <div class="button-group">
+                        <i class="fa fa-info-circle"></i>
+                    </button>
+                ` : ''}
+            </div>
+            ${portDisplay}
+            <div class="actions">
+                ${isInstalled ? `
+                    <div class="button-group">
                             <button class="status-btn ${state}" onclick="window.WebDock.toggleContainer('${container.name}')">
-                                ${state === 'running' ? 'Stop' : 'Start'}
-                            </button>
+                            ${state === 'running' ? 'Stop' : 'Start'}
+                        </button>
                             <button class="update-btn" onclick="window.WebDock.updateContainer('${container.name}')" title="Update container">
-                                <i class="fa fa-refresh"></i>
-                            </button>
-                        </div>
-                    ` : `
+                            <i class="fa fa-refresh"></i>
+                        </button>
+                    </div>
+                ` : `
                         <button class="install-btn" onclick="window.WebDock.installContainer('${container.name}')">Install</button>
-                    `}
-                </div>
-            `;
+                `}
+        </div>
+    `;
             
             return containerCard;
         },
@@ -1498,7 +1498,7 @@
             // Event-Listener für Update-Buttons
             document.querySelectorAll('.update-btn').forEach(btn => {
                 btn.onclick = function(e) {
-                    e.preventDefault();
+                e.preventDefault();
                     e.stopPropagation();
                     const containerName = this.closest('.container-card').getAttribute('data-name');
                     window.WebDock.updateContainer(containerName);
@@ -1553,7 +1553,7 @@
                 
                 WebDockLogger.info('WebDock UI erfolgreich initialisiert');
                 return true;
-            } catch (error) {
+    } catch (error) {
                 WebDockLogger.error('Fehler bei der Initialisierung:', error);
                 NotificationManager.error('Fehler beim Initialisieren der Anwendung');
                 return false;
@@ -1633,30 +1633,30 @@
             if (!statusData || !Array.isArray(statusData)) return;
             
             // Für jeden Container den Status aktualisieren
-            statusData.forEach(container => {
+    statusData.forEach(container => {
                 if (!container.name || !container.status) return;
                 
                 // Alle Karten für diesen Container finden
-                const containerCards = document.querySelectorAll(`.container-card[data-name="${container.name}"]`);
-                
-                containerCards.forEach(card => {
+        const containerCards = document.querySelectorAll(`.container-card[data-name="${container.name}"]`);
+        
+        containerCards.forEach(card => {
                     // Status-Indikator aktualisieren
-                    const statusIndicator = card.querySelector('.status-indicator');
-                    if (statusIndicator) {
+            const statusIndicator = card.querySelector('.status-indicator');
+            if (statusIndicator) {
                         const oldStatus = statusIndicator.classList.contains('running') ? 'running' : 
                                          statusIndicator.classList.contains('stopped') ? 'stopped' : 'error';
                         
                         // Nur aktualisieren, wenn sich der Status geändert hat
                         if (oldStatus !== container.status) {
                             // Alle Status-Klassen entfernen
-                            statusIndicator.classList.remove('running', 'stopped', 'error');
+                statusIndicator.classList.remove('running', 'stopped', 'error');
                             
                             // Neuen Status hinzufügen
-                            statusIndicator.classList.add(container.status);
+                statusIndicator.classList.add(container.status);
                             
                             // Tooltip aktualisieren
-                            statusIndicator.setAttribute('title', `Status: ${container.status}`);
-                            
+                statusIndicator.setAttribute('title', `Status: ${container.status}`);
+                
                             // Status-Button aktualisieren
                             const statusBtn = card.querySelector('.status-btn');
                             if (statusBtn) {
@@ -1666,15 +1666,15 @@
                             }
                             
                             // Kurze Animation für bessere Sichtbarkeit
-                            statusIndicator.classList.add('status-update-flash');
-                            setTimeout(() => {
-                                statusIndicator.classList.remove('status-update-flash');
-                            }, 1000);
-                        }
-                    }
-                });
-            });
-        }
+                    statusIndicator.classList.add('status-update-flash');
+                    setTimeout(() => {
+                        statusIndicator.classList.remove('status-update-flash');
+                    }, 1000);
+                }
+            }
+        });
+    });
+}
     };
     
     // Anwendung initialisieren, wenn das Dokument geladen ist
