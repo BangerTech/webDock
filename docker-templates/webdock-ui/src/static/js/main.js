@@ -60,7 +60,18 @@ const fetchAndRenderContainers = async (forceRefresh = false, explicitCategories
             setTimeout(() => {
                 window.location.reload();
             }, 1000);
+            return null;
         }
+        
+        // Überprüfe, ob die UI korrekt aktualisiert wurde
+        setTimeout(() => {
+            // Prüfe, ob Container-Karten vorhanden sind
+            const containerCards = document.querySelectorAll('.container-card');
+            if (containerCards.length === 0) {
+                console.warn('Keine Container-Karten gefunden nach UI-Update, führe Seiten-Reload durch');
+                window.location.reload();
+            }
+        }, 2000);
         
         return result;
     } catch (error) {
@@ -387,10 +398,10 @@ document.addEventListener('DOMContentLoaded', function() {
                             .filter(([name, group]) => group.containers.length > 0)
                             .forEach(([name, group]) => {
                                 groups.innerHTML += `
-                                    <div class="group-section">
+                                    <div class="group-section" data-category-id="${name}">
                                         <h2><i class="fa ${group.icon}"></i> ${name}</h2>
                                         <div class="container-grid">
-                                            ${group.containers.map(container => createContainerCard(container)).join('')}
+                                            ${group.containers.map(container => createContainerCard(container, name)).join('')}
                                         </div>
                                     </div>
                                 `;
@@ -1353,6 +1364,11 @@ function setupRefreshInterval() {
         categoriesCache = data;
         
         const categoryList = document.querySelector('.category-list');
+        if (!categoryList) {
+            console.error('Kategorie-Liste nicht gefunden im DOM');
+            return;
+        }
+        
         categoryList.innerHTML = '';
         
         // Verwende die Reihenfolge der Kategorien wie in der categories.yaml definiert
@@ -2151,7 +2167,8 @@ function setupRefreshInterval() {
                     renderCategories(freshCatData.categories);
                     
                     // Container-Daten laden und neu rendern
-                    WebDockLogger.info('Lade Container-Daten nach Kategorieänderung...');
+                    console.log('Lade Container-Daten nach Kategorieänderung...');
+                    // Hier ist der Hauptunterschied: Wir verwenden fetchAndRenderContainers wie in moveContainer
                     try {
                         await fetchAndRenderContainers(false, freshCatData.categories);
                         
@@ -2202,12 +2219,11 @@ function setupRefreshInterval() {
             
             if (!categorySection) {
                 console.warn(`Konnte Kategoriesektion für ${categoryId} nicht finden`);
-                // Versuche es mit allen Kategoriesektionen
-                const allContainers = document.querySelectorAll(`.container-card[data-container="${containerName}"]`);
-                if (allContainers.length > 0) {
-                    highlightAndScrollToElement(allContainers[0]);
-                    return true;
-                }
+                // Wenn die Kategorie nicht gefunden wird, führe einen Seiten-Reload durch
+                console.log('Führe Seiten-Reload durch, da Kategorie nicht gefunden wurde...');
+                setTimeout(() => {
+                    window.location.reload();
+                }, 500);
                 return false;
             }
             
@@ -2228,6 +2244,11 @@ function setupRefreshInterval() {
             
             if (!containerCard) {
                 console.warn(`Konnte Container ${containerName} in Kategorie ${categoryId} nicht finden`);
+                // Wenn der Container nicht gefunden wird, führe einen Seiten-Reload durch
+                console.log('Führe Seiten-Reload durch, da Container nicht gefunden wurde...');
+                setTimeout(() => {
+                    window.location.reload();
+                }, 500);
                 return false;
             }
             
