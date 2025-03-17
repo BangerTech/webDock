@@ -4972,7 +4972,36 @@ async function loadContainers(forceRefresh = false, explicitCategoriesData = nul
 async function loadLocalCategoriesYaml() {
     try {
         // Lade die YAML-Datei direkt vom Server
-        const response = await fetch('/src/config/categories.yaml');
+        // Versuche verschiedene mögliche Pfade zur categories.yaml
+        let response;
+        const possiblePaths = [
+            '/config/categories.yaml',
+            '/categories.yaml',
+            '/webdock-ui/src/config/categories.yaml',
+            '/webdock-data/webdock-ui/src/config/categories.yaml',
+            '/docker-templates/webdock-ui/src/config/categories.yaml'
+        ];
+        
+        let foundPath = null;
+        for (const path of possiblePaths) {
+            try {
+                const testResponse = await fetch(path);
+                if (testResponse.ok) {
+                    response = testResponse;
+                    foundPath = path;
+                    WebDockLogger.info(`categories.yaml erfolgreich geladen von: ${path}`);
+                    break;
+                }
+            } catch (e) {
+                // Ignoriere Fehler und versuche den nächsten Pfad
+            }
+        }
+        
+        // Wenn kein Pfad funktioniert hat
+        if (!foundPath) {
+            // Fallback auf den ursprünglichen Pfad
+            response = await fetch('/src/config/categories.yaml');
+        }
         if (!response.ok) {
             throw new Error(`Fehler beim Laden der categories.yaml: ${response.status}`);
         }
