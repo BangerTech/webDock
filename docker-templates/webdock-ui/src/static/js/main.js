@@ -4968,64 +4968,22 @@ async function loadContainers(forceRefresh = false, explicitCategoriesData = nul
     }
 }
 
-// Funktion zum direkten Laden der categories.yaml Datei
+// Funktion zum Laden der vollständigen Kategoriedaten mit Beschreibungen
 async function loadLocalCategoriesYaml() {
     try {
-        // Lade die YAML-Datei direkt vom Server
-        // Versuche verschiedene mögliche Pfade zur categories.yaml
-        let response;
-        const possiblePaths = [
-            '/config/categories.yaml',
-            '/categories.yaml',
-            '/webdock-ui/src/config/categories.yaml',
-            '/webdock-data/webdock-ui/src/config/categories.yaml',
-            '/docker-templates/webdock-ui/src/config/categories.yaml'
-        ];
+        // Verwende den neuen API-Endpunkt, der die vollständigen Kategorien mit Beschreibungen liefert
+        const response = await fetch('/api/categories/full');
         
-        let foundPath = null;
-        for (const path of possiblePaths) {
-            try {
-                const testResponse = await fetch(path);
-                if (testResponse.ok) {
-                    response = testResponse;
-                    foundPath = path;
-                    WebDockLogger.info(`categories.yaml erfolgreich geladen von: ${path}`);
-                    break;
-                }
-            } catch (e) {
-                // Ignoriere Fehler und versuche den nächsten Pfad
-            }
-        }
-        
-        // Wenn kein Pfad funktioniert hat
-        if (!foundPath) {
-            // Fallback auf den ursprünglichen Pfad
-            response = await fetch('/src/config/categories.yaml');
-        }
         if (!response.ok) {
-            throw new Error(`Fehler beim Laden der categories.yaml: ${response.status}`);
+            throw new Error(`Fehler beim Laden der vollständigen Kategorien: ${response.status}`);
         }
         
-        const yamlText = await response.text();
-        
-        // YAML-Parser importieren, falls noch nicht vorhanden
-        if (typeof jsyaml === 'undefined') {
-            // Lade js-yaml dynamisch, wenn nicht vorhanden
-            await new Promise((resolve, reject) => {
-                const script = document.createElement('script');
-                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js';
-                script.onload = resolve;
-                script.onerror = reject;
-                document.head.appendChild(script);
-            });
-        }
-        
-        // Parse YAML
-        const categoriesData = jsyaml.load(yamlText);
-        WebDockLogger.debug('Lokale categories.yaml geladen:', categoriesData);
+        // Parse JSON direkt
+        const categoriesData = await response.json();
+        WebDockLogger.debug('Vollständige Kategorien mit Beschreibungen geladen:', categoriesData);
         return categoriesData;
     } catch (error) {
-        WebDockLogger.error('Fehler beim Laden der lokalen categories.yaml:', error);
+        WebDockLogger.error('Fehler beim Laden der vollständigen Kategorien:', error);
         return null;
     }
 }

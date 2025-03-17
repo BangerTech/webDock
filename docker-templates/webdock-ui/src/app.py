@@ -508,6 +508,20 @@ def get_categories():
         logger.exception("Error getting categories")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/categories/full', methods=['GET'])
+def get_full_categories():
+    """Gibt die vollständigen Kategorien inklusive aller Beschreibungen zurück"""
+    try:
+        # Lade die Kategorien direkt aus der YAML-Datei, ohne Beschreibungen zu entfernen
+        with open(CATEGORIES_FILE, 'r') as f:
+            categories = yaml.safe_load(f)
+        
+        logger.debug(f"Returning full categories with descriptions")
+        return jsonify(categories)
+    except Exception as e:
+        logger.exception("Error getting full categories")
+        return jsonify({'error': str(e)}), 500
+
 def _get_container_group(dirname):
     categories = load_categories()
     for category in categories.get('categories', []):
