@@ -1,4 +1,7 @@
 // Definiere globale Variablen
+// Globale Variable für Container-Beschreibungen aus categories.yaml
+window.yamlContainerDescriptions = {};
+
 // Logging-Konfiguration - steuert die Ausführlichkeit der Konsolenausgaben
 window.WebDockLogger = {
     // Log-Level: 0 = Nur Fehler, 1 = Warnungen, 2 = Info, 3 = Debug
@@ -116,6 +119,12 @@ let lastContainerStates = new Map();
 
 // Funktion, um Beschreibungen für Container zu erhalten
 function getContainerDescription(containerName) {
+    // Zuerst prüfe, ob wir eine Beschreibung aus der categories.yaml haben
+    if (window.yamlContainerDescriptions && window.yamlContainerDescriptions[containerName]) {
+        return window.yamlContainerDescriptions[containerName];
+    }
+    
+    // Fallback auf die hardcodierten Beschreibungen
     const descriptions = {
         'prometheus': 'Monitoring and alerting toolkit for metrics collection and visualization.',
         'node-exporter': 'Prometheus exporter for hardware and OS metrics with pluggable metric collectors.',
@@ -3631,8 +3640,29 @@ function getContainerLogo(containerName) {
 
 function createContainerCard(container, categoryId, position = -1) {
     const logoUrl = getContainerLogo(container.name);
+    
     // Verwende die Beschreibung nur für den Tooltip des Logos
-    const description = container.description || getContainerDescription(container.name) || '';
+    // Priorisiere explizit die Beschreibung aus der categories.yaml
+    let description = '';
+    
+    // Checke zuerst direkt die globale yamlContainerDescriptions Variable
+    if (window.yamlContainerDescriptions && window.yamlContainerDescriptions[container.name]) {
+        description = window.yamlContainerDescriptions[container.name];
+        console.log(`[DEBUG] Container ${container.name}: Verwendete YAML-Beschreibung: "${description}"`);
+    }
+    // Falls nicht gefunden, verwende container.description
+    else if (container.description) {
+        description = container.description;
+        console.log(`[DEBUG] Container ${container.name}: Verwendete container.description: "${description}"`);
+    }
+    // Als letztes Fallback auf getContainerDescription
+    else {
+        description = getContainerDescription(container.name) || '';
+        console.log(`[DEBUG] Container ${container.name}: Verwendete Fallback-Beschreibung: "${description}"`);
+    }
+    
+    console.log(`[DEBUG] Container ${container.name}: Position = ${position}, Kategorie = ${categoryId}`);
+
     const isInstalled = container.installed || false;
     const state = container.status || 'stopped';
     
@@ -4981,6 +5011,36 @@ async function loadLocalCategoriesYaml() {
         // Parse JSON direkt
         const categoriesData = await response.json();
         WebDockLogger.debug('Vollständige Kategorien mit Beschreibungen geladen:', categoriesData);
+        
+        // Extrahiere alle Container-Beschreibungen und fülle die globale Variable
+        window.yamlContainerDescriptions = {};
+        
+        if (categoriesData && categoriesData.categories) {
+            // Unterstütze sowohl das Listen- als auch das Objekt-Format
+            const categories = Array.isArray(categoriesData.categories) ? 
+                categoriesData.categories : Object.values(categoriesData.categories);
+            
+            // Durchlaufe alle Kategorien und sammle die Beschreibungen
+            categories.forEach(category => {
+                if (category.containers && Array.isArray(category.containers)) {
+                    category.containers.forEach(container => {
+                        // Container kann ein String oder ein Objekt mit name/description sein
+                        if (typeof container === 'string') {
+                            // Keine Beschreibung verfügbar für String-Container
+                        } else if (typeof container === 'object' && container.name) {
+                            // Speichere die Beschreibung in der globalen Variable
+                            if (container.description) {
+                                window.yamlContainerDescriptions[container.name] = container.description;
+                                console.log(`Beschreibung für ${container.name} geladen: ${container.description}`);
+                            }
+                        }
+                    });
+                }
+            });
+            
+            console.log('Container-Beschreibungen aus categories.yaml geladen:', window.yamlContainerDescriptions);
+        }
+        
         return categoriesData;
     } catch (error) {
         WebDockLogger.error('Fehler beim Laden der vollständigen Kategorien:', error);
