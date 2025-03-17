@@ -43,7 +43,8 @@ const CACHE_TTL = 60000; // Cache-Gültigkeit in Millisekunden (1 Minute)
 // Alias für loadContainers, um Kompatibilität mit moveContainer zu gewährleisten
 const fetchAndRenderContainers = async (forceRefresh, categories) => {
     console.log('fetchAndRenderContainers aufgerufen (Alias für loadContainers)');
-    return await loadContainers(forceRefresh, categories);
+    // Wir erzwingen einen Neuaufruf, auch wenn bereits ein Ladevorgang läuft
+    return loadContainers(forceRefresh, categories, true);
 };
 
 // Hilfsfunktion zum vollständigen Löschen des Browser-Caches für Container und Kategorien
@@ -2158,45 +2159,58 @@ function setupRefreshInterval() {
     
     // Hilfsfunktion zum Hervorheben und Scrollen zu einem Container nach Verschiebung
     function highlightAndScrollToContainer(containerName, categoryId) {
-        // Versuche zuerst, die richtige Kategoriesektion zu finden
-        const categorySection = document.querySelector(`.category-section[data-category-id="${categoryId}"]`) ||
-                               document.querySelector(`.group-section[data-category-id="${categoryId}"]`);
+        console.log(`Versuche Container ${containerName} in Kategorie ${categoryId} zu finden und hervorzuheben...`);
         
-        if (!categorySection) {
-            console.warn(`Konnte Kategoriesektion für ${categoryId} nicht finden`);
-            return false;
-        }
-        
-        // Suche nach dem Container mit verschiedenen Selektoren
-        const containerSelectors = [
-            `.container-card[data-container="${containerName}"]`,
-            `.container-card[data-name="${containerName}"]`
-        ];
-        
-        let containerCard = null;
-        for (const selector of containerSelectors) {
-            const candidate = categorySection.querySelector(selector);
-            if (candidate) {
-                containerCard = candidate;
-                break;
-            }
-        }
-        
-        if (!containerCard) {
-            console.warn(`Konnte Container ${containerName} in Kategorie ${categoryId} nicht finden`);
-            return false;
-        }
-        
-        // Scrolle zum Container und hebe ihn hervor
-        containerCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        containerCard.classList.add('highlight-moved');
-        
-        // Entferne die Hervorhebung nach 3 Sekunden
+        // Warten, bis das DOM vollständig aktualisiert wurde
         setTimeout(() => {
-            containerCard.classList.remove('highlight-moved');
-        }, 3000);
+            try {
+                // Finde die Kategorie-Sektion
+                const categorySection = document.querySelector(`[data-category-id="${categoryId}"]`);
+                if (!categorySection) {
+                    console.warn(`Konnte Kategoriesektion für ${categoryId} nicht finden`);
+                    
+                    // Versuche es mit allen Kategorien
+                    const allCategories = document.querySelectorAll('.category-section');
+                    console.log(`Suche in ${allCategories.length} Kategorien nach Container ${containerName}...`);
+                    
+                    for (const catSection of allCategories) {
+                        const containerCard = catSection.querySelector(`[data-container-name="${containerName}"]`);
+                        if (containerCard) {
+                            console.log(`Container ${containerName} in Kategorie ${catSection.dataset.categoryId} gefunden!`);
+                            highlightAndScrollToElement(containerCard);
+                            return;
+                        }
+                    }
+                    
+                    console.warn(`Container ${containerName} konnte in keiner Kategorie gefunden werden`);
+                    return;
+                }
+                
+                // Finde die Container-Karte
+                const containerCard = categorySection.querySelector(`[data-container-name="${containerName}"]`);
+                if (!containerCard) {
+                    console.warn(`Container ${containerName} konnte in Kategorie ${categoryId} nicht gefunden werden`);
+                    return;
+                }
+                
+                highlightAndScrollToElement(containerCard);
+            } catch (error) {
+                console.error('Fehler beim Hervorheben des Containers:', error);
+            }
+        }, 500); // Kurze Verzögerung, um sicherzustellen, dass das DOM aktualisiert wurde
+    }
+    
+    function highlightAndScrollToElement(element) {
+        // Zum Container scrollen
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
         
-        return true;
+        // Hervorhebungseffekt hinzufügen
+        element.classList.add('highlight-container');
+        
+        // Nach 2 Sekunden Hervorhebung entfernen
+        setTimeout(() => {
+            element.classList.remove('highlight-container');
+        }, 2000);
     }
     
     // Hilfsfunktion zum Finden der tatsächlichen Position eines Containers im DOM
@@ -2417,7 +2431,7 @@ function setupRefreshInterval() {
                     // Container-Daten laden und neu rendern
                     console.log('Lade Container-Daten nach Kategorieänderung...');
                     // Hier ist der Hauptunterschied: Wir verwenden fetchAndRenderContainers wie in moveContainer
-                    fetchAndRenderContainers(false, freshCatData.categories);
+                    await fetchAndRenderContainers(true, freshCatData.categories);
                     
                     // Warte kurz und scrolle dann zum verschobenen Container
                     setTimeout(() => {
@@ -3756,6 +3770,7 @@ function createContainerCard(container, categoryId) {
         ondragenter="handleContainerDragEnter(event)"
         ondragleave="handleContainerDragLeave(event)"
         ondrop="handleContainerDrop(event)"
+        data-container-name="${container.name}"
     `;
     
     // Bestimme das richtige Protokoll (HTTP oder HTTPS)
@@ -3782,7 +3797,7 @@ function createContainerCard(container, categoryId) {
             : 'N/A'}</p>`;
     }
     
-    return `
+    containerCard.innerHTML = `
         <div class="container-card" data-name="${container.name}"${dragAttributes}>
             <div class="status-indicator ${container.status}" title="Status: ${container.status}"></div>
             <div class="container-logo">
@@ -3818,6 +3833,8 @@ function createContainerCard(container, categoryId) {
             </div>
         </div>
     `;
+    
+    return containerCard;
 }
 
 async function openInfo(containerName) {
@@ -4992,14 +5009,14 @@ function saveCompose() {
 // Globaler Zustand, um rekursive Aufrufe zu verhindern
 let loadingContainersInProgress = false;
 
-async function loadContainers(forceRefresh = false, explicitCategoriesData = null) {
-    // Anti-Rekursions-Schutz: Vermeidet mehrfache verschachtelte Aufrufe
-    if (loadingContainersInProgress) {
-        console.warn('Container-Ladung bereits im Gange, verhindere rekursiven Aufruf');
-        return null;
+async function loadContainers(forceRefresh = false, explicitCategoriesData = null, forceReload = false) {
+    // Rekursionsschutz, aber mit Möglichkeit zum Überschreiben
+    if (window.loadingContainers && !forceReload) {
+        console.log('Container-Ladung bereits im Gange, verhindere rekursiven Aufruf');
+        return;
     }
     
-    loadingContainersInProgress = true;
+    window.loadingContainers = true;
     
     try {
         const now = Date.now();
@@ -5066,6 +5083,9 @@ async function loadContainers(forceRefresh = false, explicitCategoriesData = nul
         showNotification('error', 'Fehler beim Laden der Container: ' + (outerError.message || outerError));
         loadingContainersInProgress = false;
         return null;
+    } finally {
+        // Rekursionsschutz zurücksetzen
+        window.loadingContainers = false;
     }
 }
 
@@ -5271,7 +5291,7 @@ style.textContent = `
         background-color: var(--hover-bg-color);
         border: 2px dashed var(--accent-color);
     }
-
+    
     .port-mapping, .env-var {
         margin-bottom: 15px;
     }
