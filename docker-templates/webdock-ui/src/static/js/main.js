@@ -1,5610 +1,1443 @@
-// Definiere globale Variablen
-// Globale Variable für Container-Beschreibungen aus categories.yaml
-window.yamlContainerDescriptions = {};
-
-// Logging-Konfiguration - steuert die Ausführlichkeit der Konsolenausgaben
-window.WebDockLogger = {
-    // Log-Level: 0 = Nur Fehler, 1 = Warnungen, 2 = Info, 3 = Debug
-    level: 1,
+/**
+ * WebDock UI - Main JavaScript
+ * Modulares Design mit IIFE-Pattern
+ */
+(function() {
+    'use strict';
     
-    // Methoden zur Steuerung des Log-Levels
-    setLevel: function(newLevel) {
-        this.level = newLevel;
-        this.info(`Log-Level auf ${newLevel} gesetzt`);
-    },
-    
-    // Logging-Methoden
-    error: function(...args) {
-        console.error(...args);
-    },
-    
-    warn: function(...args) {
-        if (this.level >= 1) console.warn(...args);
-    },
-    
-    info: function(...args) {
-        if (this.level >= 2) console.log(...args);
-    },
-    
-    debug: function(...args) {
-        if (this.level >= 3) console.debug(...args);
-    }
-};
-
-// Legacy-Kompatibilität - wird nur verwendet, wenn debug explizit aktiviert werden soll
-window.verbose_logging = false;
-
-let loadingOverlay;
-
-// Cache-Objekte für Kategorien und Container
-let categoriesCache = null;
-let containerCache = null;
-let lastCategoriesFetch = 0;
-let lastContainersFetch = 0;
-const CACHE_TTL = 60000; // Cache-Gültigkeit in Millisekunden (1 Minute)
-
-// Definiere fetchAndRenderContainers als Alias für loadContainers mit Logging
-const fetchAndRenderContainers = async (forceRefresh = false, explicitCategoriesData = null) => {
-    console.log('fetchAndRenderContainers aufgerufen (Alias für loadContainers)');
-    
-    // Setze eine globale Variable, um zu verhindern, dass loadContainers den Aufruf blockiert
-    window._forceContainerLoad = true;
-    
-    // Warte kurz, um sicherzustellen, dass die UI-Updates abgeschlossen sind
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    try {
-        // Rufe loadContainers mit den übergebenen Parametern auf
-        const result = await loadContainers(forceRefresh, explicitCategoriesData);
-        
-        // Wenn loadContainers fehlschlägt, versuche einen Fallback mit Seiten-Reload
-        if (!result) {
-            console.warn('loadContainers fehlgeschlagen, versuche Fallback mit Seiten-Reload');
-            setTimeout(() => {
-                window.location.reload();
-            }, 1000);
-            return null;
-        }
-        
-        // Überprüfe, ob die UI korrekt aktualisiert wurde
-        setTimeout(() => {
-            // Prüfe, ob Container-Karten vorhanden sind
-            const containerCards = document.querySelectorAll('.container-card');
-            if (containerCards.length === 0) {
-                console.warn('Keine Container-Karten gefunden nach UI-Update, führe Seiten-Reload durch');
-                window.location.reload();
-            }
-        }, 2000);
-        
-        return result;
-    } catch (error) {
-        console.error('Fehler in fetchAndRenderContainers:', error);
-        // Im Fehlerfall als Fallback einen Reload durchführen
-        setTimeout(() => {
-            window.location.reload();
-        }, 1000);
-        return null;
-    }
-};
-
-// Hilfsfunktion zum vollständigen Löschen des Browser-Caches für Container und Kategorien
-function clearAllCaches() {
-    // In-Memory-Cache löschen
-    categoriesCache = null;
-    containerCache = null;
-    lastCategoriesFetch = 0;
-    lastContainersFetch = 0;
-    
-    // LocalStorage-Cache löschen
-    try {
-        localStorage.removeItem('containers');
-        localStorage.removeItem('containersTimestamp');
-        localStorage.removeItem('categories');
-        localStorage.removeItem('categoriesTimestamp');
-        console.log('Alle Caches in localStorage gelöscht');
-    } catch (e) {
-        console.warn('Konnte localStorage nicht leeren:', e);
-    }
-}
-
-// WebSocket-Verbindung für Echtzeit-Container-Updates
-let containerSocket = null;
-
-// Globale Timer-Variable für Container-Status-Updates (Fallback, wenn WebSockets nicht funktionieren)
-let containerStatusTimer = null;
-
-// Behalte die Scroll-Position
-let lastScrollPosition = 0;
-let lastContainerStates = new Map();
-
-// Funktion, um Beschreibungen für Container zu erhalten
-function getContainerDescription(containerName) {
-    // Verwende die Beschreibung aus der categories.yaml
-    if (window.yamlContainerDescriptions && window.yamlContainerDescriptions[containerName]) {
-        return window.yamlContainerDescriptions[containerName];
-    }
-    
-    // Einfacher Fallback ohne hardcodierte Descriptions
-    return 'Docker container for ' + containerName + '.';
-}
-
-// Globale closeModal Funktion
-function closeModal(containerName = null) { 
-    console.log(`Modal closed for container: ${containerName}`);
-    
-    // Suche nach allen modalen Dialogen
-    const modals = document.querySelectorAll('.modal');
-    
-    // Suche nach markierten Buttons mit data-installing-container
-    if (containerName) {
-        const markedButtons = document.querySelectorAll(`[data-installing-container="${containerName}"]`);
-        if (markedButtons.length > 0) {
-            console.log(`${markedButtons.length} markierte Buttons für Container ${containerName} gefunden`);
-            markedButtons.forEach(btn => {
-                resetInstallButton(btn, containerName);
-            });
-        }
-    }
-    
-    // Verstecke den Loading-Overlay wenn vorhanden
-    const loadingOverlay = document.getElementById('loading-overlay');
-    if (loadingOverlay) {
-        loadingOverlay.style.display = 'none';
-        console.log('Loading-Overlay ausgeblendet');
-    }
-    
-    // Zusätzlich: Finde alle Install-Buttons, die deaktiviert sind (als Fallback)
-    // Erweiterte Suche, um auch Buttons mit Spinner zu finden
-    const pendingButtons = document.querySelectorAll('.install-btn[disabled], .install-btn:has(.fa-spinner), .install-btn.loading-spinner-active, .install-btn.loading');
-    pendingButtons.forEach(button => {
-        const btnContainer = button.getAttribute('data-installing-container') || containerName || 'unknown';
-        console.log(`Zurücksetzen eines deaktivierten Buttons für Container: ${btnContainer}`);
-        
-        // Vollständiger Reset
-        button.disabled = false;
-        button.classList.remove('loading', 'loading-spinner-active');
-        
-        // Stelle sicher, dass der Button wieder seinen ursprünglichen Text hat
-        const safeOriginalText = (button.originalHTML && typeof button.originalHTML === 'string') 
-            ? button.originalHTML 
-            : 'Install';
-            
-        button.innerHTML = safeOriginalText;
-        
-        // Entferne das Attribut, falls es existiert
-        button.removeAttribute('data-installing-container');
-        
-        console.log(`Button für ${btnContainer} vollständig zurückgesetzt`);
-    });
-    
-    // Schließe alle gefundenen Modals
-    modals.forEach(modal => {
-        // Entferne die 'show' Klasse für die Animation
-        modal.classList.remove('show');
-        
-        // Entferne das Modal nach der Animation
-        setTimeout(() => {
-            // Prüfe, ob das Modal noch im DOM ist
-            if (modal.parentNode) {
-                modal.parentNode.removeChild(modal);
-            }
-        }, 300);
-    });
-    
-    // Debug-Logging wurde in den Funktionskopf verschoben
-}
-
-// Globale Variablen am Anfang der Datei
-let sshConnection = null;
-let globalCurrentPath = '/';
-let currentCommand = '';
-let terminalContent = null;  // Wird später definiert
-let commandHistory = [];  // Neu: Global definiert
-let historyIndex = -1;   // Neu: Global definiert
-let currentInput = '';   // Neu: Global definiert
-
-// Am Anfang der Datei
-const cachedData = {
-    containers: null,
-    categories: null,
-    lastUpdate: 0
-};
-
-function getCachedData(key, ttl = 30000) {
-    return cachedData[key] && (Date.now() - cachedData.lastUpdate < ttl) 
-        ? cachedData[key] 
-        : null;
-}
-
-function showErrorNotification(error, context) {
-    console.error(`Error in ${context}:`, error);
-    showNotification('error', `${context}: ${error.message || 'An error occurred'}`);
-}
-
-// Verbesserte showNotification Funktion
-function showNotification(type, message, duration = 3000) {
-    const notificationContainer = document.getElementById('notification-container') 
-        || createNotificationContainer();
-    
-    const notification = document.createElement('div');
-    notification.className = `notification ${type}`;
-    notification.innerHTML = `
-        <i class="fa fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i>
-        <span>${message}</span>
-        <button class="close-notification">
-            <i class="fa fa-times"></i>
-        </button>
-    `;
-    
-    notificationContainer.appendChild(notification);
-    
-    notification.querySelector('.close-notification').addEventListener('click', () => {
-        notification.classList.remove('show');
-        setTimeout(() => notification.remove(), 300);
-    });
-    
-    setTimeout(() => notification.classList.add('show'), 10);
-    
-    if (duration) {
-        setTimeout(() => {
-            notification.classList.remove('show');
-            setTimeout(() => notification.remove(), 300);
-        }, duration);
-    }
-}
-
-function createNotificationContainer() {
-    const container = document.createElement('div');
-    container.id = 'notification-container';
-    document.body.appendChild(container);
-    return container;
-}
-
-window.disconnectFromServer = function() {
-    fetch('/api/disconnect', {
-        method: 'POST',
-        body: JSON.stringify({ connection: sshConnection }),
-        headers: { 'Content-Type': 'application/json' }
-    })
-    .then(() => {
-        sshConnection = null;
-        document.querySelector('.terminal-container').style.display = 'none';
-        document.querySelector('.file-explorer').style.display = 'none';
-        showNotification('success', 'Disconnected from server');
-    });
-};
-
-document.addEventListener('DOMContentLoaded', function() {
-    loadingOverlay = document.getElementById('loading-overlay');
-    
-    // Lade Docker-Informationen
-    fetchDockerInfo();
-    
-    // Container-Status-Updates als globale Funktion
-    window.updateContainerStatus = function(showLoading = false) {
-        if (showLoading && loadingOverlay) {
-            loadingOverlay.style.display = 'flex';
-        }
-        
-        // Hole zuerst die Kategorien, dann die Container
-        fetch('/api/categories')
-            .then(response => response.json())
-            .then(categoriesData => {
-                const categories = categoriesData.categories;
-                
-                // Jetzt hole die Container
-                return fetch('/api/containers')
-                    .then(response => response.json())
-                    .then(data => {
-                        const groups = document.querySelector('.container-groups');
-                        if (!groups) return;
-                        
-                        // Gruppiere Container nach Kategorien
-                        const groupedContainers = {};
-                        const assignedContainers = new Set(); // Merke dir zugewiesene Container
-                        
-                        // Initialisiere alle Kategorien
-                        Object.entries(categories || {}).forEach(([id, category]) => {
-                            groupedContainers[category.name] = {
-                                name: category.name,
-                                icon: category.icon,
-                                containers: []
-                            };
-                        });
-                        
-                        // Füge "Imported" Kategorie hinzu
-                        groupedContainers['Imported'] = {
-                            name: 'Imported',
-                            icon: 'fa-cloud-download-alt',
-                            containers: []
-                        };
-                        
-                        // Sortiere Container in ihre Kategorien
-                        Object.values(data).forEach(group => {
-                            group.containers.forEach(container => {
-                                let assigned = false;
-                                // Suche die passende Kategorie
-                                Object.entries(categories || {}).forEach(([id, category]) => {
-                                    // Sicherstellen, dass die Kategorie existiert und ein containers-Array hat
-                                    if (category && Array.isArray(category.containers)) {
-                                        // Check if container.name is in the category's containers list
-                                        const containerInCategory = category.containers.some(c => {
-                                            // Sicherer Vergleich mit Typprüfung
-                                            if (typeof c === 'string') {
-                                                return c === container.name;
-                                            } else if (c && typeof c === 'object') {
-                                                return c.name === container.name;
-                                            }
-                                            return false;
-                                        });
-                                        
-                                        if (containerInCategory && !assignedContainers.has(container.name)) {
-                                            // Stelle sicher, dass die Kategorie in groupedContainers existiert
-                                            if (!groupedContainers[category.name]) {
-                                                groupedContainers[category.name] = {
-                                                    name: category.name,
-                                                    icon: category.icon || 'fa-cube',
-                                                    containers: []
-                                                };
-                                            }
-                                            groupedContainers[category.name].containers.push(container);
-                                            assignedContainers.add(container.name); // Markiere Container als zugewiesen
-                                            assigned = true;
-                                            
-                                            // Detaillierte Debug-Logs nutzen WebDockLogger.debug
-                                            WebDockLogger.debug(`Assigned ${container.name} to category ${category.name}`);
-                                        }
-                                    }
-                                });
-                                
-                                // Wenn keine Kategorie gefunden wurde, füge zu "Other" oder "Imported" hinzu
-                                if (!assigned && !assignedContainers.has(container.name)) {
-                                    // Sicherstellen, dass sowohl 'Other' als auch 'Imported' existieren und containers-Arrays haben
-                                    if (!groupedContainers['Other']) {
-                                        groupedContainers['Other'] = {
-                                            name: 'Other',
-                                            icon: 'fa-cubes',
-                                            containers: []
-                                        };
-                                    }
-                                    if (!groupedContainers['Imported']) {
-                                        groupedContainers['Imported'] = {
-                                            name: 'Imported',
-                                            icon: 'fa-cloud-download-alt',
-                                            containers: []
-                                        };
-                                    }
-                                    
-                                    // Verwende 'Imported' als Standardkategorie für nicht zugeordnete Container
-                                    groupedContainers['Imported'].containers.push(container);
-                                    assignedContainers.add(container.name);
-                                }
-                            });
-                        });
-                        
-                        // Aktualisiere die Anzeige
-                        groups.innerHTML = '';
-                        
-                        // Verwende die YAML-Kategorien, wenn verfügbar
-                        if (window.yamlCategories && window.yamlCategories.categories) {
-                            console.log('Verwende YAML-Kategorien für das Rendering');
-                            renderContainers(data, { categories: categories });
-                        } else {
-                            // Fallback: Verwende die ursprüngliche Rendering-Logik
-                            Object.entries(groupedContainers)
-                                .filter(([name, group]) => group.containers.length > 0)
-                                .forEach(([name, group]) => {
-                                    // WICHTIG: Für das data-category-id Attribut den Namen direkt verwenden
-                                    groups.innerHTML += `
-                                        <div class="group-section" data-category-id="${name}">
-                                            <h2><i class="fa ${group.icon}"></i> ${name}</h2>
-                                            <div class="container-grid">
-                                                ${group.containers.map((container, index) => createContainerCard(container, name, index)).join('')}
-                                            </div>
-                                        </div>
-                                    `;
-                                });
-                        }
-                            
-                        // Event-Listener wieder hinzufügen
-                        addContainerEventListeners();
-                    });
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                if (showLoading) {
-                    showNotification('error', 'Failed to load containers');
-                }
-            })
-            .finally(() => {
-                if (showLoading && loadingOverlay) {
-                    loadingOverlay.style.display = 'none';
-                }
-            });
+    // Konfigurationskonstanten
+    const CONFIG = {
+        API_BASE_URL: '/api',
+        WS_URL: `ws://${window.location.host}/ws`,
+        REFRESH_INTERVAL: 5 * 60 * 1000, // 5 Minuten
+        RECONNECT_INTERVAL: 3000, // 3 Sekunden
+        CACHE_TTL: 10 * 60 * 1000, // 10 Minuten
+        NOTIFICATION_TIMEOUT: 5000, // 5 Sekunden
+        MAX_RECONNECT_ATTEMPTS: 10,
+        WS_RECONNECT_DELAY: 5000, // 5 Sekunden WebSocket-Reconnect-Verzögerung
+        DEBUG: true // Debug-Modus aktivieren
     };
-
-    // Initialer Update-Aufruf mit Loading-Anzeige
-    // Lade zuerst die YAML-Kategorien, dann aktualisiere den Container-Status
-    loadLocalCategoriesYaml().then(() => {
-        updateContainerStatus(true);
-    });
-
-    // Periodische Updates ohne Loading-Anzeige
-    setInterval(() => {
-        if (!document.querySelector('.modal.show') && !document.activeElement.tagName.match(/input|select|textarea/i)) {
-            updateContainerStatus(false);
-        }
-    }, 300000); // Alle 5 Minuten
-
-    // Event-Listener für manuelle Aktualisierung mit Loading-Anzeige
-    document.addEventListener('keydown', function(e) {
-        if (e.key === 'F5' || (e.ctrlKey && e.key === 'r')) {
-            e.preventDefault();
-            updateContainerStatus(true);
-        }
-    });
-
-    // Tab Switching
-    document.querySelectorAll('[data-tab]').forEach(tab => {
-        tab.addEventListener('click', function(e) {
-            e.preventDefault();
-            const targetId = this.getAttribute('data-tab');
+    
+    // Module und Funktionen werden hier definiert
+    // und später exportiert
+    
+    // Das vorhandene WebDockLogger-Objekt verbessern
+    const WebDockLogger = window.WebDockLogger || {
+        debug: function(...args) { console.debug('[WebDock]', ...args); },
+        log: function(...args) { console.log('[WebDock]', ...args); },
+        info: function(...args) { console.info('[WebDock]', ...args); },
+        warn: function(...args) { console.warn('[WebDock]', ...args); },
+        error: function(...args) { console.error('[WebDock]', ...args); }
+    };
+    
+    /**
+     * Einheitlicher Cache-Mechanismus
+     * Verwaltet verschiedene Caches mit TTL und automatischem Invalidieren
+     */
+    const CacheManager = {
+        // Cache-Speicher
+        _stores: {
+            categories: { data: null, timestamp: 0 },
+            containers: { data: null, timestamp: 0 },
+            descriptions: { data: null, timestamp: 0 },
+            containerStatus: { data: {}, timestamp: 0 }
+        },
+        
+        // Cache-Element setzen
+        set: function(key, data, ttl = CONFIG.CACHE_TTL) {
+            if (!this._stores[key]) {
+                this._stores[key] = { data: null, timestamp: 0 };
+            }
             
-            // Deaktiviere alle Tabs
-            document.querySelectorAll('.tab-content').forEach(content => {
-                content.classList.remove('active');
-            });
-            document.querySelectorAll('[data-tab]').forEach(t => {
-                t.classList.remove('active');
-            });
+            this._stores[key].data = data;
+            this._stores[key].timestamp = Date.now() + ttl;
             
-            // Aktiviere ausgewählten Tab
-            document.getElementById(targetId).classList.add('active');
-            this.classList.add('active');
-        });
-    });
-
-    // System Status Updates
-    function updateSystemStatus() {
-        fetch('/api/system/status')
-            .then(response => response.json())
-            .then(data => {
-                // CPU Usage
-                const cpuGauge = document.querySelector('#cpu-gauge');
-                cpuGauge.style.setProperty('--percentage', `${data.cpu}%`);
-                document.querySelector('#cpu-value').textContent = `${data.cpu}%`;
-
-                // Memory Usage
-                const memGauge = document.querySelector('#memory-gauge');
-                memGauge.style.setProperty('--percentage', `${data.memory}%`);
-                document.querySelector('#memory-value').textContent = `${data.memory}%`;
-
-                // Disk Usage
-                const diskGauge = document.querySelector('#disk-gauge');
-                diskGauge.style.setProperty('--percentage', `${data.disk}%`);
-                document.querySelector('#disk-value').textContent = `${data.disk}%`;
-            })
-            .catch(error => console.error('Error updating system status:', error));
-    }
-
-    // Container Health Updates
-    function updateContainerHealth() {
-        fetch('/api/containers/health')
-            .then(response => response.json())
-            .then(data => {
-                const healthGrid = document.getElementById('container-health');
-                healthGrid.innerHTML = '';
-                
-                data.forEach(container => {
-                    healthGrid.innerHTML += `
-                        <div class="health-card">
-                            <h3>${container.name}</h3>
-                            <div class="health-status ${container.status}">
-                                <i class="fa fa-${container.status === 'healthy' ? 'check' : 'warning'}"></i>
-                                ${container.status}
-                            </div>
-                            <div class="health-details">
-                                <p>Uptime: ${container.uptime}</p>
-                                <p>Memory: ${container.memory}</p>
-                                <p>CPU: ${container.cpu}</p>
-                            </div>
-                        </div>
-                    `;
+            if (CONFIG.DEBUG) {
+                WebDockLogger.debug(`Cache für "${key}" gesetzt, gültig bis ${new Date(this._stores[key].timestamp).toLocaleTimeString()}`);
+            }
+            
+            return data;
+        },
+        
+        // Cache-Element abrufen
+        get: function(key) {
+            const cache = this._stores[key];
+            
+            if (!cache || !cache.data) {
+                return null;
+            }
+            
+            // Prüfe, ob der Cache noch gültig ist
+            if (Date.now() > cache.timestamp) {
+                if (CONFIG.DEBUG) {
+                    WebDockLogger.debug(`Cache für "${key}" ist abgelaufen`);
+                }
+                return null;
+            }
+            
+            if (CONFIG.DEBUG) {
+                WebDockLogger.debug(`Cache-Hit für "${key}", gültig bis ${new Date(cache.timestamp).toLocaleTimeString()}`);
+            }
+            
+            return cache.data;
+        },
+        
+        // Cache für einen bestimmten Key löschen
+        clear: function(key) {
+            if (key && this._stores[key]) {
+                this._stores[key].data = null;
+                this._stores[key].timestamp = 0;
+                WebDockLogger.debug(`Cache für "${key}" wurde gelöscht`);
+            } 
+            else if (!key) {
+                // Alle Caches löschen
+                Object.keys(this._stores).forEach(k => {
+                    this._stores[k].data = null;
+                    this._stores[k].timestamp = 0;
                 });
-            })
-            .catch(error => console.error('Error updating container health:', error));
-    }
-
-    function formatLogDate(timestamp) {
-        if (!timestamp) return 'N/A';
+                WebDockLogger.debug('Alle Caches wurden gelöscht');
+            }
+        },
         
-        try {
-            // Prüfe ob der Timestamp ein Unix-Timestamp (Zahl) ist
-            if (typeof timestamp === 'number') {
-                return new Date(timestamp * 1000).toLocaleString();
-            }
-            
-            // Versuche das Datum zu parsen
-            const date = new Date(timestamp);
-            if (isNaN(date.getTime())) {
-                return 'Invalid Date';
-            }
-            
-            // Formatiere das Datum
-            return date.toLocaleString('de-DE', {
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit'
-            });
-        } catch (e) {
-            console.error('Error formatting date:', e);
-            return 'Invalid Date';
+        // Prüfen, ob ein Cache-Element gültig ist
+        isValid: function(key) {
+            const cache = this._stores[key];
+            return cache && cache.data && Date.now() <= cache.timestamp;
         }
-    }
-
-    // Aktualisiere die Log-Anzeige Funktion
-    function updateSystemLogs(filterLevel = null, filterSource = null, searchTerm = null) {
-        fetch('/api/system/logs')
-            .then(response => response.json())
-            .then(data => {
-                const logsContainer = document.getElementById('system-logs');
-                if (!logsContainer) return;
-                
-                // Erstelle Filter-Kontrollen, wenn sie noch nicht existieren
-                const logsSection = logsContainer.closest('.section-content');
-                if (!document.getElementById('log-filter-controls') && logsSection) {
-                    const filterControls = document.createElement('div');
-                    filterControls.id = 'log-filter-controls';
-                    filterControls.className = 'log-filter-controls';
-                    filterControls.innerHTML = `
-                        <div class="filter-row">
-                            <div class="filter-group">
-                                <span>Level:</span>
-                                <button class="log-filter-btn active" data-filter="level" data-value="all">All</button>
-                                <button class="log-filter-btn" data-filter="level" data-value="info">Info</button>
-                                <button class="log-filter-btn" data-filter="level" data-value="warning">Warning</button>
-                                <button class="log-filter-btn" data-filter="level" data-value="error">Error</button>
-                            </div>
-                            <div class="filter-group">
-                                <span>Source:</span>
-                                <button class="log-filter-btn active" data-filter="source" data-value="all">All</button>
-                                <button class="log-filter-btn" data-filter="source" data-value="webdock-ui">WebDock</button>
-                                <button class="log-filter-btn" data-filter="source" data-value="docker">Docker</button>
-                                <button class="log-filter-btn" data-filter="source" data-value="system">System</button>
-                            </div>
-                        </div>
-                        <div class="filter-row">
-                            <div class="search-group">
-                                <input type="text" id="log-search" placeholder="Search logs..." class="form-control">
-                                <button id="log-search-btn"><i class="fa fa-search"></i></button>
-                            </div>
-                            <div class="actions-group">
-                                <button id="log-refresh-btn" title="Refresh logs"><i class="fa fa-refresh"></i></button>
-                                <button id="log-clear-filters-btn" title="Clear all filters"><i class="fa fa-times"></i></button>
-                                <button id="log-export-btn" title="Export logs"><i class="fa fa-download"></i></button>
-                            </div>
-                        </div>
-                    `;
-                    
-                    // Füge vor dem Logs-Container ein
-                    logsSection.insertBefore(filterControls, logsContainer);
-                    
-                    // Event-Listener für Filter-Buttons
-                    document.querySelectorAll('.log-filter-btn').forEach(btn => {
-                        btn.addEventListener('click', () => {
-                            // Deaktiviere andere Buttons in derselben Gruppe
-                            const filterType = btn.dataset.filter;
-                            document.querySelectorAll(`.log-filter-btn[data-filter="${filterType}"]`).forEach(b => {
-                                b.classList.remove('active');
-                            });
-                            btn.classList.add('active');
-                            
-                            // Hole aktuelle Filter
-                            const currentLevelFilter = document.querySelector('.log-filter-btn[data-filter="level"].active').dataset.value;
-                            const currentSourceFilter = document.querySelector('.log-filter-btn[data-filter="source"].active').dataset.value;
-                            const currentSearchTerm = document.getElementById('log-search').value;
-                            
-                            // Aktualisiere Logs mit neuen Filtern
-                            updateSystemLogs(
-                                currentLevelFilter !== 'all' ? currentLevelFilter : null,
-                                currentSourceFilter !== 'all' ? currentSourceFilter : null,
-                                currentSearchTerm || null
-                            );
-                        });
-                    });
-                    
-                    // Event-Listener für Suche
-                    document.getElementById('log-search-btn').addEventListener('click', () => {
-                        const searchTerm = document.getElementById('log-search').value;
-                        const currentLevelFilter = document.querySelector('.log-filter-btn[data-filter="level"].active').dataset.value;
-                        const currentSourceFilter = document.querySelector('.log-filter-btn[data-filter="source"].active').dataset.value;
-                        
-                        updateSystemLogs(
-                            currentLevelFilter !== 'all' ? currentLevelFilter : null,
-                            currentSourceFilter !== 'all' ? currentSourceFilter : null,
-                            searchTerm || null
-                        );
-                    });
-                    
-                    // Event-Listener für Enter-Taste im Suchfeld
-                    document.getElementById('log-search').addEventListener('keyup', (e) => {
-                        if (e.key === 'Enter') {
-                            document.getElementById('log-search-btn').click();
-                        }
-                    });
-                    
-                    // Event-Listener für Refresh-Button
-                    document.getElementById('log-refresh-btn').addEventListener('click', () => {
-                        const currentLevelFilter = document.querySelector('.log-filter-btn[data-filter="level"].active').dataset.value;
-                        const currentSourceFilter = document.querySelector('.log-filter-btn[data-filter="source"].active').dataset.value;
-                        const currentSearchTerm = document.getElementById('log-search').value;
-                        
-                        updateSystemLogs(
-                            currentLevelFilter !== 'all' ? currentLevelFilter : null,
-                            currentSourceFilter !== 'all' ? currentSourceFilter : null,
-                            currentSearchTerm || null
-                        );
-                    });
-                    
-                    // Event-Listener für Clear-Filters-Button
-                    document.getElementById('log-clear-filters-btn').addEventListener('click', () => {
-                        // Setze alle Filter zurück
-                        document.querySelectorAll('.log-filter-btn[data-value="all"]').forEach(btn => {
-                            const filterType = btn.dataset.filter;
-                            document.querySelectorAll(`.log-filter-btn[data-filter="${filterType}"]`).forEach(b => {
-                                b.classList.remove('active');
-                            });
-                            btn.classList.add('active');
-                        });
-                        document.getElementById('log-search').value = '';
-                        
-                        // Aktualisiere Logs ohne Filter
-                        updateSystemLogs();
-                    });
-                    
-                    // Event-Listener für Export-Button
-                    document.getElementById('log-export-btn').addEventListener('click', () => {
-                        // Erstelle CSV aus aktuellen Logs
-                        const csvContent = 'data:text/csv;charset=utf-8,'
-                            + 'Timestamp,Level,Source,Message\n'
-                            + logs.map(log => {
-                                return `"${log.timestamp}","${log.level}","${log.source}","${log.message.replace(/"/g, '""')}"`;
-                            }).join('\n');
-                        
-                        const encodedUri = encodeURI(csvContent);
-                        const link = document.createElement('a');
-                        link.setAttribute('href', encodedUri);
-                        link.setAttribute('download', `webdock-logs-${new Date().toISOString().split('T')[0]}.csv`);
-                        document.body.appendChild(link);
-                        link.click();
-                        document.body.removeChild(link);
-                    });
-                    
-                    // Füge CSS für die neuen Elemente hinzu
-                    if (!document.getElementById('log-styles')) {
-                        const style = document.createElement('style');
-                        style.id = 'log-styles';
-                        style.textContent = `
-                            .log-filter-controls {
-                                margin-bottom: 15px;
-                                padding: 15px;
-                                background: var(--color-background-dark);
-                                border-radius: 8px;
-                                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                            }
-                            .filter-row {
-                                display: flex;
-                                justify-content: space-between;
-                                margin-bottom: 10px;
-                            }
-                            .filter-row:last-child {
-                                margin-bottom: 0;
-                            }
-                            .filter-group, .search-group, .actions-group {
-                                display: flex;
-                                align-items: center;
-                                gap: 10px;
-                            }
-                            .log-filter-btn {
-                                padding: 6px 12px;
-                                border: none;
-                                border-radius: 4px;
-                                background: var(--color-background);
-                                color: var(--color-text);
-                                cursor: pointer;
-                                transition: all 0.2s;
-                            }
-                            .log-filter-btn:hover {
-                                background: var(--color-background-light);
-                            }
-                            .log-filter-btn.active {
-                                background: var(--color-primary);
-                                color: white;
-                            }
-                            #log-search {
-                                width: 250px;
-                                border-radius: 4px;
-                                border: 1px solid var(--color-border);
-                                padding: 6px 12px;
-                            }
-                            #log-search-btn, #log-refresh-btn, #log-clear-filters-btn, #log-export-btn {
-                                padding: 6px 12px;
-                                border: none;
-                                border-radius: 4px;
-                                background: var(--color-primary);
-                                color: white;
-                                cursor: pointer;
-                                transition: all 0.2s;
-                            }
-                            #log-search-btn:hover, #log-refresh-btn:hover, #log-clear-filters-btn:hover, #log-export-btn:hover {
-                                background: var(--color-primary-dark);
-                            }
-                            #system-logs {
-                                max-height: 600px;
-                                overflow-y: auto;
-                                border-radius: 8px;
-                                border: 1px solid var(--color-border);
-                                background: var(--color-background);
-                                padding: 10px;
-                                font-family: monospace;
-                            }
-                            .log-entry {
-                                display: grid;
-                                grid-template-columns: 100px 80px 80px 1fr;
-                                gap: 10px;
-                                padding: 8px;
-                                border-bottom: 1px solid var(--color-border);
-                                align-items: center;
-                            }
-                            .log-time {
-                                color: var(--color-text-muted);
-                                font-size: 0.9em;
-                                white-space: nowrap;
-                            }
-                            .log-source {
-                                color: var(--color-text);
-                                font-size: 0.9em;
-                                white-space: nowrap;
-                            }
-                            .log-level {
-                                display: inline-flex;
-                                align-items: center;
-                                gap: 5px;
-                                font-size: 0.9em;
-                                white-space: nowrap;
-                            }
-                            .log-message {
-                                color: var(--color-text);
-                                line-height: 1.4;
-                                word-break: break-word;
-                            }
-                            .log-entry.info .log-level { color: #17a2b8; }
-                            .log-entry.warning .log-level { color: #ffc107; }
-                            .log-entry.error .log-level { color: #dc3545; }
-                            .log-entry.error .log-message {
-                                color: #dc3545;
-                            }
-                            .log-entry i {
-                                font-size: 12px;
-                                width: 14px;
-                                text-align: center;
-                            }
-                        `;
-                        document.head.appendChild(style);
-                    }
-                }
-                
-                // Hole die Logs aus der Response
-                const allLogs = data.logs || [];
-                
-                // Filtere Logs basierend auf den Filtern
-                const filteredLogs = allLogs.filter(log => {
-                    // Filter nach Level
-                    if (filterLevel && log.level.toLowerCase() !== filterLevel.toLowerCase()) {
-                        return false;
-                    }
-                    
-                    // Filter nach Source
-                    if (filterSource && log.source.toLowerCase() !== filterSource.toLowerCase()) {
-                        return false;
-                    }
-                    
-                    // Filter nach Suchbegriff
-                    if (searchTerm && !log.message.toLowerCase().includes(searchTerm.toLowerCase())) {
-                        return false;
-                    }
-                    
-                    return true;
-                });
-                
-                // Aktualisiere die Anzeige der gefilterten Logs
-                logsContainer.innerHTML = filteredLogs.map(log => {
-                    const levelClass = log.level.toLowerCase();
-                    const sourceIcon = {
-                        'webdock-ui': 'fa-desktop',
-                        'docker': 'fa-docker',
-                        'system': 'fa-cog'
-                    }[log.source] || 'fa-info-circle';
-                    
-                    return `
-                        <div class="log-entry ${levelClass}">
-                            <span class="log-time">${log.timestamp}</span>
-                            <span class="log-source">${log.source || 'system'}</span>
-                            <span class="log-level">${log.level}</span>
-                            <span class="log-message">${log.message}</span>
-                        </div>
-                    `;
-                }).join('');
-                
-                // Zeige eine Meldung, wenn keine Logs gefunden wurden
-                if (filteredLogs.length === 0) {
-                    logsContainer.innerHTML = `
-                        <div class="no-logs-message">
-                            <i class="fa fa-info-circle"></i>
-                            <p>Keine Logs gefunden, die den aktuellen Filtern entsprechen.</p>
-                        </div>
-                    `;
-                }
-                
-                // Scrolle zum neuesten Log
-                logsContainer.scrollTop = logsContainer.scrollHeight;
-            })
-            .catch(error => console.error('Error loading logs:', error));
-    }
-
-    // Aktualisiere die Logs alle 10 Sekunden
-    setInterval(updateSystemLogs, 10000);
-
-    // Settings Management
-    const themeSelect = document.getElementById('theme-select');
-    themeSelect.value = localStorage.getItem('theme') || 'system';
-    themeSelect.addEventListener('change', (e) => {
-        const theme = e.target.value;
-        localStorage.setItem('theme', theme);
-        updateTheme(theme);
-        showNotification('success', `Theme changed to ${theme}`);
-    });
-
-    const autoUpdate = document.getElementById('auto-update');
-    autoUpdate.checked = localStorage.getItem('autoUpdate') !== 'false';
-    autoUpdate.addEventListener('change', (e) => {
-        localStorage.setItem('autoUpdate', e.target.checked);
-        setupRefreshInterval();
-        showNotification('success', `Auto-update ${e.target.checked ? 'enabled' : 'disabled'}`);
-    });
-
-    const refreshInterval = document.getElementById('refresh-interval');
-    refreshInterval.value = localStorage.getItem('refreshInterval') || '30';
-    refreshInterval.addEventListener('change', (e) => {
-        const interval = e.target.value;
-        localStorage.setItem('refreshInterval', interval);
-        setupRefreshInterval();
-        showNotification('success', `Refresh interval set to ${interval} seconds`);
-    });
-
-    // Lade gespeicherte Einstellungen
-    window.addEventListener('DOMContentLoaded', () => {
-        document.getElementById('theme-select').value = localStorage.getItem('theme') || 'system';
-        document.getElementById('auto-update').checked = localStorage.getItem('autoUpdate') !== 'false';
-        document.getElementById('refresh-interval').value = localStorage.getItem('refreshInterval') || '30';
-        
-        // Initialisiere WebSocket-Verbindung für Echtzeit-Updates
-        initializeContainerSocket();
-    });
+    };
     
-// Initialisierung der WebSocket-Verbindung für Container-Status-Updates
-// Globale Variable um zu verfolgen, ob wir aktiv versuchen, eine Verbindung herzustellen
-let isConnecting = false;
-
-function initializeContainerSocket() {
-    // Verhindere mehrere gleichzeitige Verbindungsversuche
-    if (isConnecting) {
-        console.log('Verbindungsaufbau bereits im Gange, warte...');
-        return true;
-    }
-    
-    try {
-        isConnecting = true;
-        console.log('Initialisiere WebSocket-Verbindung für Echtzeit-Container-Updates...');
-        
-        // Setze einen Timeout für den Verbindungsaufbau
-        const connectionTimeout = setTimeout(() => {
-            if (isConnecting) {
-                console.warn('WebSocket-Verbindung konnte nicht innerhalb des Timeouts hergestellt werden');
-                isConnecting = false;
-                setupStatusPollingFallback();
-            }
-        }, 10000); // 10 Sekunden Timeout
-        
-        // Wenn bereits eine Verbindung existiert, zuerst trennen
-        if (containerSocket) {
-            // Entferne alle vorhandenen Listeners um Memory-Leaks zu vermeiden
-            containerSocket.off('connect');
-            containerSocket.off('connect_error');
-            containerSocket.off('disconnect');
-            containerSocket.off('initial_status');
-            containerSocket.off('container_status_update');
-            containerSocket.off('container_status_refresh');
-            
-            // Trenne bestehende Verbindung
-            containerSocket.disconnect();
-        }
-        
-        // Verbindung zum Socket.IO-Namespace für Container-Updates herstellen
-        containerSocket = io('/containers', {
-            reconnection: true,             // Automatische Wiederverbindung aktivieren
-            reconnectionAttempts: 10,        // Mehr Versuche erlauben für stabilere Verbindung
-            reconnectionDelay: 1000,        // Anfängliche Verzögerung in ms
-            reconnectionDelayMax: 5000,     // Geringere maximale Verzögerung für schnellere Reconnects
-            timeout: 20000,                 // Verbindungs-Timeout in ms
-            forceNew: false,                // Bestehende Verbindungen wiederverwenden
-            transports: ['websocket', 'polling'] // Erst WebSocket, dann Polling als Fallback
-        });
-        
-        // Event-Handler für Verbindungsereignisse
-        containerSocket.on('connect', () => {
-            console.log('✅ WebSocket-Verbindung hergestellt!');
-            clearTimeout(connectionTimeout);
-            isConnecting = false;
-            
-            // Fallback-Timer entfernen, wenn WebSocket funktioniert
-            if (containerStatusTimer) {
-                clearInterval(containerStatusTimer);
-                containerStatusTimer = null;
-            }
-            
-            // Anfrage für initialen Status senden
-            containerSocket.emit('get_initial_status');
-            
-            // Update UI to show connected state
-            const statusIndicator = document.getElementById('websocket-status');
-            if (statusIndicator) {
-                statusIndicator.className = 'connected';
-                statusIndicator.title = 'WebSocket verbunden';
-            }
-        });
-        
-        containerSocket.on('connect_error', (error) => {
-            console.error('❌ WebSocket-Verbindungsfehler:', error);
-            clearTimeout(connectionTimeout);
-            isConnecting = false;
-            setupStatusPollingFallback(); // Fallback zu regelmäßigem Polling
-            
-            // Update UI to show disconnected state
-            const statusIndicator = document.getElementById('websocket-status');
-            if (statusIndicator) {
-                statusIndicator.className = 'disconnected';
-                statusIndicator.title = 'WebSocket getrennt: ' + error.message;
-            }
-            
-            // Automatisch nach einer Verzögerung erneut versuchen zu verbinden
-            setTimeout(() => {
-                if (!containerSocket || !containerSocket.connected) {
-                    console.log('Versuche WebSocket-Verbindung wiederherzustellen...');
-                    initializeContainerSocket();
-                }
-            }, 5000); // Nach 5 Sekunden erneut versuchen
-        });
-        
-        containerSocket.on('disconnect', (reason) => {
-            console.log('⚠️ WebSocket-Verbindung getrennt:', reason);
-            clearTimeout(connectionTimeout);
-            isConnecting = false;
-            
-            // Update UI to show disconnected state
-            const statusIndicator = document.getElementById('websocket-status');
-            if (statusIndicator) {
-                statusIndicator.className = 'disconnected';
-                statusIndicator.title = 'WebSocket getrennt: ' + reason;
-            }
-            
-            // Fallback zu Polling einrichten
-            setupStatusPollingFallback();
-            
-            // Bei bestimmten Fehlern versuche automatisch neu zu verbinden
-            if (reason === 'io server disconnect' || reason === 'transport close' || reason === 'ping timeout') {
-                setTimeout(() => {
-                    if (!containerSocket || !containerSocket.connected) {
-                        console.log('Versuche WebSocket-Verbindung nach Trennung wiederherzustellen...');
-                        initializeContainerSocket();
-                    }
-                }, 3000); // Nach 3 Sekunden erneut versuchen
-            }
-        });
-        
-        // Event-Handler für Container-Status-Updates
-        containerSocket.on('initial_status', (statusData) => {
-            console.log('Initialen Container-Status erhalten');
-            updateContainerStatusUI(statusData);
-        });
-        
-        containerSocket.on('container_status_update', (containerData) => {
-            // Verarbeite nur, wenn die Daten gültig sind
-            if (containerData && containerData.name) {
-                // Reduzierte Logging-Nachricht
-                const container = {
-                    name: containerData.name,
-                    status: containerData.status
-                };
-                
-                // Update des UI nur für den einen Container
-                updateContainerStatusUI([container], true);
-            }
-        });
-        
-        containerSocket.on('container_status_refresh', (statusData) => {
-            if (Array.isArray(statusData)) {
-                updateContainerStatusUI(statusData);
-            } else {
-                console.warn('Ungültiges Format für Container-Status-Refresh:', statusData);
-            }
-        });
-        
-        // Erfolgreiche Initialisierung
-        return true;
-    } catch (error) {
-        console.error('Fehler bei der Initialisierung der WebSocket-Verbindung:', error);
-        isConnecting = false;
-        setupStatusPollingFallback(); // Fallback zu regelmäßigem Polling
-        
-        // Update UI to show error state
-        const statusIndicator = document.getElementById('websocket-status');
-        if (statusIndicator) {
-            statusIndicator.className = 'error';
-            statusIndicator.title = 'WebSocket-Fehler: ' + error.message;
-        }
-        
-        return false;
-    }
-}
-
-// Fallback-Funktion, die reguläres Polling einrichtet, falls WebSockets nicht funktionieren
-function setupStatusPollingFallback() {
-    // Verhindere mehrere Timer
-    if (containerStatusTimer) {
-        clearInterval(containerStatusTimer);
-        containerStatusTimer = null;
-    }
-    
-    // Prüfe, ob autoUpdate aktiviert ist
-    if (localStorage.getItem('autoUpdate') === 'false') {
-        return; // Wenn auto-Update deaktiviert ist, richte auch keinen Fallback ein
-    }
-    
-    console.log('Richte Fallback-Polling für Container-Status ein');
-    const interval = Math.max(30, parseInt(localStorage.getItem('refreshInterval') || '30')) * 1000;
-    
-    containerStatusTimer = setInterval(function() {
-        // Nur polling ausführen wenn keine WebSocket-Verbindung besteht
-        if (!containerSocket || !containerSocket.connected) {
-            console.log('Polling Container-Status (Fallback-Methode)...');
-            updateContainerStatus(false);
-        }
-    }, interval);
-}
-
-// Funktion zum Abrufen der Docker-Versionsinformationen
-function fetchDockerInfo() {
-    fetch('/api/docker/info')
-        .then(function(response) { return response.json(); })
-        .then(function(data) {
-            document.getElementById('docker-version').value = data.version;
-            document.getElementById('docker-network').value = data.network;
-        })
-        .catch(function(error) { console.error('Error getting Docker info:', error); });
-}
-
-// Setup Refresh Interval - Nur für Systemstatus, Container-Status verwendet WebSockets
-function setupRefreshInterval() {
-    const interval = parseInt(refreshInterval.value) * 1000;
-    if (window.statusInterval) clearInterval(window.statusInterval);
-    if (autoUpdate.checked) {
-        window.statusInterval = setInterval(function() {
-            updateSystemStatus();
-            updateContainerHealth();
-            updateSystemLogs();
-        }, interval);
-        }
-        
-        // Aktualisiere auch die WebSocket-Verbindung, wenn die Einstellungen geändert wurden
-        // oder stelle sicher, dass der Fallback aktiviert ist, wenn WebSockets nicht verfügbar sind
-        if (containerSocket && containerSocket.connected) {
-            console.log('WebSocket-Verbindung aktiv, keine Änderung notwendig');
-        } else {
-            console.log('WebSocket-Verbindung nicht aktiv, versuche erneut zu verbinden');
-            if (!containerSocket) {
-                initializeContainerSocket();
-            } else {
-                setupStatusPollingFallback();
-            }
-        }
-    }
-
-    // Initial Updates
-    updateSystemStatus();
-    updateContainerHealth();
-    updateSystemLogs();
-    setupRefreshInterval();
-
-    // Gauge Chart Drawing
-    function updateGaugeChart(elementId, value) {
-        const canvas = document.getElementById(elementId);
-        if (!canvas.getContext) return;
-
-        const ctx = canvas.getContext('2d');
-        const centerX = canvas.width / 2;
-        const centerY = canvas.height / 2;
-        const radius = Math.min(centerX, centerY) - 10;
-
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-        // Draw background arc
-        ctx.beginPath();
-        ctx.arc(centerX, centerY, radius, Math.PI, 2 * Math.PI);
-        ctx.strokeStyle = '#ddd';
-        ctx.lineWidth = 20;
-        ctx.stroke();
-
-        // Draw value arc
-        const angle = Math.PI + (value / 100) * Math.PI;
-        ctx.beginPath();
-        ctx.arc(centerX, centerY, radius, Math.PI, angle);
-        ctx.strokeStyle = getColorForValue(value);
-        ctx.lineWidth = 20;
-        ctx.stroke();
-    }
-
-    function getColorForValue(value) {
-        if (value < 60) return '#46ba61';  // Green
-        if (value < 80) return '#f0ad4e';  // Yellow
-        return '#e9322d';  // Red
-    }
-
-    // Theme Management
-    function updateTheme(theme) {
-        const root = document.documentElement;
-        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        
-        // Entferne vorherige Theme-Klassen
-        root.removeAttribute('data-theme');
-        
-        // Setze das neue Theme
-        switch (theme) {
-            case 'dark':
-                root.setAttribute('data-theme', 'dark');
-                break;
-            case 'light':
-                root.setAttribute('data-theme', 'light');
-                break;
-            case 'system':
-                if (prefersDark) {
-                    root.setAttribute('data-theme', 'dark');
-                } else {
-                    root.setAttribute('data-theme', 'light');
-                }
-                break;
-        }
-    }
-
-    // Überwache System-Theme-Änderungen
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
-        if (localStorage.getItem('theme') === 'system') {
-            updateTheme('system');
-        }
-    });
-
-    // Data Location Management
-    const dataLocation = document.getElementById('data-location');
-    const saveLocationBtn = document.getElementById('save-location');
-    
-    // Lade aktuelle Einstellung
-    fetch('/api/settings/data-location')
-        .then(response => response.json())
-        .then(data => {
-            dataLocation.value = data.location;
-        })
-        .catch(error => console.error('Error loading data location:', error));
-    
-    saveLocationBtn.addEventListener('click', () => {
-        const newLocation = dataLocation.value;
-        
-        fetch('/api/settings/data-location', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
+    /**
+     * Verbessertes Benachrichtigungssystem
+     * Bietet einheitliches API für verschiedene Benachrichtigungstypen
+     */
+    const NotificationManager = {
+        // Konfiguration
+        _config: {
+            containerSelector: '#notification-container',
+            defaultDuration: 3000,
+            animations: {
+                show: 'notification-show',
+                hide: 'notification-hide'
             },
-            body: JSON.stringify({ location: newLocation })
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'success') {
-                showNotification('success', 'Data location updated');
-            } else {
-                showNotification('error', data.message);
+            types: {
+                success: { icon: 'check-circle', color: 'var(--success-color, #28a745)' },
+                error: { icon: 'exclamation-circle', color: 'var(--error-color, #dc3545)' },
+                warning: { icon: 'exclamation-triangle', color: 'var(--warning-color, #ffc107)' },
+                info: { icon: 'info-circle', color: 'var(--info-color, #17a2b8)' }
             }
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            showNotification('error', 'Failed to update data location');
-        });
-    });
-
-    // Directory Browser
-    const directoryModal = document.getElementById('directory-modal');
-    const browseLocationBtn = document.getElementById('browse-location');
-    const directoryList = document.querySelector('.directory-list');
-    let currentPath = '/';
+        },
+        
+        // Container für Benachrichtigungen abrufen oder erstellen
+        _getContainer: function() {
+            let container = document.querySelector(this._config.containerSelector);
+            
+            if (!container) {
+                container = document.createElement('div');
+                container.id = this._config.containerSelector.replace('#', '');
+                container.className = 'notification-container';
+                document.body.appendChild(container);
+            }
+            
+            return container;
+        },
+        
+        // HTML für eine Benachrichtigung erstellen
+        _createNotificationHTML: function(type, message) {
+            const typeConfig = this._config.types[type] || this._config.types.info;
+            
+            return `
+                <div class="notification ${type}">
+                    <div class="notification-icon">
+                        <i class="fa fa-${typeConfig.icon}"></i>
+                    </div>
+                    <div class="notification-content">
+                        <span>${this._escapeHTML(message)}</span>
+                    </div>
+                    <button class="notification-close">
+                        <i class="fa fa-times"></i>
+                    </button>
+                </div>
+            `;
+        },
+        
+        // HTML escapen
+        _escapeHTML: function(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        },
+        
+        // Benachrichtigung anzeigen
+        show: function(type, message, duration = this._config.defaultDuration) {
+            const container = this._getContainer();
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = this._createNotificationHTML(type, message);
+            
+            const notification = tempDiv.firstElementChild;
+            container.appendChild(notification);
+            
+            // Event-Listener für Close-Button
+            notification.querySelector('.notification-close').addEventListener('click', () => {
+                this.close(notification);
+            });
+            
+            // Animation starten
+            setTimeout(() => notification.classList.add('show'), 10);
+            
+            // Automatisches Schließen nach Ablauf der Dauer
+            if (duration) {
+                setTimeout(() => this.close(notification), duration);
+            }
+            
+            return notification;
+        },
+        
+        // Benachrichtigung schließen
+        close: function(notification) {
+            if (!notification) return;
+            
+            notification.classList.remove('show');
+            notification.classList.add('hide');
+            
+            // Entferne Element nach Animation
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.parentNode.removeChild(notification);
+                }
+            }, 300);
+        },
+        
+        // Kurzform-Funktionen für verschiedene Typen
+        success: function(message, duration) {
+            return this.show('success', message, duration);
+        },
+        
+        error: function(message, duration) {
+            return this.show('error', message, duration);
+        },
+        
+        warning: function(message, duration) {
+            return this.show('warning', message, duration);
+        },
+        
+        info: function(message, duration) {
+            return this.show('info', message, duration);
+        }
+    };
     
-    browseLocationBtn.addEventListener('click', () => {
-        directoryModal.classList.add('show');
-        loadDirectories(currentPath);
-    });
+    /**
+     * DOM-Cache-System
+     * Speichert Referenzen auf häufig verwendete DOM-Elemente
+     */
+    const DOMCache = {
+        // Speicher für DOM-Elemente
+        _elements: {},
+        
+        // Element abrufen oder finden und cachen
+        get: function(selector, parent = document) {
+            // Wenn das Element bereits gecached ist, verwende es
+            if (this._elements[selector]) {
+                return this._elements[selector];
+            }
+            
+            // Element finden und cachen
+            const element = parent.querySelector(selector);
+            if (element) {
+                this._elements[selector] = element;
+            }
+            
+            return element;
+        },
+        
+        // Mehrere Elemente abrufen
+        getAll: function(selector, parent = document) {
+            // Generiere einen Cache-Key für NodeLists
+            const key = `all:${selector}`;
+            
+            // Wenn die Elemente bereits gecached sind, verwende sie
+            if (this._elements[key]) {
+                return this._elements[key];
+            }
+            
+            // Elemente finden und cachen
+            const elements = parent.querySelectorAll(selector);
+            if (elements.length > 0) {
+                this._elements[key] = elements;
+            }
+            
+            return elements;
+        },
+        
+        // Element zum Cache hinzufügen
+        set: function(selector, element) {
+            this._elements[selector] = element;
+            return element;
+        },
+        
+        // Cache für ein Element oder alle Elemente löschen
+        clear: function(selector) {
+            if (selector) {
+                delete this._elements[selector];
+            } else {
+                this._elements = {};
+            }
+        },
+        
+        // Hilfsmethode: DOM-Element mit ID abrufen
+        getId: function(id) {
+            return this.get(`#${id}`);
+        }
+    };
     
-    document.querySelectorAll('.close-modal').forEach(btn => {
-        btn.addEventListener('click', () => {
-            directoryModal.classList.remove('show');
-        });
-    });
-    
-    document.getElementById('parent-dir').addEventListener('click', () => {
-        // Hole den übergeordneten Pfad
-        const parentPath = currentPath === '/' ? '/' : currentPath.split('/').slice(0, -1).join('/') || '/';
-        loadDirectories(parentPath);
-    });
-    
-    document.getElementById('select-directory').addEventListener('click', () => {
-        document.getElementById('data-location').value = currentPath;
-        directoryModal.classList.remove('show');
-    });
-    
-    function loadDirectories(path, goToParent = false) {
-        fetch(`/api/browse-directories?path=${encodeURIComponent(path)}`)
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'error') {
-                    showNotification('error', data.message);
+    /**
+     * WebSocket-Management-System
+     * Verwaltet die WebSocket-Verbindung mit Reconnect-Logik
+     */
+    const WebSocketManager = {
+        // Konfiguration
+        _config: {
+            url: '/containers',
+            reconnectionAttempts: 10,
+            reconnectionDelay: 1000,
+            reconnectionDelayMax: 5000,
+            timeout: 20000,
+            transports: ['websocket', 'polling']
+        },
+        
+        // Status und Metadaten
+        _status: {
+            isConnecting: false,
+            isConnected: false,
+            reconnectTimer: null,
+            connectionTimeout: null,
+            reconnectAttempts: 0
+        },
+        
+        // Socket-Instanz
+        _socket: null,
+        
+        // Fallback-Polling aktivieren
+        _enablePolling: function() {
+            WebDockLogger.warn('WebSocket nicht verfügbar, aktiviere Polling-Fallback');
+            
+            // Existierendes Polling-Intervall löschen
+            if (window._pollingInterval) {
+                clearInterval(window._pollingInterval);
+            }
+            
+            // Neues Polling-Intervall starten
+            window._pollingInterval = setInterval(() => {
+                if (CONFIG.DEBUG) {
+                    WebDockLogger.debug('Polling-Abruf für Container-Status');
+                }
+                
+                fetch('/api/containers/status')
+                    .then(response => response.json())
+                    .then(statusData => {
+                        if (typeof updateContainerStatusUI === 'function') {
+                            updateContainerStatusUI(statusData);
+                        }
+                    })
+                    .catch(error => {
+                        WebDockLogger.error('Fehler beim Polling-Abruf:', error);
+                    });
+            }, 30000); // Alle 30 Sekunden
+            
+            WebDockLogger.info('Container Status-Updates alle 30 Sekunden aktiviert');
+        },
+        
+        // Verbindung herstellen
+        connect: function() {
+            // Verhindere mehrfache Verbindungsversuche
+            if (this._status.isConnecting) {
+                WebDockLogger.warn('Verbindungsaufbau bereits im Gange, warte...');
+                return false;
+            }
+            
+            this._status.isConnecting = true;
+            WebDockLogger.info('Initialisiere WebSocket-Verbindung für Echtzeit-Container-Updates...');
+            
+            // Timeout für den Verbindungsaufbau
+            this._status.connectionTimeout = setTimeout(() => {
+                if (this._status.isConnecting && !this._status.isConnected) {
+                    WebDockLogger.warn('WebSocket-Timeout erreicht, aktiviere Polling-Fallback');
+                    this._status.isConnecting = false;
+                    this._enablePolling();
+                }
+            }, this._config.timeout);
+            
+            // Bestehende Verbindung aufräumen
+            this.cleanup();
+            
+            // Neue Socket-Verbindung erstellen
+            this._socket = io(this._config.url, {
+                reconnection: true,
+                reconnectionAttempts: this._config.reconnectionAttempts,
+                reconnectionDelay: this._config.reconnectionDelay,
+                reconnectionDelayMax: this._config.reconnectionDelayMax,
+                timeout: this._config.timeout,
+                transports: this._config.transports
+            });
+            
+            // Event-Handler einrichten
+            this._setupEventHandlers();
+            
+            return true;
+        },
+        
+        // Event-Handler für Socket-Events einrichten
+        _setupEventHandlers: function() {
+            if (!this._socket) return;
+            
+            // Verbindung hergestellt
+            this._socket.on('connect', () => {
+                clearTimeout(this._status.connectionTimeout);
+                this._status.isConnecting = false;
+                this._status.isConnected = true;
+                this._status.reconnectAttempts = 0;
+                
+                WebDockLogger.info('✅ WebSocket-Verbindung hergestellt!');
+                
+                // Wenn Polling aktiv ist, deaktivieren
+                if (window._pollingInterval) {
+                    clearInterval(window._pollingInterval);
+                    window._pollingInterval = null;
+                }
+            });
+            
+            // Verbindungsfehler
+            this._socket.on('connect_error', (error) => {
+                WebDockLogger.error('WebSocket-Verbindungsfehler:', error);
+                
+                // Nach maximaler Anzahl von Versuchen zum Polling wechseln
+                this._status.reconnectAttempts++;
+                if (this._status.reconnectAttempts >= this._config.reconnectionAttempts) {
+                    WebDockLogger.warn(`Maximale Anzahl von Reconnect-Versuchen (${this._config.reconnectionAttempts}) erreicht`);
+                    this._enablePolling();
+                }
+            });
+            
+            // Verbindung getrennt
+            this._socket.on('disconnect', (reason) => {
+                this._status.isConnected = false;
+                WebDockLogger.warn(`WebSocket-Verbindung getrennt: ${reason}`);
+                
+                // Bei absichtlicher Trennung nicht neu verbinden
+                if (reason === 'io client disconnect') {
+                    WebDockLogger.info('WebSocket-Verbindung manuell getrennt');
                     return;
                 }
                 
-                currentPath = data.current_path;
-                document.getElementById('current-path').textContent = currentPath;
-                
-                // Deaktiviere Parent-Button wenn wir im Root-Verzeichnis sind
-                const parentBtn = document.getElementById('parent-dir');
-                parentBtn.disabled = currentPath === '/';
-                
-                directoryList.innerHTML = '';
-                data.directories.forEach(dir => {
-                    const item = document.createElement('div');
-                    item.className = 'directory-item';
-                    item.innerHTML = `
-                        <i class="fa fa-folder"></i>
-                        ${dir.name}
-                    `;
-                    item.addEventListener('click', () => loadDirectories(dir.path));
-                    directoryList.appendChild(item);
-                });
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                showNotification('error', 'Failed to load directories');
-            });
-    }
-
-    // Container Filter
-    document.querySelectorAll('.filter-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            // Update active button
-            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            
-            const filter = btn.getAttribute('data-filter');
-            const containers = document.querySelectorAll('.container-card');
-            
-            containers.forEach(container => {
-                const status = container.querySelector('.status-indicator').classList.contains('running') ? 'running' : 'stopped';
-                if (filter === 'all' || filter === status) {
-                    container.style.display = '';
-                } else {
-                    container.style.display = 'none';
+                // Automatisch neu verbinden nach Verzögerung
+                if (!this._status.reconnectTimer) {
+                    this._status.reconnectTimer = setTimeout(() => {
+                        WebDockLogger.info('Versuche, WebSocket-Verbindung wiederherzustellen...');
+                        this.connect();
+                    }, this._config.reconnectionDelay);
                 }
             });
-        });
-    });
-
-    // Category Management
-
-    async function loadCategories(forceRefresh = false) {
-        const now = Date.now();
-        // Bei einer Neuanordnung immer neue Daten laden
-        const useCachedData = categoriesCache && !forceRefresh && (now - lastCategoriesFetch < CACHE_TTL);
-        
-        // WICHTIG: Zuerst immer die vollständigen Kategorien mit Beschreibungen laden
-        // Diese werden in window.yamlContainerDescriptions für die Container-Karten gespeichert
-        console.log('Lade vollständige Kategorien mit Beschreibungen...');
-        try {
-            await loadLocalCategoriesYaml();
-        } catch (error) {
-            console.warn('Fehler beim Laden der vollständigen Kategorien mit Beschreibungen:', error);
-            // Trotzdem weitermachen, wir verwenden dann Fallback-Beschreibungen
-        }
-        
-        if (useCachedData) {
-            console.log('Verwende zwischengespeicherte Kategoriedaten');
-            renderCategories(categoriesCache);
-            return categoriesCache;
-        }
-
-        console.log('Lade neue Kategoriedaten vom Server');
-        try {
-            // Cache im Browser deaktivieren, um sicherzustellen, dass wir die neuesten Daten erhalten
-            const response = await fetch('/api/categories', {
-                method: 'GET',
-                headers: {
-                    'Cache-Control': 'no-cache',
-                    'Pragma': 'no-cache'
-                },
-                cache: 'no-store'
-            });
             
-            if (!response.ok) {
-                throw new Error(`Fehler beim Laden der Kategorien: ${response.status}`);
-            }
-            
-            const data = await response.json();
-            
-            // Aktualisiere den Cache und Zeitstempel
-            categoriesCache = data;
-            lastCategoriesFetch = now;
-            
-            // Rendere die UI mit den neuen Daten
-            WebDockLogger.debug('Neue Kategoriedaten erhalten:', data);
-            renderCategories(data);
-            
-            return data;
-        } catch (error) {
-            console.error('Error loading categories:', error);
-            showNotification('error', `Fehler beim Laden der Kategorien: ${error.message}`);
-        }
-    }
-
-    function renderCategories(data, forceRefresh = false) {
-        // Aktualisiere zunächst den globalen Kategorien-Cache
-        categoriesCache = data;
-        
-        const categoryList = document.querySelector('.category-list');
-        if (!categoryList) {
-            console.error('Kategorie-Liste nicht gefunden im DOM');
-            return;
-        }
-        
-        categoryList.innerHTML = '';
-        
-        // Verwende die Reihenfolge der Kategorien wie in der categories.yaml definiert
-        // ohne zusätzliche Sortierung (wichtig für Drag & Drop)
-        const sortedCategories = Object.entries(data.categories || {});
-
-        sortedCategories.forEach(([id, category]) => {
-            const categoryItem = document.createElement('div');
-            categoryItem.className = 'category-item';
-            categoryItem.dataset.id = id;
-            categoryItem.draggable = true;
-            
-            const isImported = category.name === 'Imported';
-            
-            categoryItem.innerHTML = `
-                <div class="drag-handle">
-                    <i class="fa fa-bars"></i>
-                </div>
-                <div class="category-info">
-                    <i class="fa ${category.icon}"></i>
-                    <span>${category.name}</span>
-                </div>
-                <div class="category-actions">
-                    <button class="edit-category" ${isImported ? 'disabled title="Default category cannot be edited"' : ''}>
-                        <i class="fa fa-edit"></i>
-                    </button>
-                    <button class="delete-category" ${isImported ? 'disabled title="Default category cannot be deleted"' : ''}>
-                        <i class="fa fa-trash"></i>
-                    </button>
-                </div>
-            `;
-            
-            // Event-Listener nur hinzufügen, wenn es nicht die "Imported" Kategorie ist
-            if (!isImported) {
-                categoryItem.querySelector('.edit-category').addEventListener('click', () => editCategory(id));
-                categoryItem.querySelector('.delete-category').addEventListener('click', () => deleteCategory(id));
-            }
-            
-            // Drag & Drop Event-Listener
-            categoryItem.addEventListener('dragstart', handleDragStart);
-            categoryItem.addEventListener('dragend', handleDragEnd);
-            
-            categoryList.appendChild(categoryItem);
-        });
-        
-        // Lade Container für jede Kategorie und übergebe die aktuellen Kategoriedaten direkt
-        // Dies verhindert, dass der Cache während der Drag & Drop-Operation null ist
-        loadContainers(forceRefresh, data);
-    }
-
-    document.getElementById('add-category').addEventListener('click', () => {
-        document.getElementById('category-modal-title').textContent = 'Add Category';
-        document.getElementById('category-form').reset();
-        document.getElementById('category-form').removeAttribute('data-editing');
-        document.getElementById('category-modal').classList.add('show');
-        loadAvailableContainers();
-    });
-
-    document.getElementById('category-form').addEventListener('submit', (e) => {
-        e.preventDefault();
-        const formData = {
-            name: document.getElementById('category-name').value,
-            icon: document.getElementById('category-icon').value,
-            description: document.getElementById('category-description').value,
-            containers: Array.from(document.querySelectorAll('.container-option input:checked'))
-                .map(input => input.value)
-        };
-        
-        const method = document.getElementById('category-form').dataset.editing ? 'PUT' : 'POST';
-        const url = '/api/categories' + (method === 'PUT' ? `?id=${document.getElementById('category-form').dataset.editing}` : '');
-        
-        fetch(url, {
-            method: method,
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(formData)
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'success') {
-                showNotification('success', data.message);
-                document.getElementById('category-modal').classList.remove('show');
-                loadCategories();
-            } else {
-                showNotification('error', data.message);
-            }
-        });
-    });
-
-    function editCategory(id) {
-        // Statt direkt die Kategorie zu laden, nutzen wir die showCategoryModal Funktion
-        showCategoryModal('edit', id);
-    }
-
-    function deleteCategory(id) {
-        if (confirm('Are you sure you want to delete this category?')) {
-            fetch(`/api/categories?id=${id}`, {
-                method: 'DELETE'
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    showNotification('success', data.message);
-                    loadCategories();
-                } else {
-                    showNotification('error', data.message);
+            // Initialer Container-Status
+            this._socket.on('initial_status', (statusData) => {
+                WebDockLogger.info('Initialen Container-Status erhalten');
+                if (typeof updateContainerStatusUI === 'function') {
+                    updateContainerStatusUI(statusData);
                 }
             });
-        }
-    }
-
-    function showCategoryModal(mode, categoryId = null) {
-        const modal = document.createElement('div');
-        modal.className = 'modal';
-        modal.innerHTML = `
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2>${mode === 'edit' ? 'Edit' : 'Add'} Category</h2>
-                    <button class="close-modal">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <form id="category-form">
-                        <div class="form-group">
-                            <label>Name</label>
-                            <input type="text" id="category-name" required>
-                        </div>
-                        <div class="form-group">
-                            <label>Icon</label>
-                            <select id="category-icon">
-                                <option value="fa-folder">📁 Folder</option>
-                                <option value="fa-home">🏠 Home</option>
-                                <option value="fa-chart-line">📈 Chart</option>
-                                <option value="fa-network-wired">🌐 Network</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>Description</label>
-                            <input type="text" id="category-description">
-                        </div>
-                        <div class="form-group">
-                            <label>Containers</label>
-                            <input type="text" id="container-search" placeholder="Search containers...">
-                            <div class="container-selection">
-                                <div class="selection-header">
-                                    <button type="button" class="select-all-btn">Select All</button>
-                                    <button type="button" class="deselect-all-btn">Deselect All</button>
-                                </div>
-                                <div class="container-list" id="container-list">
-                                    <!-- Container-Checkboxen werden hier dynamisch eingefügt -->
-                                </div>
-                            </div>
-                        </div>
-                    </form>
-                </div>
-                <div class="modal-footer">
-                    <button class="save-btn">Save</button>
-                    <button class="cancel-btn">Cancel</button>
-                </div>
-            </div>
-        `;
-
-        // Füge CSS-Styles für die verbesserte Container-Auswahl hinzu
-        const style = document.createElement('style');
-        style.textContent = `
-            #container-search {
-                width: 100%;
-                padding: 8px;
-                margin-bottom: 8px;
-                border: 1px solid var(--border-color);
-                border-radius: 4px;
-            }
             
-            .container-selection {
-                border: 1px solid var(--border-color);
-                border-radius: 4px;
-                max-height: 300px;
-                overflow-y: auto;
-            }
-            
-            .selection-header {
-                padding: 8px;
-                border-bottom: 1px solid var(--border-color);
-                display: flex;
-                gap: 8px;
-                position: sticky;
-                top: 0;
-                background: var(--background-color);
-                z-index: 1;
-            }
-            
-            .selection-header button {
-                padding: 4px 8px;
-                font-size: 12px;
-                border-radius: 3px;
-                border: 1px solid var(--border-color);
-                background: var(--background-color);
-                cursor: pointer;
-            }
-            
-            .selection-header button:hover {
-                background: var(--hover-color);
-            }
-            
-            .container-list {
-                padding: 8px;
-            }
-            
-            .container-item {
-                padding: 6px 8px;
-                margin: 2px 0;
-                border-radius: 4px;
-                transition: background-color 0.2s;
-            }
-            
-            .container-item:hover {
-                background-color: var(--hover-color);
-            }
-            
-            .container-item label {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                cursor: pointer;
-            }
-            
-            .container-item input[type="checkbox"] {
-                margin: 0;
-                cursor: pointer;
-            }
-        `;
-        document.head.appendChild(style);
-        document.body.appendChild(modal);
-
-        // Event-Listener für die Suche
-        const searchInput = modal.querySelector('#container-search');
-        searchInput.addEventListener('input', (e) => {
-            const searchTerm = e.target.value.toLowerCase();
-            modal.querySelectorAll('.container-item').forEach(item => {
-                const containerName = item.querySelector('label').textContent.toLowerCase();
-                item.style.display = containerName.includes(searchTerm) ? '' : 'none';
-            });
-        });
-
-        // Event-Listener für Select/Deselect All
-        modal.querySelector('.select-all-btn').addEventListener('click', () => {
-            modal.querySelectorAll('.container-item input[type="checkbox"]').forEach(cb => cb.checked = true);
-        });
-
-        modal.querySelector('.deselect-all-btn').addEventListener('click', () => {
-            modal.querySelectorAll('.container-item input[type="checkbox"]').forEach(cb => cb.checked = false);
-        });
-
-        // Event-Listener für Save-Button
-        modal.querySelector('.save-btn').addEventListener('click', () => {
-            saveCategory(categoryId);
-        });
-
-        // Event-Listener für Cancel-Button und Close-Button
-        modal.querySelector('.cancel-btn').addEventListener('click', closeModal);
-        modal.querySelector('.close-modal').addEventListener('click', closeModal);
-
-        if (mode === 'edit' && categoryId) {
-            fetch('/api/categories')
-                .then(response => response.json())
-                .then(data => {
-                    const category = data.categories[categoryId];
-                    if (!category) {
-                        showErrorNotification('Category not found', 'Loading category');
-                        closeModal();
-                        return;
-                    }
-                    document.getElementById('category-name').value = category.name;
-                    document.getElementById('category-icon').value = category.icon;
-                    document.getElementById('category-description').value = category.description || '';
-                    loadAvailableContainers(category.containers || []);
-                })
-                .catch(error => showErrorNotification(error, 'Loading category'));
-        } else {
-            loadAvailableContainers([]);
-        }
-
-        setTimeout(() => modal.classList.add('show'), 10);
-    }
-
-    function loadAvailableContainers(selectedContainers = []) {
-        const containerList = document.getElementById('container-list');
-        if (!containerList) {
-            console.error('Container list element not found');
-            return;
-        }
-        
-        fetch('/api/containers')
-            .then(response => response.json())
-            .then(data => {
-                containerList.innerHTML = '';
+            // Container-Status-Update
+            this._socket.on('container_status_update', (containerUpdate) => {
+                if (CONFIG.DEBUG) {
+                    WebDockLogger.debug(`Container-Status-Update für ${containerUpdate.name}: ${containerUpdate.status}`);
+                }
                 
-                const allContainers = new Set();
-                Object.values(data).forEach(group => {
-                    group.containers.forEach(container => {
-                        allContainers.add(container.name);
-                    });
+                if (typeof updateContainerStatusUI === 'function') {
+                    updateContainerStatusUI([containerUpdate], true);
+                }
+            });
+            
+            // Komplettes Status-Refresh
+            this._socket.on('container_status_refresh', (statusData) => {
+                WebDockLogger.info('Vollständiges Container-Status-Refresh erhalten');
+                if (typeof updateContainerStatusUI === 'function') {
+                    updateContainerStatusUI(statusData);
+                }
+            });
+        },
+        
+        // Verbindung trennen und aufräumen
+        cleanup: function() {
+            if (this._socket) {
+                // Alle Event-Listener entfernen
+                ['connect', 'connect_error', 'disconnect', 
+                 'initial_status', 'container_status_update', 
+                 'container_status_refresh'].forEach(event => {
+                    this._socket.off(event);
                 });
                 
-                Array.from(allContainers).sort().forEach(container => {
-                    const item = document.createElement('div');
-                    item.className = 'container-item';
-                    item.innerHTML = `
-                        <label>
-                            <input type="checkbox" 
-                                   name="containers" 
-                                   value="${container}"
-                                   ${selectedContainers.includes(container) ? 'checked' : ''}>
-                            ${container}
-                        </label>
-                    `;
-                    containerList.appendChild(item);
-                });
-            })
-            .catch(error => {
-                console.error('Error loading containers:', error);
-                showNotification('error', 'Failed to load containers');
-            });
-    }
-
-    function saveCategory(categoryId) {
-        const formData = {
-            name: document.getElementById('category-name').value,
-            icon: document.getElementById('category-icon').value,
-            description: document.getElementById('category-description').value,
-            containers: Array.from(document.querySelectorAll('.container-item input[type="checkbox"]:checked'))
-                .map(cb => cb.value)
-        };
-        
-        const method = categoryId ? 'PUT' : 'POST';
-        const url = '/api/categories' + (categoryId ? `/${categoryId}` : '');
-        
-        fetch(url, {
-            method: method,
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(formData)
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'success') {
-                showNotification('success', `Category ${categoryId ? 'updated' : 'added'} successfully`);
-                closeModal();
-                // Aktualisiere Container-Status mit Loading-Anzeige
-                updateContainerStatus(true);
-                // Aktualisiere die Kategorien-Liste
-                loadCategories();
-                // Erzwinge eine sofortige Aktualisierung des Caches
-                fetch('/api/categories/refresh', { method: 'POST' })
-                    .catch(error => console.error('Error refreshing categories:', error));
-            } else {
-                throw new Error(data.message || 'Failed to save category');
+                // Verbindung trennen
+                this._socket.disconnect();
+                this._socket = null;
             }
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            showNotification('error', error.message);
-        });
-    }
-
-    // Initial load
-    loadCategories();
-
-    // Event-Listener für alle Modal-Schließen-Buttons
-    document.querySelectorAll('.close-modal').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const modal = e.target.closest('.modal');
-            closeModal(modal.id);
-        });
-    });
-
-    // Drag & Drop Funktionen
-    function handleDragStart(e) {
-        e.target.classList.add('dragging');
-        e.dataTransfer.setData('application/json', JSON.stringify({
-            type: 'category',
-            id: e.target.dataset.id
-        }));
-    }
-
-    function handleDragEnd(e) {
-        e.target.classList.remove('dragging');
-        document.querySelectorAll('.category-item, .category').forEach(item => {
-            item.classList.remove('drag-over');
-        });
-    }
-
-    function handleDragOver(e) {
-        e.preventDefault();
-    }
-
-    function handleDragEnter(e) {
-        e.preventDefault();
-        const target = e.target.closest('.category-item') || e.target.closest('.category');
-        target?.classList.add('drag-over');
-    }
-
-    function handleDragLeave(e) {
-        const target = e.target.closest('.category-item') || e.target.closest('.category');
-        target?.classList.remove('drag-over');
-    }
-
-    // Mache die Drag & Drop-Funktionen global verfügbar
-    window.handleContainerDragStart = function(e, containerName, categoryId) {
-        // Finde die Container-Karte und das Container-Grid
-        const containerCard = e.target.closest('.container-card');
-        const containerGrid = containerCard.closest('.container-grid');
+            
+            // Timer löschen
+            if (this._status.reconnectTimer) {
+                clearTimeout(this._status.reconnectTimer);
+                this._status.reconnectTimer = null;
+            }
+            
+            if (this._status.connectionTimeout) {
+                clearTimeout(this._status.connectionTimeout);
+                this._status.connectionTimeout = null;
+            }
+            
+            // Status zurücksetzen
+            this._status.isConnected = false;
+            this._status.isConnecting = false;
+        },
         
-        // Lade die Position entweder aus dem data-attribute oder berechne sie
-        let position = -1;
-        if (containerCard.hasAttribute('data-position')) {
-            position = parseInt(containerCard.getAttribute('data-position'), 10);
-        } else {
-            // Fallback: Berechne Position aus der DOM-Reihenfolge
-            const containerCards = Array.from(containerGrid.querySelectorAll('.container-card'));
-            position = containerCards.indexOf(containerCard);
-        }
+        // Verbindung trennen
+        disconnect: function() {
+            WebDockLogger.info('Trenne WebSocket-Verbindung...');
+            this.cleanup();
+        },
         
-        // Speichere die Kategorie-ID und den Gruppen-Namen
-        const groupSection = containerGrid.closest('.group-section');
-        const groupName = groupSection ? groupSection.querySelector('h2').textContent.trim() : '';
-        
-        // Stelle sicher, dass wir eine valide Kategorie-ID haben
-        // Priorität: 1. Explizite categoryId, 2. data-category-id vom groupSection, 3. Gruppen-Name
-        const effectiveCategoryId = categoryId || 
-                                  (groupSection && groupSection.getAttribute('data-category-id')) || 
-                                  groupName;
-        
-        console.log('Drag Start:', {
-            container: containerName,
-            position: position,
-            group: groupName,
-            category: effectiveCategoryId
-        });
-        
-        e.dataTransfer.setData('application/json', JSON.stringify({
-            type: 'container',
-            name: containerName,
-            sourceCategoryId: effectiveCategoryId,
-            position: position,
-            groupName: groupName
-        }));
-        
-        containerCard.classList.add('dragging');
-    };
-
-    window.handleContainerDragEnd = function(e) {
-        e.target.classList.remove('dragging');
-        document.querySelectorAll('.category').forEach(category => {
-            category.classList.remove('drag-over');
-        });
-        // Entferne auch die drag-over-Klasse von allen Container-Karten
-        document.querySelectorAll('.container-card').forEach(card => {
-            card.classList.remove('drag-over');
-        });
-    };
-    
-    // Neue globale Handler für Container-Karten
-    window.handleContainerDragOver = function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-    };
-    
-    window.handleContainerDragEnter = function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        const containerCard = e.target.closest('.container-card');
-        if (containerCard) {
-            containerCard.classList.add('drag-over');
+        // Status der Verbindung abrufen
+        isConnected: function() {
+            return this._status.isConnected;
         }
     };
     
-    window.handleContainerDragLeave = function(e) {
-        const containerCard = e.target.closest('.container-card');
-        if (containerCard && !containerCard.contains(e.relatedTarget)) {
-            containerCard.classList.remove('drag-over');
-        }
-    };
-    
-    window.handleContainerDrop = function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        
-        try {
-            const jsonData = e.dataTransfer.getData('application/json');
-            if (!jsonData) {
-                console.warn('Keine drag & drop Daten erhalten');
-                return;
-            }
-            
-            const data = JSON.parse(jsonData);
-            if (!data || data.type !== 'container') {
-                console.warn('Nur Container können auf Gruppen gezogen werden');
-                return;
-            }
-            
-            // Finde das Drop-Ziel und die Gruppe
-            const dropTarget = e.target.closest('.container-card');
-            const groupSection = e.target.closest('.group-section');
-            
-            if (!groupSection) {
-                console.error('Keine Gruppe gefunden für Drop-Target:', e.target);
-                showNotification('error', 'Konnte keine Zielgruppe finden');
-                return;
-            }
-            
-            // Hole den Gruppen-Namen und die Kategorie-ID aus der Gruppe
-            const groupNameElement = groupSection.querySelector('h2');
-            if (!groupNameElement) {
-                console.error('Konnte keinen h2-Header in der Gruppe finden');
-                return;
-            }
-            
-            const groupName = groupNameElement.textContent.trim();
-            if (!groupName) {
-                console.error('Gruppenelement hat keinen Text');
-                return;
-            }
-            
-            // Hole die Kategorie-ID aus dem data-category-id Attribut oder verwende den Gruppennamen als Fallback
-            const categoryId = groupSection.getAttribute('data-category-id') || groupName;
-            console.log('Gefundene Gruppe:', groupName, 'Kategorie-ID:', categoryId);
-            
-            // Stelle sicher, dass wir eine valide sourceCategoryId haben
-            // Vermeide den String "undefined" - wandle in einen tatsächlichen undefined-Wert um
-            let sourceCategoryId = data.sourceCategoryId;
-            if (sourceCategoryId === 'undefined') {
-                sourceCategoryId = data.groupName || 'Imported';
-            } else {
-                sourceCategoryId = sourceCategoryId || data.groupName || 'Imported';
-            }
-            
-            // Finde das Container-Grid
-            const containerGrid = groupSection.querySelector('.container-grid');
-            if (!containerGrid) {
-                console.error('Kein Container-Grid in der Gruppe gefunden');
-                return;
-            }
-            
-            // Zeige visuelles Feedback an, dass eine Aktion im Gange ist
-            const loadingOverlay = document.getElementById('loading-overlay');
-            if (loadingOverlay) loadingOverlay.style.display = 'flex';
-            
-            if (dropTarget) {
-                // Drop auf eine Container-Karte
-                const allCards = Array.from(containerGrid.querySelectorAll('.container-card'));
-                const targetPosition = allCards.indexOf(dropTarget);
-                
-                // Stelle sicher, dass eine gültige Position verwendet wird
-                const fromPosition = typeof data.position === 'number' && data.position >= 0 ? data.position : -1;
-                
-                console.log('Drop auf Container-Karte:', {
-                    container: data.name,
-                    fromGroup: data.groupName,
-                    fromCategory: sourceCategoryId,
-                    toGroup: groupName,
-                    toCategory: categoryId,
-                    fromPosition: fromPosition,
-                    toPosition: targetPosition
-                });
-                
-                try {
-                    if (data.groupName !== groupName) {
-                        // Container in eine andere Gruppe verschieben
-                        moveContainer(data.name, sourceCategoryId, categoryId, targetPosition);
-                    } else if (targetPosition !== fromPosition && targetPosition !== -1) {
-                        // Verwende die Position aus dem drag-start-Event für fromPosition, falls vorhanden
-                        // ansonsten finde die Position im DOM
-                        let actualFromPosition = fromPosition;
-                        if (actualFromPosition === -1 || actualFromPosition === undefined) {
-                            actualFromPosition = findActualContainerPosition(data.name, categoryId);
-                        }
-                        
-                        if (actualFromPosition !== -1) {
-                            // Nur reordern, wenn wir eine gültige Position gefunden haben
-                            console.log(`Reordering container ${data.name} in category ${categoryId} from ${actualFromPosition} to ${targetPosition}`);
-                            // Container innerhalb der gleichen Gruppe neu anordnen
-                            // Stelle sicher, dass wir hier den Kategorienamen korrekt übergeben
-                            reorderContainer(data.name, categoryId, actualFromPosition, targetPosition);
-                        } else {
-                            console.error(`Konnte Container ${data.name} nicht in Kategorie ${categoryId} finden für Neuordnung`);
-                            showNotification('error', `Konnte Container nicht neu anordnen: Position konnte nicht ermittelt werden`);
-                            // Loading-Overlay ausblenden, falls Aktion fehlschlägt
-                            if (loadingOverlay) loadingOverlay.style.display = 'none';
-                        }
-                    } else {
-                        // Wenn keine Aktion ausgeführt wird, verstecke Loading-Anzeige
-                        if (loadingOverlay) loadingOverlay.style.display = 'none';
-                    }
-                } catch (error) {
-                    console.error('Fehler beim Drop-Handling:', error);
-                    if (loadingOverlay) loadingOverlay.style.display = 'none';
-                }
-            } else {
-                // Drop direkt auf eine Gruppe (nicht auf eine Karte)
-                console.log('Drop direkt auf Gruppe:', {
-                    container: data.name,
-                    fromGroup: data.groupName,
-                    fromCategory: sourceCategoryId,
-                    toGroup: groupName,
-                    toCategory: categoryId
-                });
-                
-                try {
-                    if (data.groupName !== groupName) {
-                        // Container in eine andere Gruppe verschieben
-                        moveContainer(data.name, sourceCategoryId, categoryId);
-                    } else {
-                        // Wenn keine Aktion ausgeführt wird, verstecke Loading-Anzeige
-                        if (loadingOverlay) loadingOverlay.style.display = 'none';
-                    }
-                } catch (error) {
-                    console.error('Fehler beim Drop auf Gruppe:', error);
-                    if (loadingOverlay) loadingOverlay.style.display = 'none';
-                }
-            }
-            
-            // Entferne die Hervorhebung von allen Karten
-            document.querySelectorAll('.container-card').forEach(card => {
-                card.classList.remove('drag-over');
-            });
-            
-        } catch (error) {
-            console.error('Fehler beim Drop-Handling:', error);
-            showNotification('error', `Fehler beim Verschieben: ${error.message}`);
-            
-            // Verstecke Loading-Anzeige im Fehlerfall
-            const loadingOverlay = document.getElementById('loading-overlay');
-            if (loadingOverlay) loadingOverlay.style.display = 'none';
-        }
-    };
-
-    async function moveContainer(containerName, sourceCategoryId, targetCategoryId, targetPosition = -1) {
-        // Zeige das Loading-Overlay an
-        const loadingOverlay = document.getElementById('loading-overlay');
-        if (loadingOverlay) loadingOverlay.style.display = 'flex';
-        
-        try {
-            // Stelle sicher, dass die sourceCategory immer definiert ist
-            // Vermeide den String "undefined" - verwende stattdessen einen gültigen Wert
-            let sourceCategory;
-            if (sourceCategoryId === 'undefined' || sourceCategoryId === undefined) {
-                // Versuche, die Kategorie aus dem DOM zu bestimmen
-                const allGroups = document.querySelectorAll('.group-section');
-                for (const group of allGroups) {
-                    const containerCards = group.querySelectorAll(`.container-card[data-name="${containerName}"]`);
-                    if (containerCards.length > 0) {
-                        // Container in dieser Gruppe gefunden
-                        sourceCategory = group.getAttribute('data-category-id') || 
-                                       group.querySelector('h2')?.textContent.trim() || 
-                                       'Imported';
-                        break;
-                    }
-                }
-                // Fallback, wenn wir im DOM nichts finden
-                sourceCategory = sourceCategory || 'Imported';
-            } else {
-                sourceCategory = sourceCategoryId;
-            }
-            
-            console.log('API Anfrage: Container verschieben', {
-                containerName,
-                sourceCategory,
-                targetCategory: targetCategoryId,
-                targetPosition
-            });
-            
-            // Zeige UI-Feedback an
-            showNotification('info', `Container ${containerName} wird verschoben...`, 1000);
-            
-            const response = await fetch('/api/container/move', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Cache-Control': 'no-cache, no-store, must-revalidate',
-                    'Pragma': 'no-cache'
-                },
-                body: JSON.stringify({
-                    containerName: containerName,
-                    sourceCategory: sourceCategory,
-                    targetCategory: targetCategoryId,
-                    targetPosition: targetPosition
-                })
-            });
-
-            if (!response.ok) {
-                let errorMsg = 'Fehler beim Verschieben des Containers';
-                try {
-                    const errorData = await response.json();
-                    errorMsg = errorData.error || errorMsg;
-                } catch (e) {
-                    console.error('Fehler beim Parsen der Fehlermeldung:', e);
-                }
-                throw new Error(errorMsg);
-            }
-
-            console.log('Container erfolgreich verschoben, lade Seite neu...');
-            
-            // Server-Cache-Reset durchführen
+    /**
+     * Container-Management-System
+     * Verwaltet Installation, Aktualisierung und Steuerung von Containern
+     */
+    const ContainerManager = {
+        // Container installieren
+        install: async function(containerName) {
             try {
-                await fetch('/api/categories/refresh', {
+                // UI-Feedback anzeigen
+                NotificationManager.info(`Bereite Installation von ${containerName} vor...`);
+                
+                // Lade die Konfiguration für den Container
+                const response = await fetch(`/api/container/${containerName}/config`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP-Fehler ${response.status}`);
+                }
+                
+                const config = await response.json();
+                
+                // Container-Installation starten
+                const installResponse = await fetch('/api/container/install', {
                     method: 'POST',
                     headers: {
-                        'Cache-Control': 'no-cache, no-store, must-revalidate',
-                        'Pragma': 'no-cache'
-                    }
-                });
-            } catch (resetError) {
-                console.error('Fehler beim Server-Cache-Reset:', resetError);
-            }
-            
-            // Speichere Informationen zum verschobenen Container für die Hervorhebung nach dem Reload
-            sessionStorage.setItem('lastMovedContainer', containerName);
-            sessionStorage.setItem('lastMovedCategory', targetCategoryId);
-            
-            // Zeige Erfolgsmeldung an
-            showNotification('success', `Container ${containerName} wurde erfolgreich verschoben!`, 1000);
-            
-            // Seite neu laden
-            window.location.reload();
-            
-        } catch (error) {
-            console.error('Error moving container:', error);
-            showNotification('error', `Fehler beim Verschieben des Containers: ${error.message}`);
-            
-            // Verstecke das Loading-Overlay im Fehlerfall
-            if (loadingOverlay) loadingOverlay.style.display = 'none';
-        }
-    }
-    
-    // Hilfsfunktion zum Hervorheben und Scrollen zu einem Container nach Verschiebung
-    function highlightAndScrollToContainer(containerName, categoryId) {
-        console.log(`Versuche zu Container ${containerName} in Kategorie ${categoryId} zu scrollen...`);
-        
-        // Erhöhe die Verzögerung, um sicherzustellen, dass das DOM vollständig geladen ist
-        setTimeout(() => {
-            // Versuche zuerst, die richtige Kategoriesektion zu finden
-            const categorySection = document.querySelector(`.category-section[data-category-id="${categoryId}"]`) ||
-                                   document.querySelector(`.group-section[data-category-id="${categoryId}"]`);
-            
-            if (!categorySection) {
-                console.warn(`Konnte Kategoriesektion für ${categoryId} nicht finden`);
-                
-                // Versuche, nach dem Container direkt zu suchen, unabhängig von der Kategorie
-                const allContainerCards = document.querySelectorAll('.container-card');
-                let foundContainer = null;
-                
-                allContainerCards.forEach(card => {
-                    const cardName = card.getAttribute('data-container') || 
-                                    card.getAttribute('data-name');
-                    if (cardName === containerName) {
-                        foundContainer = card;
-                    }
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        container: containerName,
+                        config: config
+                    })
                 });
                 
-                if (foundContainer) {
-                    console.log(`Container ${containerName} gefunden, scrolle dazu...`);
-                    return highlightAndScrollToElement(foundContainer);
+                if (!installResponse.ok) {
+                    throw new Error(`Installation fehlgeschlagen: ${installResponse.status}`);
                 }
                 
-                // Wenn der Container nicht gefunden wurde, gib auf
-                console.warn(`Container ${containerName} konnte in keiner Kategorie gefunden werden`);
-                return false;
-            }
-            
-            // Suche nach dem Container mit verschiedenen Selektoren
-            const containerSelectors = [
-                `.container-card[data-container="${containerName}"]`,
-                `.container-card[data-name="${containerName}"]`
-            ];
-            
-            let containerCard = null;
-            
-            // Suche zuerst in der angegebenen Kategorie
-            for (const selector of containerSelectors) {
-                const candidate = categorySection.querySelector(selector);
-                if (candidate) {
-                    containerCard = candidate;
-                    break;
-                }
-            }
-            
-            // Wenn der Container nicht in der angegebenen Kategorie gefunden wurde,
-            // suche im gesamten Dokument
-            if (!containerCard) {
-                for (const selector of containerSelectors) {
-                    const candidate = document.querySelector(selector);
-                    if (candidate) {
-                        containerCard = candidate;
-                        break;
-                    }
-                }
-            }
-            
-            if (!containerCard) {
-                console.warn(`Konnte Container ${containerName} in Kategorie ${categoryId} nicht finden`);
-                return false;
-            }
-            
-            console.log(`Container ${containerName} gefunden, scrolle dazu...`);
-            // Verwende die neue Hilfsfunktion zum Hervorheben und Scrollen
-            return highlightAndScrollToElement(containerCard);
-        }, 1000); // Erhöhe die Verzögerung auf 1000ms für bessere Zuverlässigkeit
-    }
-    
-    // Hilfsfunktion zum Finden der tatsächlichen Position eines Containers im DOM
-    function findActualContainerPosition(containerName, categoryId) {
-        // Suche nach passenden Kategoriesektionen, sowohl via data-category-id als auch nach Text
-        const allCategorySections = Array.from(document.querySelectorAll('.group-section, .category-section'));
-        
-        // Weitere Debug-Informationen
-        console.log(`Suche nach Container '${containerName}' in Kategorie '${categoryId}'`);
-        console.log(`Gefundene Kategoriesektionen: ${allCategorySections.length}`);
-        
-        // Debug: Liste alle Kategoriesektionen und ihre Attribute auf
-        allCategorySections.forEach((section, index) => {
-            const id = section.getAttribute('data-category-id');
-            const headerElement = section.querySelector('h2');
-            const headerText = headerElement ? headerElement.textContent.trim() : 'kein Header';
-            console.log(`  Sektion ${index}: data-category-id='${id || 'nicht gesetzt'}', Header='${headerText}'`);
-        });
-        
-        const categorySection = allCategorySections.find(section => {
-            const sectionId = section.getAttribute('data-category-id');
-            const header = section.querySelector('h2');
-            const headerText = header ? header.textContent.trim() : '';
-            
-            // Überprüfe beide Möglichkeiten: das Attribut oder den Header-Text
-            return (sectionId === categoryId) || (headerText === categoryId);
-        });
-        
-        if (!categorySection) {
-            console.warn(`Konnte keine Kategorie '${categoryId}' im DOM finden`);
-            // Versuche alternatives Matching über enthaltene Container
-            for (const section of allCategorySections) {
-                const cards = section.querySelectorAll(`.container-card[data-name="${containerName}"]`);
-                if (cards.length > 0) {
-                    console.log(`Kategorie durch Container-Übereinstimmung gefunden: '${section.getAttribute('data-category-id') || section.querySelector('h2')?.textContent.trim()}'`);
-                    return findContainerPosition(containerName, section);
-                }
-            }
-            return -1;
-        }
-        
-        return findContainerPosition(containerName, categorySection);
-    }
-    
-    // Hilfsfunktion zur eigentlichen Containersuche innerhalb einer Sektion
-    function findContainerPosition(containerName, categorySection) {
-        // Suche nach Container-Grid innerhalb der Kategorie
-        const containerGrid = categorySection.querySelector('.container-grid');
-        if (!containerGrid) {
-            console.warn(`Konnte kein Container-Grid in der gefundenen Kategorie finden`);
-            return -1;
-        }
-        
-        // Sammle alle Container-Karten
-        const containerCards = Array.from(containerGrid.querySelectorAll('.container-card'));
-        console.log(`Suche nach Position von '${containerName}', gefunden ${containerCards.length} Karten`);
-        
-        // Suche nach Container in der Kategorie mit allen möglichen Attributen
-        for (let i = 0; i < containerCards.length; i++) {
-            const card = containerCards[i];
-            const cardNameAttribute = card.getAttribute('data-name');
-            const cardContainerAttribute = card.getAttribute('data-container');
-            const cardNameElement = card.querySelector('.container-name');
-            const cardNameText = cardNameElement ? cardNameElement.textContent.trim() : '';
-            
-            console.log(`  Karte ${i}: name-attr=${cardNameAttribute}, container-attr=${cardContainerAttribute}, text=${cardNameText}`);
-            
-            // Prüfe alle möglichen Übereinstimmungen
-            if (cardNameAttribute === containerName || 
-                cardContainerAttribute === containerName || 
-                cardNameText === containerName) {
-                console.log(`  ✓ Container '${containerName}' gefunden an Position ${i}`);
-                return i;
-            }
-        }
-        
-        console.warn(`Container '${containerName}' nicht in Kategorie '${categoryId}' gefunden`);
-        return -1;
-    }
-
-    async function reorderContainer(containerName, categoryId, fromPosition, toPosition) {
-        // Zeige das Loading-Overlay an
-        const loadingOverlay = document.getElementById('loading-overlay');
-        if (loadingOverlay) loadingOverlay.style.display = 'flex';
-        
-        try {
-            // Protokolliere die Anfrage mit Details für Debugging
-            console.log(`reorderContainer aufgerufen: Container '${containerName}' in Kategorie '${categoryId}'`);
-            console.log(`  Von Position ${fromPosition} nach Position ${toPosition}`);
-            
-            // Zeige UI-Feedback an, dass etwas passiert
-            showNotification('info', `Container ${containerName} wird neu positioniert...`, 1000);
-            
-            // Die API-Anfrage zum Neu-Anordnen des Containers
-            const response = await fetch('/api/container/move', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Cache-Control': 'no-cache, no-store, must-revalidate',
-                    'Pragma': 'no-cache'
-                },
-                body: JSON.stringify({
-                    containerName: containerName,
-                    sourceCategory: categoryId,
-                    targetCategory: categoryId,
-                    targetPosition: toPosition
-                })
-            });
-
-            if (!response.ok) {
-                let errorMsg = 'Fehler beim Neuordnen des Containers';
-                try {
-                    const errorData = await response.json();
-                    errorMsg = errorData.error || errorMsg;
-                } catch (e) {
-                    console.error('Fehler beim Parsen der Fehlermeldung:', e);
-                }
-                throw new Error(errorMsg);
-            }
-
-            console.log('Container erfolgreich neu positioniert');
-            
-            // Speichere Informationen zum verschobenen Container für die Hervorhebung nach dem Reload
-            sessionStorage.setItem('lastMovedContainer', containerName);
-            sessionStorage.setItem('lastMovedCategory', categoryId);
-            
-            // Zeige Erfolgsmeldung an
-            showNotification('success', `Container ${containerName} wurde erfolgreich neu angeordnet!`, 1000);
-            
-            // Seite neu laden
-            console.log('Lade Seite neu, um Änderungen zu übernehmen...');
-            window.location.reload();
-            
-        } catch (error) {
-            console.error('Error reordering container:', error);
-            showNotification('error', `Fehler beim Neuordnen des Containers: ${error.message}`);
-            
-            // Verstecke das Loading-Overlay im Fehlerfall
-            if (loadingOverlay) loadingOverlay.style.display = 'none';
-        }
-    }
-
-    function handleDrop(e) {
-        e.preventDefault();
-        const data = e.dataTransfer.getData('application/json');
-        if (!data) return;
-
-        const droppedItem = JSON.parse(data);
-        
-        if (droppedItem.type === 'category') {
-            const dropTarget = e.target.closest('.category-item');
-            if (dropTarget && droppedItem.id !== dropTarget.dataset.id) {
-                const categoryList = document.querySelector('.category-list');
-                const items = Array.from(categoryList.children);
-                const draggedItem = items.find(item => item.dataset.id === droppedItem.id);
-                const dropIndex = items.indexOf(dropTarget);
+                const result = await installResponse.json();
                 
-                categoryList.removeChild(draggedItem);
-                categoryList.insertBefore(draggedItem, dropTarget);
+                // Erfolg anzeigen
+                NotificationManager.success(`Container ${containerName} erfolgreich installiert`);
                 
-                // Speichere neue Reihenfolge
-                updateCategoryOrder();
-            }
-            dropTarget?.classList.remove('drag-over');
-        } else if (droppedItem.type === 'container') {
-            const dropZone = e.target.closest('.category');
-            if (dropZone) {
-                const targetCategoryId = dropZone.getAttribute('data-id');
+                // Seite neu laden, um den installierten Container anzuzeigen
+                setTimeout(() => {
+                    window.location.reload();
+                }, 2000);
                 
-                // Bestimme die Zielposition, wenn auf eine Container-Karte gedroppt wurde
-                let targetPosition = -1;
-                const dropContainerCard = e.target.closest('.container-card');
-                
-                if (dropContainerCard) {
-                    const containerGrid = dropContainerCard.closest('.container-grid');
-                    const allCards = Array.from(containerGrid.querySelectorAll('.container-card'));
-                    targetPosition = allCards.indexOf(dropContainerCard);
-                }
-                
-                if (droppedItem.sourceCategoryId !== targetCategoryId) {
-                    // Container in eine andere Kategorie verschieben
-                    moveContainer(droppedItem.name, droppedItem.sourceCategoryId, targetCategoryId, targetPosition);
-                } else if (targetPosition !== -1 && targetPosition !== droppedItem.position) {
-                    // Container innerhalb der gleichen Kategorie neu anordnen
-                    reorderContainer(droppedItem.name, targetCategoryId, droppedItem.position, targetPosition);
-                }
-                
-                dropZone.classList.remove('drag-over');
+                return result;
+            } catch (error) {
+                WebDockLogger.error(`Fehler bei der Installation von ${containerName}:`, error);
+                NotificationManager.error(`Fehler bei der Installation: ${error.message}`);
+                return { error: error.message };
             }
-        }
-    }
-
-    function updateCategoryOrder() {
-        const categories = {};
-        document.querySelectorAll('.category-item').forEach((item, index) => {
-            categories[item.dataset.id] = { position: index };
-        });
+        },
         
-        fetch('/api/categories/order', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(categories)
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'success') {
-                showNotification('success', 'Category order updated');
-            } else {
-                showNotification('error', data.message);
-            }
-        });
-    }
-
-    // Terminal & File Explorer Funktionen
-    window.connectToServer = async function() {
-        try {
-            const type = document.getElementById('connection-type').value;
-            const host = document.getElementById('host').value;
-            const port = document.getElementById('port').value;
-            const username = document.getElementById('username').value;
-            const password = document.getElementById('password').value;
-
-            const response = await fetch('/api/connect', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ type, host, port, username, password })
-            });
-
-            const data = await response.json();
-            if (data.status === 'success') {
-                sshConnection = data.connection;
-                document.querySelector('.connection-info').textContent = `Connected to ${username}@${host}`;
-                
-                if (type === 'ssh') {
-                    document.querySelector('.terminal-container').style.display = 'block';
-                    document.querySelector('.file-explorer').style.display = 'none';
-                    initializeTerminal();
-                } else {
-                    // Füge Overlay hinzu und zeige Explorer
-                    const overlay = document.createElement('div');
-                    overlay.className = 'explorer-overlay';
-                    overlay.onclick = closeFileExplorer;
-                    document.body.appendChild(overlay);
-                    
-                    document.querySelector('.terminal-container').style.display = 'none';
-                    document.querySelector('.file-explorer').style.display = 'block';
-                    loadFileList(currentPath);
-                }
-                showNotification('success', 'Connected successfully');
-            } else {
-                throw new Error(data.message || 'Connection failed');
-            }
-        } catch (error) {
-            console.error('Connection error:', error);
-            showNotification('error', error.message || 'Connection failed');
-        }
-    };
-
-    function disconnectFromServer() {
-        fetch('/api/disconnect', { method: 'POST' })
-            .then(() => {
-                sshConnection = null;
-                document.querySelector('.terminal-container').style.display = 'none';
-                document.querySelector('.file-explorer').style.display = 'none';
-                showNotification('success', 'Disconnected from server');
-            });
-    }
-
-    // Cron Job Editor Funktionen
-    function updateSchedulePreview() {
-        const shutdownTime = document.getElementById('shutdown-time').value;
-        const wakeupTime = document.getElementById('wakeup-time').value;
-        
-        if (shutdownTime && wakeupTime) {
-            document.getElementById('shutdown-preview').textContent = shutdownTime;
-            document.getElementById('wakeup-preview').textContent = wakeupTime;
-            
-            // Berechne Downtime
-            const shutdown = new Date(`2000/01/01 ${shutdownTime}`);
-            const wakeup = new Date(`2000/01/01 ${wakeupTime}`);
-            let diff = wakeup - shutdown;
-            if (diff < 0) diff += 24 * 60 * 60 * 1000; // Füge 24 Stunden hinzu wenn wakeup am nächsten Tag
-            
-            const hours = Math.floor(diff / (60 * 60 * 1000));
-            const minutes = Math.floor((diff % (60 * 60 * 1000)) / (60 * 1000));
-            document.getElementById('downtime-preview').textContent = 
-                `${hours} hours ${minutes} minutes`;
-        }
-    }
-
-    async function scheduleShutdown() {
-        const hostIp = document.getElementById('host-ip').value;
-        const hostUser = document.getElementById('host-user').value;
-        const hostPassword = document.getElementById('host-password').value;
-        const shutdownTime = document.getElementById('shutdown-time').value;
-        const wakeupTime = document.getElementById('wakeup-time').value;
-
-        if (!hostIp || !hostUser || !hostPassword) {
-            showNotification('error', 'Please enter host credentials');
-            return;
-        }
-        
-        if (!shutdownTime || !wakeupTime) {
-            showNotification('error', 'Please select both shutdown and wake-up times');
-            return;
-        }
-        
-        try {
-            const response = await fetch('/api/schedule-shutdown', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    hostIp,
-                    hostUser,
-                    hostPassword,
-                    shutdownTime, 
-                    wakeupTime 
-                })
-            });
-            
-            const data = await response.json();
-            if (data.status === 'success') {
-                showNotification('success', 'Shutdown schedule created');
-                await updateScheduleStatus();  // Warte auf die Aktualisierung
-            } else {
-                throw new Error(data.message);
-            }
-        } catch (error) {
-            showNotification('error', `Failed to create schedule: ${error.message}`);
-        }
-    }
-
-    window.updateScheduleStatus = async function() {
-        try {
-            // Hole DOM-Elemente
-            const scheduleList = document.getElementById('schedule-list');
-            const scheduleCount = document.getElementById('schedule-count');
-            const nextShutdown = document.getElementById('next-shutdown');
-            const nextWakeup = document.getElementById('next-wakeup');
-            
-            // Prüfe ob die Elemente existieren
-            if (!scheduleList || !scheduleCount || !nextShutdown || !nextWakeup) {
-                console.error('Required schedule elements not found');
-                return;
-            }
-            
-            const response = await fetch('/api/crontabs');
-            const data = await response.json();
-            
-            if (data.error) {
-                scheduleList.innerHTML = '<p class="empty-message">Please configure and test your host connection first</p>';
-                scheduleCount.textContent = '0';
-                nextShutdown.textContent = 'Not scheduled';
-                nextWakeup.textContent = 'Not scheduled';
-                return;
-            }
-            
-            // Aktualisiere die Anzahl der aktiven Schedules
-            scheduleCount.textContent = data.jobs.length;
-            
-            // Sortiere Jobs nach Shutdown-Zeit
-            const sortedJobs = data.jobs.sort((a, b) => 
-                a.shutdown_time.localeCompare(b.shutdown_time)
-            );
-            
-            // Aktualisiere nächste Shutdown/Wakeup Zeit
-            if (sortedJobs.length > 0) {
-                nextShutdown.textContent = sortedJobs[0].shutdown_time;
-                nextWakeup.textContent = sortedJobs[0].wakeup_time;
-            } else {
-                nextShutdown.textContent = 'Not scheduled';
-                nextWakeup.textContent = 'Not scheduled';
-            }
-            
-            // Aktualisiere die Liste der aktiven Schedules
-            scheduleList.innerHTML = sortedJobs.map(job => `
-                <div class="schedule-item">
-                    <div class="schedule-info">
-                        <span>
-                            <i class="fa fa-power-off"></i>
-                            Shutdown: ${job.shutdown_time}
-                        </span>
-                        <span>
-                            <i class="fa fa-clock-o"></i>
-                            Wake up: ${job.wakeup_time}
-                        </span>
-                        <span>
-                            <i class="fa fa-hourglass-half"></i>
-                            Duration: ${job.duration}h
-                        </span>
-                    </div>
-                    <button class="delete-btn" onclick="deleteSchedule('${job.id}')">
-                        <i class="fa fa-trash"></i>
-                    </button>
-                </div>
-            `).join('') || '<p class="empty-message">No active schedules</p>';
-            
-        } catch (error) {
-            console.error('Error updating schedule status:', error);
-            showNotification('error', `Failed to update schedule status: ${error.message}`);
-        }
-    }
-
-    // Entferne die zusätzliche Zuweisung, da die Funktion bereits global ist
-    document.addEventListener('DOMContentLoaded', () => {
-        updateScheduleStatus();
-    });
-
-    // Event Listener für Zeit-Inputs
-    document.getElementById('shutdown-time')?.addEventListener('change', updateSchedulePreview);
-    document.getElementById('wakeup-time')?.addEventListener('change', updateSchedulePreview);
-
-    initializeCategoryEditor();
-
-    document.getElementById('shutdown-form')?.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        await scheduleShutdown();
-        updateScheduleStatus();  // Aktualisiere nach dem Scheduling
-    });
-
-    // Optional: Aktualisiere auch bei Änderungen der Credentials
-    document.getElementById('host-password')?.addEventListener('change', updateScheduleStatus);
-
-    // Event-Listener für Test Connection Button
-    document.getElementById('test-connection')?.addEventListener('click', async () => {
-        const hostIp = document.getElementById('host-ip').value;
-        const hostUser = document.getElementById('host-user').value;
-        const hostPassword = document.getElementById('host-password').value;
-        
-        if (!hostIp || !hostUser || !hostPassword) {
-            showNotification('error', 'Please enter all credentials');
-            return;
-        }
-        
-        try {
-            const response = await fetch('/api/host-config', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ hostIp, hostUser, hostPassword })
-            });
-            
-            const data = await response.json();
-            if (data.status === 'success') {
-                showNotification('success', 'Connection successful');
-                updateScheduleStatus();  // Aktualisiere die Schedule-Anzeige
-            } else {
-                throw new Error(data.message);
-            }
-        } catch (error) {
-            showNotification('error', `Connection failed: ${error.message}`);
-        }
-    });
-
-    // Ersetze die bestehende initializeImportTabs Funktion
-    function initializeImportTabs() {
-        // Warte bis die DOM-Elemente existieren
-        const tabButtons = document.querySelectorAll('.import-tabs .tab-btn');
-        const tabContents = document.querySelectorAll('.section-content .tab-content');
-        
-        if (!tabButtons.length || !tabContents.length) {
-            // Wenn die Elemente noch nicht existieren, versuche es später erneut
-            setTimeout(initializeImportTabs, 100);
-            return;
-        }
-        
-        tabButtons.forEach(button => {
-            button.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation(); // Verhindert Bubble-up zum Section Toggle
-                
-                // Entferne active Klasse von allen Buttons und Contents
-                tabButtons.forEach(btn => btn.classList.remove('active'));
-                tabContents.forEach(content => content.classList.add('hidden'));
-                
-                // Füge active Klasse zum geklickten Button hinzu
-                button.classList.add('active');
-                
-                // Zeige entsprechenden Content
-                const tabId = button.getAttribute('data-tab');
-                const content = document.getElementById(tabId + '-tab');
-                if (content) {
-                    content.classList.remove('hidden');
-                }
-            });
-        });
-    }
-
-    // Bestehende toggleSection Funktion aktualisieren (nur die Implementierung ändern, nicht die Position)
-    function toggleSection(header) {
-        const content = header.nextElementSibling;
-        const icon = header.querySelector('.fa-chevron-down');
-        
-        if (content.style.display === 'none') {
-            content.style.display = 'block';
-            icon.style.transform = 'rotate(180deg)';
-            // Initialisiere Tabs wenn Section geöffnet wird
-            if (content.querySelector('.import-tabs')) {
-                setTimeout(initializeImportTabs, 100); // Verzögerung hinzugefügt
-            }
-        } else {
-            content.style.display = 'none';
-            icon.style.transform = 'rotate(0deg)';
-        }
-    }
-
-    // Initialisierung für Import-Tabs
-    function initializeOnLoad() {
-        // Initialisiere Header-Tabs
-        if (typeof initializeHeaderTabs === 'function') {
-            initializeHeaderTabs();
-        }
-        
-        // Initialisiere Import-Tabs nur wenn die Section bereits offen ist
-        const importSection = document.querySelector('.import-tabs');
-        if (importSection && importSection.offsetParent !== null && typeof initializeImportTabs === 'function') {
-            initializeImportTabs();
-        }
-    }
-    
-    // Führe die Initialisierung aus
-    initializeOnLoad();
-
-    // Funktion, die nach dem Neuladen der Seite zu dem verschobenen Container scrollt
-    function scrollToLastMovedContainer() {
-        const containerName = sessionStorage.getItem('lastMovedContainer');
-        const categoryId = sessionStorage.getItem('lastMovedCategory');
-        
-        if (containerName && categoryId) {
-            console.log(`Scrolle zu zuletzt verschobenem Container: ${containerName} in Kategorie ${categoryId}`);
-            
-            // Warte kurz, bis die Seite vollständig geladen ist
-            setTimeout(() => {
-                // Finde den Container und scrolle dazu
-                highlightAndScrollToContainer(containerName, categoryId);
-                
-                // Lösche die Informationen aus dem SessionStorage, damit wir beim nächsten manuellen Neuladen nicht erneut dorthin scrollen
-                sessionStorage.removeItem('lastMovedContainer');
-                sessionStorage.removeItem('lastMovedCategory');
-            }, 1000);
-        }
-    }
-    
-    // Füge Event-Listener für das Laden der Seite hinzu
-    document.addEventListener('DOMContentLoaded', scrollToLastMovedContainer);
-    
-    // Initialer Update-Aufruf mit Loading-Anzeige
-    updateContainerStatus(true);
-});
-// Container control functions
-function installContainer(name) {
-    const button = event.target;
-    
-    // Markiere den Button mit dem Container-Namen für einfachere Identifikation später
-    button.setAttribute('data-installing-container', name);
-    
-    // Speichere den ursprünglichen Button-Inhalt und deaktiviere den Button
-    button.disabled = true;
-    button.originalHTML = button.innerHTML; 
-    button.classList.add('loading-spinner-active'); // Füge Klasse für aktiven Spinner hinzu
-    button.innerHTML = '<i class="fa fa-spinner fa-spin"></i>';
-
-    console.log(`Installieren von Container ${name} initiiert, Button markiert und deaktiviert`);
-    
-    // Hole zuerst den Data Location Pfad aus den Settings
-    fetch('/api/settings/data-location')
-        .then(response => response.json())
-        .then(settings => {
-            const dataLocation = settings.location || '/home/The-BangerTECH-Utility-main/webdock-data';
-            
-            // Zeige Installations-Dialog mit Konfigurationsoptionen
-            showInstallModal(name, dataLocation);
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            showNotification('error', `Error getting data location for ${name}`);
-            // Im Fehlerfall den Button sofort zurücksetzen
-            resetInstallButton(button, name);
-        });
-}
-
-// Hilfsfunktion zum Zurücksetzen des Install-Buttons
-function resetInstallButton(button, containerName) {
-    console.log(`Zurücksetzen des Install-Buttons für ${containerName}`); 
-    if (!button) {
-        // Beschleunigte Suche: Zuerst nach direktem Attribut suchen
-        const buttons = document.querySelectorAll(`[data-installing-container="${containerName}"]`);
-        if (buttons.length > 0) {
-            button = buttons[0]; // Nehme den ersten gefundenen Button
-            console.log(`Gefunden: ${buttons.length} markierte Buttons für Container ${containerName}`);
-        } else {
-            // Optimierte Suche nach Container-Karten mit dem Container-Namen
-            const containerCards = document.querySelectorAll('.container-card');
-            for (const card of containerCards) {
-                const cardName = card.querySelector('.container-name')?.textContent?.trim();
-                if (cardName === containerName) {
-                    button = card.querySelector('.install-btn');
-                    if (button) break;
-                }
-            }
-            
-            if (!button) {
-                console.warn(`Konnte keinen Button für ${containerName} finden`);
-                return;
-            }
-        }
-    }
-    
-    // Für Debugging-Zwecke
-    console.log(`Button-HTML vor Zurücksetzen: ${button.outerHTML}`);
-    
-    // Direktes Zurücksetzen des Buttons (schneller als DOM-Neuaufbau)
-    const originalText = button.originalHTML || 'Install';
-    
-        // Entferne alle Spinner-bezogenen Klassen und Attribute
-    button.classList.remove('loading', 'loading-spinner-active');
-    
-    // Überprüfe, ob das Button-Element ein Spin-Icon enthält und entferne es aktiv
-    if (button.querySelector('.fa-spinner')) {
-        console.log(`Spinner-Icon im Button für ${containerName} gefunden und wird entfernt`);
-    }
-    
-    // Vollständiges Zurücksetzen des Buttons
-    button.disabled = false;
-    
-    // Optimierte Wiederherstellung des ursprünglichen Textes
-    // Versuche immer, vollständig zu ersetzen, um sicherzustellen, dass kein Spinner verbleibt
-    try {
-        const safeOriginalText = (originalText && typeof originalText === 'string' && originalText.length > 0) 
-            ? originalText 
-            : 'Install';
-        
-        // Notfall-Backup: Komplett neu erstellen
-        button.innerHTML = safeOriginalText;
-        
-        // Entferne alle Spinner-bezogenen Attribute
-        button.removeAttribute('data-installing-container');
-    } catch (e) {
-        console.error(`Fehler beim Zurücksetzen des Button-Textes: ${e.message}`);
-        // Absoluter Notfall: Hardcode
-        button.innerHTML = 'Install';
-    }
-    
-    // Finale Überprüfung
-    if (button.querySelector('.fa-spinner')) {
-        console.log(`KRITISCHER FEHLER: Spinner immer noch vorhanden nach vollständigem Reset, erzwinge Neuerstellung`);
-        // Letzter Ausweg: Komplett-Reset
-        button.innerHTML = 'Install';
-    }
-    
-    console.log(`Button für ${containerName} direkt zurückgesetzt`);
-}
-
-async function showInstallModal(containerName) {
-    try {
-        // Erstelle zuerst ein Lade-Modal, um sofortiges Feedback zu bieten
-        const loadingModal = document.createElement('div');
-        loadingModal.className = 'modal';
-        loadingModal.id = 'loadingModal';
-        loadingModal.innerHTML = `
-            <div class="modal-content" style="max-width: 400px;">
-                <div class="modal-header">
-                    <h2><i class="fa fa-spinner fa-spin"></i> Lade Konfiguration</h2>
-                </div>
-                <div class="modal-body" style="text-align: center;">
-                    <p>Container-Konfiguration wird abgerufen...</p>
-                    <div class="progress-bar" style="margin-top: 15px; height: 4px; width: 100%; background: #f0f0f0; overflow: hidden;">
-                        <div class="progress-bar-fill" style="height: 100%; width: 10%; background: var(--color-primary); animation: progress-animation 1.5s infinite ease-in-out;"></div>
-                    </div>
-                    <style>
-                        @keyframes progress-animation {
-                            0% { width: 10%; margin-left: 0%; }
-                            50% { width: 50%; margin-left: 25%; }
-                            100% { width: 10%; margin-left: 90%; }
-                        }
-                    </style>
-                </div>
-            </div>
-        `;
-        document.body.appendChild(loadingModal);
-        setTimeout(() => loadingModal.classList.add('show'), 10);
-
-        // Normalisiere den Container-Namen für die API-Anfrage
-        const apiContainerName = containerName === 'mosquitto' ? 'mosquitto-broker' : containerName;
-        
-        // Bereite alle Anfragen parallel vor
-        const requests = [
-            fetch(`/api/container/${apiContainerName}/config?template=true`).then(res => {
-                if (!res.ok) throw new Error(`Failed to load config: ${res.status}`);
-                return res.json();
-            })
-        ];
-        
-        // Füge Netzwerkinformationsanfrage für WatchYourLAN hinzu
-        let networkInterface = 'eth0';
-        let ipRange = '192.168.1.0/24';
-        
-        if (containerName === 'watchyourlan' || containerName === 'watchyourlanarm') {
-            requests.push(
-                fetch('/api/network-info')
-                .then(res => res.ok ? res.json() : null)
-                .then(networkData => {
-                    if (networkData) {
-                        console.log("Network info from server:", networkData);
-                        
-                        if (networkData.interface) {
-                            networkInterface = networkData.interface;
-                        }
-                        
-                        if (networkData.ip_range) {
-                            ipRange = networkData.ip_range;
-                        } else if (networkData.client_ip && networkData.client_ip !== "127.0.0.1" && networkData.client_ip !== "::1") {
-                            // Verwende die Client-IP vom Server
-                            const ipParts = networkData.client_ip.split('.');
-                            if (ipParts.length === 4) {
-                                ipRange = `${ipParts[0]}.${ipParts[1]}.${ipParts[2]}.0/24`;
-                            }
-                        }
-                    }
-                    return { networkInterface, ipRange };
-                })
-                .catch(error => {
-                    console.error("Error fetching network info:", error);
-                    return { networkInterface, ipRange };
-                })
-            );
-        }
-        
-        // Hole alle Daten parallel
-        const results = await Promise.all(requests);
-        const config = results[0];
-        
-        // Entferne das Lade-Modal
-        document.body.removeChild(loadingModal);
-        
-        if (!config.yaml) {
-            throw new Error('No YAML configuration received');
-        }
-
-        // Parse YAML für Environment-Variablen und Ports
-        const yamlConfig = jsyaml.load(config.yaml);
-        
-        // Prüfe ob es ein gültiges Service-Objekt ist
-        if (!yamlConfig || typeof yamlConfig !== 'object') {
-            throw new Error('Invalid YAML configuration');
-        }
-
-        // Extrahiere das erste Service aus der Compose-Datei
-        let service = config.service;
-        if (!service && yamlConfig.services) {
-            // Fallback: Extrahiere das erste Service aus dem geparsten YAML
-            const serviceName = Object.keys(yamlConfig.services)[0];
-            service = yamlConfig.services[serviceName];
-        }
-        
-        if (!service) {
-            throw new Error('No service configuration found in YAML');
-        }
-        
-        // Extrahiere Ports und Environment-Variablen
-        const ports = service.ports || [];
-        const environment = service.environment || {};
-        
-        // Erstelle Modal
-        const modal = document.createElement('div');
-        modal.className = 'modal';
-        modal.id = 'installModal';
-        
-        // Bestimme, ob die Port-Konfiguration angezeigt werden soll
-        // Für WatchYourLAN nicht anzeigen, da wir spezifische Port-Felder haben
-        const showPortConfig = !(containerName === 'watchyourlan' || containerName === 'watchyourlanarm');
-        
-        // Spezielle Felder für verschiedene Container
-        let additionalFields = '';
-        
-        // Erstelle Modal-Inhalt
-        modal.innerHTML = `
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2><i class="fa fa-download"></i> Install ${containerName}</h2>
-                    <button class="close-modal">&times;</button>
-                </div>
-                <div class="modal-body">
-                    ${showPortConfig && ports.length > 0 ? `
-                        <div class="config-section" style="margin-bottom: 20px; padding: 15px; background: var(--color-background-dark); border-radius: 8px;">
-                            <h3 style="margin-bottom: 15px;">Port Configuration</h3>
-                            <div class="port-mappings">
-                                ${createPortMappings(ports)}
-                            </div>
-                        </div>
-                    ` : ''}
-                    ${Object.keys(environment).length > 0 ? `
-                        <div class="config-section" style="margin-bottom: 20px; padding: 15px; background: var(--color-background-dark); border-radius: 8px;">
-                            <h3 style="margin-bottom: 15px;">Environment Variables</h3>
-                            <div class="env-vars">
-                                ${createEnvironmentVars(environment)}
-                            </div>
-                        </div>
-                    ` : ''}
-                    ${containerName === 'watchyourlan' || containerName === 'watchyourlanarm' ? `
-                        <div class="watchyourlan-section" style="margin-bottom: 20px; padding: 15px; background: var(--color-background-dark); border-radius: 8px;">
-                            <h3 style="margin-bottom: 15px;">WatchYourLAN Settings</h3>
-                            <div class="form-group">
-                                <label for="network-interface">Network Interface</label>
-                                <input type="text" id="network-interface" name="network-interface" value="${networkInterface}" placeholder="Enter network interface" class="form-control">
-                                <small class="hint">The network interface to monitor (e.g. eth0, ens18)</small>
-                            </div>
-                            <div class="form-group">
-                                <label for="ip-range">IP Range</label>
-                                <input type="text" id="ip-range" name="ip-range" value="${ipRange}" placeholder="Enter IP range" class="form-control">
-                                <small class="hint">The IP range to scan (e.g. 192.168.1.0/24)</small>
-                            </div>
-                            <div class="form-group">
-                                <label for="wyl-port">WatchYourLAN GUI Port</label>
-                                <input type="text" id="wyl-port" name="wyl-port" value="8840" placeholder="Enter port" class="form-control">
-                                <small class="hint">The port for WatchYourLAN web interface (default: 8840)</small>
-                            </div>
-                            <div class="form-group">
-                                <label for="bootstrap-port">Node-Bootstrap Port</label>
-                                <input type="text" id="bootstrap-port" name="bootstrap-port" value="8850" placeholder="Enter port" class="form-control">
-                                <small class="hint">The port for Node-Bootstrap service (default: 8850)</small>
-                            </div>
-                            <div class="alert alert-info" style="padding: 10px; background-color: #d1ecf1; color: #0c5460; border-radius: 4px; margin-top: 15px;">
-                                <p><strong>Note:</strong> The network interface and IP range are automatically detected. Please verify they are correct for your network.</p>
-                                <p><strong>Important:</strong> WatchYourLAN requires host network mode to properly scan your network. The main interface will be available at the GUI port specified above.</p>
-                            </div>
-                        </div>
-                    ` : ''}
-                    ${containerName === 'node-red' ? `
-                        <div class="node-red-section" style="margin-bottom: 20px; padding: 15px; background: var(--color-background-dark); border-radius: 8px;">
-                            <h3 style="margin-bottom: 15px;">Node-RED Information</h3>
-                            <div class="alert alert-info" style="padding: 10px; background-color: #d1ecf1; color: #0c5460; border-radius: 4px; margin-top: 15px;">
-                                <p><strong>Note:</strong> Node-RED is a powerful flow-based programming tool for connecting hardware devices, APIs and online services.</p>
-                                <p>After installation, you can access the Node-RED editor at <strong>http://your-server-ip:[PORT]</strong>, where [PORT] is the value you specified in the Port Configuration section above.</p>
-                            </div>
-                        </div>
-                    ` : ''}
-                </div>
-                <div class="modal-footer">
-                    <button class="install-btn">Install</button>
-                    <button class="cancel-btn">Cancel</button>
-                </div>
-            </div>
-        `;
-
-        // Event-Listener für Authentication Checkbox bei Mosquitto
-        document.body.appendChild(modal);
-        setTimeout(() => modal.classList.add('show'), 10);
-        
-        // Mosquitto Auth Checkbox
-        const authCheckbox = modal.querySelector('#mqtt-auth');
-        const authCredentials = modal.querySelector('.auth-credentials');
-        if (authCheckbox) {
-            authCheckbox.addEventListener('change', (e) => {
-                authCredentials.style.display = e.target.checked ? 'block' : 'none';
-            });
-        }
-        
-        // InfluxDB Create DB Checkbox
-        const influxdbCreateDb = modal.querySelector('#influxdb-create-db');
-        const dbCredentials = modal.querySelector('.db-credentials');
-        if (influxdbCreateDb) {
-            influxdbCreateDb.addEventListener('change', (e) => {
-                dbCredentials.style.display = e.target.checked ? 'block' : 'none';
-            });
-        }
-        
-        // Event-Listener für Buttons
-        const installButton = modal.querySelector('.install-btn');
-        const cancelButton = modal.querySelector('.cancel-btn');
-        const closeButton = modal.querySelector('.close-modal');
-
-        // Install-Button Event-Listener
-        installButton.addEventListener('click', () => executeInstall(containerName));
-
-        // Schließen-Funktionalität
-        const handleClose = () => {
-            console.log(`Modal closed for container: ${containerName}`);
-            
-            // Umfassende Suche nach Buttons, die zurückgesetzt werden müssen
-            // 1. Versuche zuerst, Buttons zu finden, die explizit mit data-installing-container markiert sind
-            const markedButtons = document.querySelectorAll(`[data-installing-container="${containerName}"]`);
-            
-            if (markedButtons.length > 0) {
-                console.log(`Gefunden: ${markedButtons.length} markierte Buttons für Container ${containerName}`);
-                markedButtons.forEach(btn => resetInstallButton(btn, containerName));
-            } else {
-                // 2. Suche alle Buttons in der Card des Containers (erweiterte Suche)
-                const containerButtons = document.querySelectorAll(`.card[data-name="${containerName}"] .install-btn, .card[data-container="${containerName}"] .install-btn, .container-card[data-container="${containerName}"] .install-btn`);
-                
-                if (containerButtons.length > 0) {
-                    console.log(`Gefunden: ${containerButtons.length} Buttons in der Container-Card für ${containerName}`);
-                    containerButtons.forEach(btn => resetInstallButton(btn, containerName));
-                } else {
-                    // 3. Erweiterte Suche nach allen Buttons die aktiv laden
-                    console.log(`Keine Buttons für ${containerName} gefunden, versuche erweiterte Suche`);
-                    const loadingButtons = document.querySelectorAll('.install-btn[disabled], .install-btn.loading-spinner-active, .install-btn:has(.fa-spinner)');
-                    if (loadingButtons.length > 0) {
-                        console.log(`Setze ${loadingButtons.length} aktive Loading-Buttons zurück`);
-                        loadingButtons.forEach(btn => resetInstallButton(btn, containerName));
-                    }
-                }
-            }
-            
-            // Globale Funktion zum Schließen des Modals aufrufen
-            closeModal(containerName);
-            
-            // Zusätzlich: Stelle absolut sicher, dass ALLE deaktivierten Install-Buttons zurückgesetzt werden
-            setTimeout(() => {
-                const anyRemainingLoadingButtons = document.querySelectorAll('.install-btn[disabled], .install-btn.loading-spinner-active, .install-btn:has(.fa-spinner)');
-                if (anyRemainingLoadingButtons.length > 0) {
-                    console.log(`WICHTIG: Nach Schließen des Modals gibt es noch ${anyRemainingLoadingButtons.length} deaktivierte Buttons!`);
-                    anyRemainingLoadingButtons.forEach(btn => {
-                        console.log(`Reset eines verbleibenden Buttons: ${btn.outerHTML}`);
-                        resetInstallButton(btn, containerName);
-                    });
-                }
-            }, 300); // Kurze Verzögerung, um sicherzustellen, dass das DOM aktualisiert wurde
-        };
-        
-        cancelButton.addEventListener('click', handleClose);
-        closeButton.addEventListener('click', handleClose);
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) handleClose();
-        });
-    } catch (error) {
-        console.error('Error:', error);
-        showNotification('error', `Error preparing installation for ${containerName}`);
-    }
-}
-
-// Hilfsfunktionen für Environment-Variablen
-function getEnvPlaceholder(key) {
-    const placeholders = {
-        'TZ': 'Europe/Berlin',
-        'PUID': '1000',
-        'PGID': '1000'
-    };
-    return placeholders[key] || '';
-}
-
-function getEnvDescription(key) {
-    const descriptions = {
-        'TZ': '<small class="hint">Timezone for the container</small>',
-        'PUID': '<small class="hint">User ID for container permissions</small>',
-        'PGID': '<small class="hint">Group ID for container permissions</small>',
-        // WatchYourLAN-spezifische Beschreibungen
-        'NETWORK_INTERFACE': '<small class="hint">The network interface to monitor (e.g., eth0, wlan0). Use "ip addr" command to find your interface.</small>',
-        'IP_RANGE': '<small class="hint">The IP range to scan (e.g., 192.168.1.0/24). Use your local network range.</small>',
-        'SCAN_INTERVAL': '<small class="hint">Interval in seconds between network scans (default: 300)</small>',
-        'NOTIFICATION_INTERVAL': '<small class="hint">Interval in seconds between notifications (default: 14400)</small>',
-        'NOTIFICATION_TITLE': '<small class="hint">Title for notifications (default: "WatchYourLAN")</small>',
-        'NOTIFICATION_BODY': '<small class="hint">Body text for notifications (default: "New device found on network: {NAME} ({IP})")</small>',
-        // Filestash-spezifische Beschreibungen
-        'APPLICATION_URL': '<small class="hint">The URL where Filestash will be accessible (e.g., http://your-server-ip:8334)</small>'
-    };
-    return descriptions[key] || '';
-}
-
-// Angepasste executeInstall Funktion
-async function executeInstall(containerName) {
-    try {
-        // Zeige Loading-Overlay
-        if (loadingOverlay) {
-            loadingOverlay.style.display = 'flex';
-        }
-
-        // Deaktiviere den Install-Button und zeige Spinner
-        const mainInstallButton = document.querySelector(`[data-container="${containerName}"] .install-btn`);
-        if (mainInstallButton) {
-            mainInstallButton.disabled = true;
-            mainInstallButton.classList.add('loading');
-            mainInstallButton.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Installing...';
-        }
-        
-        // Schließe das Modal ohne den Button zurückzusetzen
-        closeModal();
-
-        // Sammle Formulardaten
-        const installData = {
-            name: containerName,
-            path: `/app/config/compose-files/${containerName}`,
-            ports: {},
-            env: {},
-            volumes: []  // Füge Volumes hinzu
-        };
-
-        // Füge Standard-Volumes basierend auf Container-Typ hinzu
-        if (containerName === 'mosquitto-broker' || containerName === 'mosquitto') {
-            installData.volumes = [
-                `./config:/mosquitto/config`,
-                `./data:/mosquitto/data`,
-                `./log:/mosquitto/log`
-            ];
-            
-            // Prüfe Authentifizierungseinstellungen für Mosquitto
-            const authEnabled = document.getElementById('mqtt-auth')?.checked || false;
-            const username = document.getElementById('mqtt-username')?.value || 'test';
-            const password = document.getElementById('mqtt-password')?.value || 'test';
-            
-            // Füge Mosquitto-spezifische Konfiguration hinzu
-            installData.mosquitto = {
-                auth_enabled: authEnabled,
-                username: username,
-                password: password
-            };
-            
-            // Debug-Logging
-            console.log('=== Mosquitto Installation Config ===');
-            console.log('Auth enabled:', authEnabled);
-            console.log('Username:', username);
-            console.log('Password:', password ? '********' : '');
-            
-            // Die Konfigurationsdatei wird vom Backend erstellt
-            // Wir senden keine config_files mehr, um Konflikte zu vermeiden
-        }
-        // InfluxDB-spezifische Konfiguration
-        else if (containerName === 'influxdb' || containerName === 'influxdb-arm' || containerName === 'influxdb-x86') {
-            installData.volumes = [
-                `./data:/var/lib/influxdb`
-            ];
-            
-            // Prüfe Datenbankeinstellungen für InfluxDB
-            const createDatabase = document.getElementById('influxdb-create-db')?.checked || false;
-            const databaseName = document.getElementById('db-name')?.value || 'database1';
-            const databaseUser = document.getElementById('db-user')?.value || 'user1';
-            const databasePassword = document.getElementById('db-password')?.value || 'pwd12345';
-            
-            // Füge InfluxDB-spezifische Konfiguration hinzu
-            installData.influxdb = {
-                create_database: createDatabase,
-                database_name: databaseName,
-                database_user: databaseUser,
-                database_password: databasePassword
-            };
-            
-            // Debug-Logging
-            console.log('=== InfluxDB Installation Config ===');
-            console.log('Create Database:', createDatabase);
-            console.log('Database Name:', databaseName);
-            console.log('Database User:', databaseUser);
-            console.log('Database Password:', databasePassword ? '********' : '');
-        }
-        // Dockge-spezifische Konfiguration
-        else if (containerName === 'dockge') {
-            installData.volumes = [
-                `./data:/app/data`
-            ];
-            
-            // Prüfe Stacks-Verzeichnis für Dockge
-            const stacksDir = document.getElementById('stacks-dir')?.value || '/home/webDock/webdock-data';
-            
-            // Füge Dockge-spezifische Konfiguration hinzu
-            installData.dockge = {
-                stacks_dir: stacksDir
-            };
-            
-            // Debug-Logging
-            console.log('=== Dockge Installation Config ===');
-            console.log('Stacks Directory:', stacksDir);
-        }
-        // WUD-spezifische Konfiguration
-        else if (containerName === 'wud') {
-            console.debug('WUD installation configuration');
-            
-            // Add Docker socket and data volume as strings in the correct format
-            installData.volumes = [
-                '/var/run/docker.sock:/var/run/docker.sock:ro',
-                './data:/app/data'
-            ];
-            
-            // Entferne die Umgebungsvariablen, da sie nicht funktionieren
-            // installData.env = {
-            //     'WUD_SERVER_PORT': '3000',
-            //     'WUD_WATCHER_DOCKER': 'true',
-            //     'WUD_WATCHER_DOCKER_WATCHALL': 'true',
-            //     'WUD_WATCHER_LOCAL_WATCHALL': 'true',
-            //     'WUD_REGISTRY_HUB_PUBLIC': 'true'
-            // };
-            
-            console.debug('WUD configuration:', installData);
-        }
-        // Filestash-spezifische Konfiguration
-        else if (containerName === 'filestash') {
-            // Für Filestash werden keine speziellen Volumes oder Umgebungsvariablen benötigt,
-            // da diese in der setup_filestash Funktion im Backend gesetzt werden
-            
-            // Debug-Logging
-            console.log('=== Filestash Installation Config ===');
-            console.log('Note: Filestash requires a two-step installation process');
-            console.log('1. A temporary container will be started');
-            console.log('2. User needs to create an admin password at http://[server-ip]:8334');
-            console.log('3. User needs to run complete_setup.sh to finalize the installation');
-        }
-        // WatchYourLAN-spezifische Konfiguration
-        else if (containerName === 'watchyourlan' || containerName === 'watchyourlanarm') {
-            installData.volumes = [
-                `./config:/config`,
-                `./data:/data`
-            ];
-            
-            // Hole Netzwerkschnittstelle und IP-Range
-            const networkInterface = document.getElementById('network-interface')?.value || 'eth0';
-            const ipRange = document.getElementById('ip-range')?.value || '192.168.1.0/24';
-            const guiPort = document.getElementById('wyl-port')?.value || '8840';
-            const bootstrapPort = document.getElementById('bootstrap-port')?.value || '8850';
-            
-            // Setze Umgebungsvariablen für WatchYourLAN
-            installData.env = {
-                'NETWORK_INTERFACE': networkInterface,
-                'IP_RANGE': ipRange,
-                'GUIPORT': guiPort  // Setze den GUI-Port auch als Umgebungsvariable
-            };
-            
-            // Setze die Ports für WatchYourLAN
-            installData.ports = {
-                '8840': guiPort,
-                '8850': bootstrapPort
-            };
-            
-            // Speichere den dynamischen GUI-Port für die Anzeige auf der Karte
-            installData.port = guiPort;
-            
-            // Debug-Logging
-            console.log('=== WatchYourLAN Installation Config ===');
-            console.log('Network Interface:', networkInterface);
-            console.log('IP Range:', ipRange);
-            console.log('GUI Port:', guiPort);
-            console.log('Bootstrap Port:', bootstrapPort);
-        }
-        // Node-RED-spezifische Konfiguration
-        else if (containerName === 'node-red') {
-            installData.volumes = [
-                `./data:/data`
-            ];
-            
-            // Hole den Node-RED Port aus dem Port-Mapping-Feld
-            // Suche nach dem Port-Input für den internen Port 1880
-            const portInput = document.querySelector('input[data-internal-port="1880"]');
-            const nodeRedPort = portInput?.value || '1880';
-            
-            // Setze Umgebungsvariablen für Node-RED
-            installData.env = {
-                'TZ': 'Europe/Berlin'
-            };
-            
-            // Setze die Ports für Node-RED
-            installData.ports = {
-                '1880': nodeRedPort
-            };
-            
-            // Speichere den dynamischen Port für die Anzeige auf der Karte
-            installData.port = nodeRedPort;
-            
-            // Debug-Logging
-            console.log('=== Node-RED Installation Config ===');
-            console.log('Port:', nodeRedPort);
-        }
-        // Scrypted-spezifische Konfiguration
-        else if (containerName === 'scrypted') {
-            installData.volumes = [
-                `./data:/server/volume`
-            ];
-            
-            // Setze den Port für Scrypted (wird in der UI angezeigt, aber nicht in der docker-compose.yml verwendet)
-            installData.ports = {
-                '10443': '10443'
-            };
-            
-            // Setze network_mode auf host
-            installData.network_mode = 'host';
-            
-            // Debug-Logging
-            console.log('=== Scrypted Installation Config ===');
-            console.log('Volumes configured for Scrypted');
-            console.log('Network mode set to host');
-            console.log('Port 10443 will be used for HTTPS access');
-        }
-        // Prometheus-spezifische Konfiguration
-        else if (containerName === 'prometheus') {
-            installData.volumes = [
-                `./prometheus:/etc/prometheus`,
-                `./data:/prometheus`
-            ];
-            
-            // Ermittle die Host-IP-Adresse für Prometheus
-            const hostIP = window.location.hostname;
-            
-            // Füge die Host-IP-Adresse zur Konfiguration hinzu
-            installData.prometheus = {
-                host_ip: hostIP
-            };
-            
-            // Debug-Logging
-            console.log('=== Prometheus Installation Config ===');
-            console.log('Host IP:', hostIP);
-        }
-        // Standard-Volumes für andere Container
-        else {
-            installData.volumes = [
-                `./config:/config`,
-                `./data:/data`
-            ];
-        }
-
-        // Verarbeite Port-Mappings
-        const portInputs = document.querySelectorAll('.modal .port-mapping input');
-        if (portInputs.length > 0) {
-            portInputs.forEach(input => {
-                const containerPort = input.getAttribute('data-port');
-                if (containerPort) {
-                    installData.ports[containerPort] = input.value;
-                }
-            });
-        }
-
-        // Verarbeite Environment-Variablen
-        const envInputs = document.querySelectorAll('.modal .env-var input');
-        if (envInputs.length > 0) {
-            envInputs.forEach(input => {
-                const envKey = input.getAttribute('data-env-key');
-                if (envKey) {
-                    installData.env[envKey] = input.value;
-                }
-            });
-        }
-
-        // Debug-Logging
-        console.log('=== Installation Data ===');
-        console.log(JSON.stringify(installData, null, 2));
-
-        // Sende Installation Request
-        const response = await fetch('/api/install', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(installData)
-        });
-
-        const result = await response.json();
-        console.log('=== Installation Response ===');
-        console.log(JSON.stringify(result, null, 2));
-
-        if (result.status === 'success') {
-            // Spezielle Nachricht für Filestash
-            if (containerName === 'filestash') {
-                showNotification('success', `${containerName} temporary container started. Please go to http://${window.location.hostname}:8334 to create an admin password, then run the complete_setup.sh script to finalize the installation.`);
-            } else {
-                showNotification('success', `${containerName} installed successfully`);
-            }
-            
-            // Schließe das Modal
-            console.log('Closing modal after successful installation');
-            closeModal();
-            
-            // Aktualisiere die Container-Anzeige
-            updateContainerStatus(true);
-        } else {
-            // Zeige die Fehlermeldung vom Server an
-            const errorMessage = result.message || 'Installation failed';
-            showNotification('error', errorMessage);
-            
-            // Wenn es sich um einen Port-Konflikt handelt, zeige eine spezielle Meldung im Modal an
-            if (errorMessage.includes('Port') && errorMessage.includes('already in use')) {
-                const errorDiv = document.createElement('div');
-                errorDiv.className = 'error-message';
-                errorDiv.innerHTML = `
-                    <div class="alert alert-danger" style="margin-top: 15px; padding: 10px; background-color: #f8d7da; color: #721c24; border-radius: 4px;">
-                        <strong>Error:</strong> ${errorMessage}
-                    </div>
-                `;
-                
-                // Füge die Fehlermeldung zum Modal hinzu
-                const modalFooter = document.querySelector('.modal .modal-footer');
-                if (modalFooter) {
-                    // Entferne vorherige Fehlermeldungen
-                    const previousError = document.querySelector('.modal .error-message');
-                    if (previousError) {
-                        previousError.remove();
-                    }
-                    
-                    modalFooter.parentNode.insertBefore(errorDiv, modalFooter);
-                }
-            } else {
-                // Bei anderen Fehlern schließe das Modal
-                closeModal();
-            }
-        }
-    } catch (error) {
-        console.error('Installation error:', error);
-        showNotification('error', error.message || 'Installation failed');
-        
-        // Schließe das Modal bei unerwarteten Fehlern
-        closeModal();
-    } finally {
-        // Verstecke Loading-Overlay
-        if (loadingOverlay) {
-            loadingOverlay.style.display = 'none';
-        }
-
-        // Reaktiviere den Install-Button
-        const installButton = document.querySelector('.modal .install-btn');
-        if (installButton) {
-            installButton.disabled = false;
-            installButton.innerHTML = 'Install';
-        }
-    }
-}
-
-// Modifizierte Toggle-Funktion
-function toggleContainer(name) {
-    if (!name) {
-        showNotification('error', 'Invalid container name');
-        return;
-    }
-
-    if (loadingOverlay) {
-        loadingOverlay.style.display = 'flex';
-    }
-    
-    fetch(`/api/toggle/${name}`, {
-        method: 'POST'
-    })
-    .then(response => {
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return response.json();
-    })
-    .then(data => {
-        if (data.status === 'success') {
-            updateContainerStatus(true);
-            showNotification('success', data.message);
-        } else {
-            throw new Error(data.message || 'Toggle failed');
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        showNotification('error', `Failed to toggle container ${name}: ${error.message}`);
-    })
-    .finally(() => {
-        if (loadingOverlay) {
-            loadingOverlay.style.display = 'none';
-        }
-    });
-}
-
-function updateContainer(name) {
-    const button = event.target;
-    button.disabled = true;
-    button.innerHTML = '<i class="fa fa-spinner fa-spin"></i>';
-
-    fetch(`/api/update/${name}`, {
-        method: 'POST'
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.status === 'success') {
-            showNotification('success', data.message);
-            // Aktualisiere Container-Status
-            updateContainerStatus();
-        } else {
-            showNotification('error', data.message);
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        showNotification('error', `Error updating container ${name}`);
-    })
-    .finally(() => {
-        button.disabled = false;
-        button.innerHTML = 'Update';
-    });
-}
-
-function showNotification(type, message) {
-    const notification = document.createElement('div');
-    notification.className = `notification ${type}`;
-    notification.innerHTML = message;
-    document.body.appendChild(notification);
-
-    setTimeout(() => {
-        notification.classList.add('show');
-    }, 100);
-
-    setTimeout(() => {
-        notification.classList.remove('show');
-        setTimeout(() => {
-            notification.remove();
-        }, 300);
-    }, 3000);
-}
-
-// Theme Switcher
-document.addEventListener('DOMContentLoaded', () => {
-    const themeToggle = document.getElementById('theme-toggle');
-    const prefersDarkScheme = window.matchMedia('(prefers-color-scheme: dark)');
-    
-    // Set initial theme based on system preference
-    if (prefersDarkScheme.matches) {
-        document.documentElement.setAttribute('data-theme', 'dark');
-    }
-    
-    themeToggle.addEventListener('click', () => {
-        const currentTheme = document.documentElement.getAttribute('data-theme');
-        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-        
-        document.documentElement.setAttribute('data-theme', newTheme);
-        localStorage.setItem('theme', newTheme);
-    });
-    
-    // Load saved theme preference
-    const savedTheme = localStorage.getItem('theme');
-    if (savedTheme) {
-        document.documentElement.setAttribute('data-theme', savedTheme);
-    }
-}); 
-
-function getContainerLogo(containerName) {
-    // Mapping von Container-Namen zu Logo-Dateien
-    const logoMapping = {
-        'homeassistant': 'homeassistant.png',
-        'whatsupdocker': 'whatsupdocker.png',
-        'wud': 'wud.png',
-        'code-server': 'codeserver.png',
-        'grafana': 'grafana.png',
-        'filebrowser': 'filebrowser.png',
-        'filestash': 'filebrowser.png',  // Fallback auf filebrowser icon
-        'mosquitto-broker': 'mosquitto.png',
-        'mosquitto': 'mosquitto.png',
-        'raspberrymatic': 'raspberrymatic.png',
-        'dockge': 'dockge.png',
-        'portainer': 'portainer.png',
-        'openhab': 'openhab.png',
-        'zigbee2mqtt': 'mqtt.png',
-        'heimdall': 'heimdall.png',
-        'prometheus': 'prometheus.png',
-        'homebridge': 'homebridge.png',
-        'hoarder': 'hoarder.png',
-        'homepage': 'homepage.png',
-    };
-    
-    // Wenn ein Mapping existiert, verwende es, ansonsten verwende den Container-Namen
-    const logoFile = logoMapping[containerName] || `${containerName}.png`;
-    return `/static/img/icons/${logoFile}`;
-}
-
-function createContainerCard(container, categoryId, position = -1) {
-    const logoUrl = getContainerLogo(container.name);
-    // Verwende die Beschreibung nur für den Tooltip des Logos
-    const description = container.description || getContainerDescription(container.name) || '';
-    const isInstalled = container.installed || false;
-    const state = container.status || 'stopped';
-    
-    // Debug-Ausgabe für die Position
-    WebDockLogger.debug(`[DEBUG] Container ${container.name}: Verwendete YAML-Beschreibung: "${description}"`);
-    WebDockLogger.debug(`[DEBUG] Container ${container.name}: Position = ${position}, Kategorie = ${categoryId}`);
-    
-    // Add drag & drop attributes for all containers
-    const dragAttributes = `
-        draggable="true"
-        ondragstart="handleContainerDragStart(event, '${container.name}', '${categoryId}')"
-        ondragend="handleContainerDragEnd(event)"
-        ondragover="handleContainerDragOver(event)"
-        ondragenter="handleContainerDragEnter(event)"
-        ondragleave="handleContainerDragLeave(event)"
-        ondrop="handleContainerDrop(event)"
-        data-container="${container.name}"
-        data-name="${container.name}"
-        data-position="${position}"
-        data-category="${categoryId}"
-    `;
-    
-    // Bestimme das richtige Protokoll (HTTP oder HTTPS)
-    const protocol = container.name === 'scrypted' ? 'https' : 'http';
-    
-    // Spezielle Anzeige für WatchYourLAN
-    let portDisplay = '';
-    if (container.name === 'watchyourlan' || container.name === 'watchyourlanarm') {
-        // Für WatchYourLAN zeigen wir den GUI-Port an (aus der Container-Konfiguration)
-        const guiPort = container.port || '8840'; // Verwende container.port oder Fallback auf 8840
-        portDisplay = `<p>Port: <a href="${protocol}://${window.location.hostname}:${guiPort}" 
-                        target="_blank" 
-                        class="port-link"
-                        title="Open WatchYourLAN interface"
-                    >${guiPort}</a></p>`;
-    } else {
-        // Standard-Port-Anzeige für andere Container
-        portDisplay = `<p>Port: ${container.port ? 
-            `<a href="${protocol}://${window.location.hostname}:${container.port}" 
-                target="_blank" 
-                class="port-link"
-                title="Open container interface"
-            >${container.port}</a>` 
-            : 'N/A'}</p>`;
-    }
-    
-    return `
-        <div class="container-card" ${dragAttributes}>
-            <div class="status-indicator ${container.status}" title="Status: ${container.status}"></div>
-            <div class="container-logo">
-                <img src="${logoUrl}" 
-                     alt="${container.name} logo" 
-                     title="${description}" 
-                     onerror="this.src='/static/img/icons/bangertech.png'">
-            </div>
-            <div class="name-with-settings">
-                <h3 ${container.installed && container.port ? `onclick="window.open('${protocol}://${window.location.hostname}:${container.port}', '_blank')" style="cursor: pointer;"` : ''}>${container.name}</h3>
-                ${isInstalled ? `
-                    <button class="info-btn" onclick="openInfo('${container.name}')" title="Container Information">
-                        <i class="fa fa-info-circle"></i>
-                    </button>
-                ` : ''}
-            </div>
-            ${portDisplay}
-            <!-- Keine Beschreibung in den Karten, nur als Tooltip beim Logo -->
-
-            <div class="actions">
-                ${isInstalled ? `
-                    <div class="button-group">
-                        <button class="status-btn ${state}" onclick="toggleContainer('${container.name}')">
-                            ${state === 'running' ? 'Stop' : 'Start'}
-                        </button>
-                        <button class="update-btn" onclick="updateContainer('${container.name}')" title="Update container">
-                            <i class="fa fa-refresh"></i>
-                        </button>
-                    </div>
-                ` : `
-                    <button class="install-btn" onclick="installContainer('${container.name}')">Install</button>
-                `}
-            </div>
-        </div>
-    `;
-}
-
-async function openInfo(containerName) {
-    try {
-        // Hole Container-Informationen
-        const response = await fetch(`/api/container/${containerName}/info`);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const info = await response.json();
-        
-        // Hole zusätzliche Konfigurationsdateien
-        let configFiles = [];
-        try {
-            const configResponse = await fetch(`/api/container/${containerName}/config-files`);
-            if (configResponse.ok) {
-                const configData = await configResponse.json();
-                configFiles = configData.config_files || [];
-            }
-        } catch (error) {
-            console.error('Error loading config files:', error);
-        }
-        
-        // Hole das Container-Logo
-        const logoUrl = getContainerLogo(containerName);
-        
-        // Erstelle Modal
-        const modal = document.createElement('div');
-        modal.className = 'modal';
-        modal.id = 'infoModal';
-        
-        // Bestimme, ob der Advanced-Tab angezeigt werden soll
-        const showAdvancedTab = configFiles.length > 0;
-        
-        modal.innerHTML = `
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2>
-                        <img src="${logoUrl}" alt="${containerName} logo" style="height: 24px; width: 24px; margin-right: 8px; vertical-align: middle;" onerror="this.src='/static/img/icons/bangertech.png'">
-                        ${containerName}
-                    </h2>
-                    <button class="close-modal">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <div class="info-tabs">
-                        <button class="tab-btn active" data-tab="info">Information</button>
-                        <button class="tab-btn" data-tab="config">Configuration</button>
-                        ${showAdvancedTab ? `<button class="tab-btn" data-tab="advanced">Advanced</button>` : ''}
-                    </div>
-                    
-                    <div class="tab-content active" id="info-tab">
-                        <div class="info-grid">
-                            <div class="info-item">
-                                <h3><i class="fa fa-check-circle"></i> Status</h3>
-                                <p class="${info.status}">${info.status || 'unknown'}</p>
-                            </div>
-                            <div class="info-item">
-                                <h3><i class="fa fa-network-wired"></i> Network</h3>
-                                <p>${info.info && info.info.network ? `<span class="network-badge">${info.info.network}</span>` : 'N/A'}</p>
-                            </div>
-                            <div class="info-item">
-                                <h3><i class="fa fa-hdd"></i> Volumes</h3>
-                                ${info.info && info.info.volumes && info.info.volumes.length > 0 ? `
-                                    <ul class="volume-list">
-                                        ${info.info.volumes.map(v => `<li><code>${v.source} → ${v.destination}</code></li>`).join('')}
-                                    </ul>
-                                ` : '<p>No volumes</p>'}
-                            </div>
-                            <div class="info-item">
-                                <h3><i class="fa fa-globe"></i> Ports</h3>
-                                ${info.info && info.info.ports && Object.keys(info.info.ports).length > 0 ? `
-                                    <ul class="port-list">
-                                        ${Object.entries(info.info.ports).map(([containerPort, hostPort]) => `
-                                            <li>
-                                                <code>${hostPort}:${containerPort.split('/')[0]}</code>
-                                                <a href="http://${window.location.hostname}:${hostPort}" 
-                                                   target="_blank" 
-                                                   class="port-link">
-                                                    <i class="fa fa-external-link"></i>
-                                                </a>
-                                            </li>
-                                        `).join('')}
-                                    </ul>
-                                ` : '<p>No ports exposed</p>'}
-                            </div>
-                            <div class="info-item">
-                                <h3><i class="fa fa-terminal"></i> Image</h3>
-                                <p><code>${info.info && info.info.image ? info.info.image : 'N/A'}</code></p>
-                            </div>
-                            <div class="info-item">
-                                <h3><i class="fa fa-clock-o"></i> Created</h3>
-                                <p>${info.info && info.info.created ? new Date(info.info.created).toLocaleString() : 'N/A'}</p>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="tab-content hidden" id="config-tab">
-                        <div class="config-header">
-                            <h3>docker-compose.yml</h3>
-                        </div>
-                        <form id="settings-form">
-                            <div class="form-group">
-                                <textarea id="compose-config" rows="20" spellcheck="false">${info.compose || ''}</textarea>
-                            </div>
-                            <div class="form-actions">
-                                <button type="button" onclick="saveSettings('${containerName}')" class="save-btn">
-                                    <i class="fa fa-save"></i> Save & Restart
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                    
-                    ${showAdvancedTab ? `
-                        <div class="tab-content hidden" id="advanced-tab">
-                            <div class="config-files-tabs">
-                                ${configFiles.map((file, index) => `
-                                    <button class="config-file-tab ${index === 0 ? 'active' : ''}" 
-                                            data-file-index="${index}">
-                                        ${file.name}
-                                    </button>
-                                `).join('')}
-                            </div>
-                            <div class="config-files-content">
-                                ${configFiles.map((file, index) => `
-                                    <div class="config-file-content ${index === 0 ? 'active' : 'hidden'}" 
-                                         id="config-file-${index}">
-                                        <div class="form-group">
-                                            <textarea class="config-file-editor" 
-                                                      data-file-path="${file.path}"
-                                                      rows="20" 
-                                                      spellcheck="false">${file.content || ''}</textarea>
-                                        </div>
-                                        <div class="form-actions">
-                                            <button type="button" 
-                                                    onclick="saveConfigFile('${containerName}', '${file.path}')" 
-                                                    class="save-btn">
-                                                <i class="fa fa-save"></i> Save & Restart
-                                            </button>
-                                        </div>
-                                    </div>
-                                `).join('')}
-                            </div>
-                        </div>
-                    ` : ''}
-                </div>
-            </div>
-        `;
-        
-        document.body.appendChild(modal);
-        setTimeout(() => modal.classList.add('show'), 10);
-        
-        // Tab-Funktionalität
-        modal.querySelectorAll('.tab-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                modal.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-                modal.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
-                btn.classList.add('active');
-                const tabId = btn.dataset.tab + '-tab';
-                document.getElementById(tabId).classList.remove('hidden');
-            });
-        });
-        
-        // Config-File-Tab-Funktionalität
-        if (showAdvancedTab) {
-            modal.querySelectorAll('.config-file-tab').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    modal.querySelectorAll('.config-file-tab').forEach(b => b.classList.remove('active'));
-                    modal.querySelectorAll('.config-file-content').forEach(c => c.classList.add('hidden'));
-                    btn.classList.add('active');
-                    const fileIndex = btn.dataset.fileIndex;
-                    document.getElementById(`config-file-${fileIndex}`).classList.remove('hidden');
-                });
-            });
-        }
-        
-        // Schließen-Funktionalität
-        modal.querySelector('.close-modal').addEventListener('click', closeModal);
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) closeModal();
-        });
-    } catch (error) {
-        console.error('Error:', error);
-        showNotification('error', `Error loading info for ${containerName}`);
-    }
-}
-
-async function saveSettings(containerName) {
-    try {
-        const textarea = document.getElementById('compose-config');
-        if (!textarea) {
-            throw new Error('Config textarea not found');
-        }
-        
-        const content = textarea.value;
-        
-        // Deaktiviere den Save-Button und zeige Ladeindikator
-        const saveBtn = document.querySelector('.save-btn');
-        const originalBtnText = saveBtn.innerHTML;
-        saveBtn.disabled = true;
-        saveBtn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Restarting...';
-        
-        // Sende Anfrage zum Speichern der Konfiguration
-        const response = await fetch(`/api/container/${containerName}/config`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                yaml: content
-            })
-        });
-        
-        const result = await response.json();
-        
-        if (response.ok) {
-            showNotification('success', 'Configuration saved and container restarted');
-            // Aktualisiere Container-Status
-            updateContainerStatus();
-        } else {
-            throw new Error(result.error || 'Failed to save configuration');
-        }
-        
-        // Aktiviere den Save-Button wieder und entferne Ladeindikator
-        saveBtn.disabled = false;
-        saveBtn.innerHTML = originalBtnText;
-    } catch (error) {
-        console.error('Error saving settings:', error);
-        showNotification('error', `Error: ${error.message}`);
-        
-        // Stelle sicher, dass der Button wieder aktiviert wird
-        const saveBtn = document.querySelector('.save-btn');
-        if (saveBtn) {
-            saveBtn.disabled = false;
-            saveBtn.innerHTML = '<i class="fa fa-save"></i> Save & Restart';
-        }
-    }
-}
-
-function debounce(func, wait) {
-    let timeout;
-    return function executedFunction(...args) {
-        const later = () => {
-            clearTimeout(timeout);
-            func(...args);
-        };
-        clearTimeout(timeout);
-        timeout = setTimeout(later, wait);
-    };
-}
-
-const debouncedScroll = debounce(() => {
-    if (preserveScroll) {
-        window.scrollTo(0, lastScrollPosition);
-    }
-}, 150); 
-
-function initializeCategoryEditor() {
-    const categoryList = document.querySelector('.category-list');
-    const categories = document.querySelectorAll('.category-item');
-    
-    categories.forEach(category => {
-        const editBtn = category.querySelector('.edit-btn');
-        editBtn.addEventListener('click', () => {
-            const categoryId = category.dataset.id;
-            showCategoryModal('edit', categoryId);
-        });
-    });
-} 
-
-function initializeTerminal() {
-    const terminal = document.getElementById('terminal');
-    terminal.innerHTML = '<div class="terminal-content"></div>';
-    terminalContent = terminal.querySelector('.terminal-content');
-    
-    currentCommand = '';
-    
-    const hiddenInput = document.createElement('textarea');
-    hiddenInput.className = 'terminal-input-hidden';
-    terminal.appendChild(hiddenInput);
-    
-    function createPrompt() {
-        const { username, hostname, pwd } = window.terminalInfo || {};
-        return `${username || 'user'}@${hostname || 'localhost'}:${pwd || '~'}$`;
-    }
-    
-    function renderActiveLine() {
-        const line = document.createElement('div');
-        line.className = 'terminal-line active';
-        
-        const prompt = document.createElement('span');
-        prompt.className = 'terminal-prompt';
-        prompt.textContent = createPrompt();
-        
-        const command = document.createElement('span');
-        command.className = 'terminal-command';
-        command.textContent = currentCommand;
-        
-        const cursor = document.createElement('span');
-        cursor.className = 'terminal-cursor';
-        command.appendChild(cursor);
-        
-        line.appendChild(prompt);
-        line.appendChild(command);
-        return line;
-    }
-    
-    // Definiere updateDisplay global
-    updateDisplay = function() {
-        if (!terminalContent) return;
-        
-        // Entferne alle vorherigen aktiven Zeilen
-        terminalContent.querySelectorAll('.terminal-line.active').forEach(line => {
-            line.classList.remove('active');
-        });
-        
-        // Entferne alle vorherigen Cursor
-        terminalContent.querySelectorAll('.terminal-cursor').forEach(cursor => {
-            cursor.remove();
-        });
-        
-        // Aktualisiere oder erstelle die aktive Zeile
-        const activeLine = terminalContent.querySelector('.terminal-line:last-child');
-        const newLine = renderActiveLine();
-        
-        if (activeLine) {
-            terminalContent.replaceChild(newLine, activeLine);
-        } else {
-            terminalContent.appendChild(newLine);
-        }
-        
-        document.getElementById('terminal').scrollTop = document.getElementById('terminal').scrollHeight;
-    };
-    
-    async function executeCommand(command) {
-        if (!command.trim()) return;
-        
-        try {
-            const response = await fetch('/api/execute', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ command, connection: sshConnection })
-            });
-            
-            const data = await response.json();
-            if (data.status === 'editor') {
-                showFileEditor(data.path);
-            } else if (data.status === 'success') {
-                // Nur die Ausgabe anzeigen
-                if (data.output && data.output.trim()) {
-                    const output = document.createElement('div');
-                    output.className = 'terminal-output';
-                    output.textContent = data.output;
-                    terminalContent.appendChild(output);
-                }
-                
-                // Aktualisiere Terminal-Info
-                if (data.username && data.hostname && data.pwd) {
-                    window.terminalInfo = {
-                        username: data.username,
-                        hostname: data.hostname,
-                        pwd: data.pwd
-                    };
-                }
-            } else {
-                throw new Error(data.message);
-            }
-        } catch (error) {
-            const errorOutput = document.createElement('div');
-            errorOutput.className = 'terminal-output error';
-            errorOutput.textContent = error.message;
-            terminalContent.appendChild(errorOutput);
-        }
-        
-        // Erstelle neue aktive Zeile
-        currentCommand = '';
-        const newLine = renderActiveLine();
-        terminalContent.appendChild(newLine);
-        document.getElementById('terminal').scrollTop = document.getElementById('terminal').scrollHeight;
-    }
-    
-    terminal.addEventListener('click', () => hiddenInput.focus());
-    
-    hiddenInput.addEventListener('input', (e) => {
-        currentCommand = e.target.value;
-        updateDisplay();
-    });
-    
-    hiddenInput.addEventListener('keydown', async (e) => {
-        switch(e.key) {
-            case 'Enter':
-                e.preventDefault();
-                if (currentCommand) {
-                    // Speichere Befehl in History
-                    commandHistory.push(currentCommand);
-                    historyIndex = commandHistory.length;
-                    
-                    // Führe Befehl aus
-                    await executeCommand(currentCommand);
-                    hiddenInput.value = '';
-                }
-                break;
-                
-            case 'ArrowUp':
-                e.preventDefault();
-                showHistoryDropdown();
-                break;
-                
-            case 'ArrowDown':
-                e.preventDefault();
-                if (historyIndex < commandHistory.length) {
-                    historyIndex++;
-                    currentCommand = historyIndex === commandHistory.length 
-                        ? currentInput 
-                        : commandHistory[historyIndex];
-                    hiddenInput.value = currentCommand;
-                    
-                    // Zeige History-Navigation-Hinweis
-                    if (historyIndex < commandHistory.length) {
-                        const hint = document.createElement('div');
-                        hint.className = 'terminal-hint';
-                        hint.textContent = `(History: ${historyIndex + 1}/${commandHistory.length})`;
-                        terminalContent.appendChild(hint);
-                    }
-                    
-                    updateDisplay();
-                }
-                break;
-                
-            case 'Tab':
-                e.preventDefault();
-                await handleTabCompletion();
-                break;
-        }
-    });
-    
-    hiddenInput.focus();
-    updateDisplay();
-} 
-
-async function handleTabCompletion() {
-    if (!currentCommand || !terminalContent) return;
-    
-    try {
-        const response = await fetch('/api/complete', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                command: currentCommand,
-                connection: sshConnection 
-            })
-        });
-        
-        const data = await response.json();
-        if (data.status === 'success' && data.suggestions.length > 0) {
-            const partial = data.partial;
-            
-            if (data.suggestions.length === 1) {
-                // Direkte Vervollständigung
-                const parts = currentCommand.split(' ');
-                parts[parts.length - 1] = data.suggestions[0];
-                currentCommand = parts.join(' ');
-                if (currentCommand.endsWith('/')) {
-                    currentCommand += ' ';
-                }
-                document.querySelector('.terminal-input-hidden').value = currentCommand;
-                updateDisplay();
-            } else {
-                // Zeige Vorschläge
-                const output = document.createElement('div');
-                output.className = 'terminal-output suggestions';
-                output.textContent = data.suggestions.join('  ');
-                terminalContent.appendChild(output);
-                
-                // Finde gemeinsamen Präfix
-                const commonPrefix = data.suggestions.reduce((a, b) => {
-                    let i = 0;
-                    while (i < a.length && i < b.length && a[i] === b[i]) i++;
-                    return a.substring(0, i);
-                });
-                
-                if (commonPrefix.length > partial.length) {
-                    const parts = currentCommand.split(' ');
-                    parts[parts.length - 1] = commonPrefix;
-                    currentCommand = parts.join(' ');
-                    document.querySelector('.terminal-input-hidden').value = currentCommand;
-                    updateDisplay();
-                }
-            }
-            document.getElementById('terminal').scrollTop = document.getElementById('terminal').scrollHeight;
-        }
-    } catch (error) {
-        console.error('Tab completion error:', error);
-    }
-} 
-
-async function showFileEditor(filepath) {
-    try {
-        // Sende Parameter als URL-Parameter statt Body
-        const params = new URLSearchParams({
-            connection: sshConnection,
-            path: filepath
-        });
-        
-        const response = await fetch(`/api/file?${params}`, {
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json' }
-        });
-        
-        const data = await response.json();
-        if (data.status === 'success') {
-            const modal = document.createElement('div');
-            modal.className = 'modal editor-modal show';
-            modal.innerHTML = `
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h2>Edit: ${filepath}</h2>
-                        <button class="close-modal" onclick="closeModal()">&times;</button>
-                    </div>
-                    <div class="modal-body">
-                        <textarea id="file-editor" class="file-editor">${data.content || ''}</textarea>
-                    </div>
-                    <div class="modal-footer">
-                        <button onclick="saveFile('${filepath}')" class="save-btn">
-                            <i class="fa fa-save"></i> Save
-                        </button>
-                        <button onclick="closeModal()" class="cancel-btn">Cancel</button>
-                    </div>
-                </div>
-            `;
-            document.body.appendChild(modal);
-            
-            // Fokussiere Editor
-            const editor = document.getElementById('file-editor');
-            editor.focus();
-            
-            // Aktiviere Tab im Textarea
-            editor.addEventListener('keydown', function(e) {
-                if (e.key === 'Tab') {
-                    e.preventDefault();
-                    const start = this.selectionStart;
-                    const end = this.selectionEnd;
-                    this.value = this.value.substring(0, start) + '    ' + this.value.substring(end);
-                    this.selectionStart = this.selectionEnd = start + 4;
-                }
-            });
-        } else {
-            throw new Error(data.message || 'Failed to load file content');
-        }
-    } catch (error) {
-        console.error('Editor error:', error);
-        showNotification('error', `Failed to load file: ${error.message}`);
-    }
-}
-
-async function saveFile(filepath) {
-    try {
-        const content = document.getElementById('file-editor').value;
-        const response = await fetch('/api/file', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                connection: sshConnection,
-                path: filepath,
-                content: content,
-                create: true  // Flag für neue Dateien
-            })
-        });
-        
-        const data = await response.json();
-        if (data.status === 'success') {
-            showNotification('success', 'File saved successfully');
-            closeModal();
-        } else {
-            throw new Error(data.message);
-        }
-    } catch (error) {
-        showNotification('error', `Failed to save file: ${error.message}`);
-    }
-} 
-
-function showHistoryDropdown() {
-    // Entferne existierendes Dropdown
-    const existingDropdown = document.querySelector('.history-dropdown');
-    if (existingDropdown) {
-        existingDropdown.remove();
-        return;
-    }
-    
-    if (!commandHistory || commandHistory.length === 0) return;
-    
-    const dropdown = document.createElement('div');
-    dropdown.className = 'history-dropdown';
-    
-    // Zeige die letzten 10 Befehle in umgekehrter Reihenfolge
-    const recentCommands = [...new Set(commandHistory)].slice(-10).reverse();
-    recentCommands.forEach((cmd) => {
-        const item = document.createElement('div');
-        item.className = 'history-item';
-        item.textContent = cmd;
-        item.addEventListener('click', () => {
-            currentCommand = cmd;
-            document.querySelector('.terminal-input-hidden').value = cmd;
-            updateDisplay();
-            dropdown.remove();
-        });
-        dropdown.appendChild(item);
-    });
-    
-    // Füge Event-Listener zum Schließen hinzu
-    document.addEventListener('click', function closeDropdown(e) {
-        if (!dropdown.contains(e.target) && e.target !== document.querySelector('.terminal-input-hidden')) {
-            dropdown.remove();
-            document.removeEventListener('click', closeDropdown);
-        }
-    });
-    
-    // Füge das Dropdown zum Terminal hinzu
-    terminalContent.appendChild(dropdown);
-} 
-
-async function loadFileList(path = '/') {
-    try {
-        const response = await fetch('/api/files', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                connection: sshConnection,
-                path: path 
-            })
-        });
-        
-        const data = await response.json();
-        if (data.status === 'success') {
-            currentPath = path;
-            updateFileExplorer(data.files);
-            updatePathBreadcrumbs(path);
-        } else {
-            throw new Error(data.message);
-        }
-    } catch (error) {
-        showNotification('error', `Failed to load files: ${error.message}`);
-    }
-}
-
-function updateFileExplorer(files) {
-    const fileList = document.querySelector('.file-list');
-    fileList.innerHTML = '';
-    
-    files.forEach(file => {
-        const item = document.createElement('div');
-        item.className = 'file-item';
-        item.innerHTML = `
-            <i class="fa fa-${file.type === 'directory' ? 'folder' : 'file'}"></i>
-            <span>${file.name}</span>
-            <div class="file-actions">
-                ${file.type === 'file' ? `
-                    <button onclick="downloadFile('${file.path}')" title="Download">
-                        <i class="fa fa-download"></i>
-                    </button>
-                    <button onclick="deleteFile('${file.path}')" title="Delete">
-                        <i class="fa fa-trash"></i>
-                    </button>
-                ` : ''}
-            </div>
-        `;
-        
-        if (file.type === 'directory') {
-            item.addEventListener('click', () => loadFileList(file.path));
-        }
-        
-        fileList.appendChild(item);
-    });
-}
-
-function updatePathBreadcrumbs(path) {
-    const pathNav = document.querySelector('.path-navigation');
-    pathNav.innerHTML = '';
-    
-    const parts = path.split('/').filter(Boolean);
-    let currentPath = '';
-    
-    // Root-Verzeichnis
-    const root = document.createElement('span');
-    root.textContent = '/';
-    root.className = 'path-item';
-    root.onclick = () => loadFileList('/');
-    pathNav.appendChild(root);
-    
-    // Baue den Pfad Stück für Stück auf
-    parts.forEach((part, index) => {
-        currentPath += '/' + part;
-        
-        // Füge Separator hinzu
-        if (index > 0 || parts.length > 0) {
-            const separator = document.createElement('span');
-            separator.textContent = '>';
-            separator.className = 'path-separator';
-            pathNav.appendChild(separator);
-        }
-        
-        // Füge Pfad-Element hinzu
-        const item = document.createElement('span');
-        item.textContent = part;
-        item.className = 'path-item';
-        const pathToNavigate = currentPath;  // Wichtig: Erstelle Kopie für Closure
-        item.onclick = (e) => {
-            e.stopPropagation();  // Verhindere Bubble-Up
-            loadFileList(pathToNavigate);
-        };
-        pathNav.appendChild(item);
-    });
-}
-
-function navigateUp() {
-    const parentPath = currentPath.split('/').slice(0, -1).join('/') || '/';
-    loadFileList(parentPath);
-}
-
-async function uploadFile() {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.multiple = true;
-    
-    input.onchange = async function() {
-        for (const file of this.files) {
+        // Container aktualisieren
+        update: async function(containerName) {
             try {
-                const formData = new FormData();
-                formData.append('file', file);
-                formData.append('path', currentPath);
-                formData.append('connection', sshConnection);
+                NotificationManager.info(`Aktualisiere Container ${containerName}...`);
                 
-                const response = await fetch('/api/upload', {
-                    method: 'POST',
-                    body: formData
+                const response = await fetch(`/api/container/${containerName}/update`, {
+                    method: 'POST'
                 });
                 
                 if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
+                    throw new Error(`HTTP-Fehler ${response.status}`);
                 }
                 
-                const data = await response.json();
-                if (data.status === 'success') {
-                    showNotification('success', `Uploaded ${file.name}`);
-                } else {
-                    throw new Error(data.message);
-                }
+                const result = await response.json();
+                
+                NotificationManager.success(`Container ${containerName} erfolgreich aktualisiert`);
+                
+                // Aktualisiere die UI nach kurzer Verzögerung
+                setTimeout(() => {
+                    this.getStatus();
+                }, 1000);
+                
+                return result;
             } catch (error) {
-                console.error('Upload error:', error);
-                showNotification('error', `Failed to upload ${file.name}: ${error.message}`);
+                WebDockLogger.error(`Fehler bei der Aktualisierung von ${containerName}:`, error);
+                NotificationManager.error(`Fehler bei der Aktualisierung: ${error.message}`);
+                return { error: error.message };
+            }
+        },
+        
+        // Container starten
+        start: async function(containerName) {
+            return this._changeContainerState(containerName, 'start');
+        },
+        
+        // Container stoppen
+        stop: async function(containerName) {
+            return this._changeContainerState(containerName, 'stop');
+        },
+        
+        // Container neustarten
+        restart: async function(containerName) {
+            return this._changeContainerState(containerName, 'restart');
+        },
+        
+        // Zustandsänderung eines Containers
+        _changeContainerState: async function(containerName, action) {
+            try {
+                NotificationManager.info(`${action === 'start' ? 'Starte' : (action === 'stop' ? 'Stoppe' : 'Starte neu')}: ${containerName}...`);
+                
+                const response = await fetch(`/api/container/${containerName}/${action}`, {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP-Fehler ${response.status}`);
+                }
+                
+                const result = await response.json();
+                
+                NotificationManager.success(`Container ${containerName} erfolgreich ${action === 'start' ? 'gestartet' : (action === 'stop' ? 'gestoppt' : 'neugestartet')}`);
+                
+                // Aktualisiere die UI nach kurzer Verzögerung
+                setTimeout(() => {
+                    this.getStatus();
+                }, 1000);
+                
+                return result;
+            } catch (error) {
+                WebDockLogger.error(`Fehler beim ${action} von ${containerName}:`, error);
+                NotificationManager.error(`Fehler: ${error.message}`);
+                return { error: error.message };
+            }
+        },
+        
+        // Status eines Containers wechseln (toggle)
+        toggle: async function(containerName) {
+            try {
+                // Hole den aktuellen Status des Containers
+                const statusResponse = await fetch(`/api/container/${containerName}/status`);
+                
+                if (!statusResponse.ok) {
+                    throw new Error(`HTTP-Fehler ${statusResponse.status}`);
+                }
+                
+                const statusData = await statusResponse.json();
+                const isRunning = statusData.status === 'running';
+                
+                // Starte oder stoppe den Container je nach aktuellem Status
+                return isRunning ? this.stop(containerName) : this.start(containerName);
+            } catch (error) {
+                WebDockLogger.error(`Fehler beim Toggle von ${containerName}:`, error);
+                NotificationManager.error(`Fehler: ${error.message}`);
+                return { error: error.message };
+            }
+        },
+        
+        // Status aller Container abrufen
+        getStatus: async function() {
+            try {
+                // Prüfe, ob aktuelle Daten im Cache vorhanden sind
+                const cachedStatus = CacheManager.get('containerStatus');
+                if (cachedStatus) {
+                    return cachedStatus;
+                }
+                
+                const response = await fetch('/api/containers/status');
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP-Fehler ${response.status}`);
+                }
+                
+                const statusData = await response.json();
+                
+                // Speichere die Daten im Cache
+                CacheManager.set('containerStatus', statusData);
+                
+                return statusData;
+            } catch (error) {
+                WebDockLogger.error('Fehler beim Abrufen des Container-Status:', error);
+                return [];
+            }
+        },
+        
+        // Info zu einem Container abrufen
+        getInfo: async function(containerName) {
+            try {
+                const response = await fetch(`/api/container/${containerName}/info`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP-Fehler ${response.status}`);
+                }
+                
+                return await response.json();
+            } catch (error) {
+                WebDockLogger.error(`Fehler beim Abrufen der Info für ${containerName}:`, error);
+                return { error: error.message };
             }
         }
-        
-        // Aktualisiere die Dateiliste
-        await loadFileList(currentPath);
     };
     
-    input.click();
-}
-
-async function downloadFile(path) {
-    try {
-        const response = await fetch('/api/download', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                connection: sshConnection,
-                path: path 
-            })
-        });
+    /**
+     * Drag & Drop-System
+     * Verwaltet Drag & Drop für Container und Kategorien
+     */
+    const DragDropManager = {
+        // Aktuelle Drag-Daten
+        _dragData: null,
         
-        if (response.ok) {
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = path.split('/').pop();
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            window.URL.revokeObjectURL(url);
-        } else {
-            throw new Error('Download failed');
-        }
-    } catch (error) {
-        showNotification('error', `Failed to download file: ${error.message}`);
-    }
-}
-
-async function deleteFile(path) {
-    if (!confirm(`Are you sure you want to delete ${path}?`)) return;
-    
-    try {
-        const response = await fetch('/api/delete', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                connection: sshConnection,
-                path: path 
-            })
-        });
+        // Elemente, die als Drag-Over markiert sind
+        _dragOverElements: new Set(),
         
-        const data = await response.json();
-        if (data.status === 'success') {
-            showNotification('success', 'File deleted');
-            loadFileList(currentPath);
-        } else {
-            throw new Error(data.message);
-        }
-    } catch (error) {
-        showNotification('error', `Failed to delete file: ${error.message}`);
-    }
-} 
-
-function closeFileExplorer() {
-    // Entferne Overlay
-    const overlay = document.querySelector('.explorer-overlay');
-    if (overlay) {
-        overlay.remove();
-    }
-    
-    // Verstecke Explorer
-    document.querySelector('.file-explorer').style.display = 'none';
-    
-    // Optional: Trenne SFTP-Verbindung
-    if (sshConnection) {
-        fetch('/api/disconnect', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ connection: sshConnection })
-        }).then(() => {
-            sshConnection = null;
-            showNotification('success', 'Disconnected from server');
-        });
-    }
-}
-
-// Verhindere Klick-Propagation vom Explorer zum Overlay
-document.querySelector('.file-explorer')?.addEventListener('click', (e) => {
-    e.stopPropagation();
-}); 
-
-function toggleSection(header) {
-    const content = header.nextElementSibling;
-    const icon = header.querySelector('.fa-chevron-down');
-    
-    if (content.style.display === 'none') {
-        content.style.display = 'block';
-        icon.style.transform = 'rotate(180deg)';
-        // Initialisiere Tabs wenn Section geöffnet wird
-        if (content.querySelector('.import-tabs')) {
-            initializeImportTabs();
-        }
-    } else {
-        content.style.display = 'none';
-        icon.style.transform = 'rotate(0deg)';
-    }
-}
-
-// Cron Job Funktionen
-async function scheduleShutdown() {
-    const hostIp = document.getElementById('host-ip').value;
-    const hostUser = document.getElementById('host-user').value;
-    const hostPassword = document.getElementById('host-password').value;
-    const shutdownTime = document.getElementById('shutdown-time').value;
-    const wakeupTime = document.getElementById('wakeup-time').value;
-
-    if (!hostIp || !hostUser || !hostPassword) {
-        showNotification('error', 'Please enter host credentials');
-        return;
-    }
-    
-    if (!shutdownTime || !wakeupTime) {
-        showNotification('error', 'Please select both shutdown and wake-up times');
-        return;
-    }
-    
-    try {
-        const response = await fetch('/api/schedule-shutdown', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                hostIp,
-                hostUser,
-                hostPassword,
-                shutdownTime, 
-                wakeupTime 
-            })
-        });
-        
-        const data = await response.json();
-        if (data.status === 'success') {
-            showNotification('success', 'Shutdown schedule created');
-            await updateScheduleStatus();  // Warte auf die Aktualisierung
-        } else {
-            throw new Error(data.message);
-        }
-    } catch (error) {
-        showNotification('error', `Failed to create schedule: ${error.message}`);
-    }
-}
-
-async function deleteSchedule(id) {
-    if (!confirm('Are you sure you want to delete this schedule?')) return;
-    
-    try {
-        // Hole die gespeicherte Host-Konfiguration
-        const configResponse = await fetch('/api/host-config');
-        const hostConfig = await configResponse.json();
-        
-        if (!hostConfig || hostConfig.error) {
-            throw new Error('No host configuration found. Please test connection first.');
-        }
-        
-        const deleteResponse = await fetch('/api/schedule/delete', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                id,
-                hostIp: hostConfig.ip,
-                hostUser: hostConfig.username,
-                hostPassword: hostConfig.password
-            })
-        });
-        
-        const data = await deleteResponse.json();
-        if (data.status === 'success') {
-            showNotification('success', 'Schedule deleted successfully');
-            window.updateScheduleStatus();
-        } else {
-            throw new Error(data.message);
-        }
-    } catch (error) {
-        showNotification('error', `Failed to delete schedule: ${error.message}`);
-    }
-}
-
-// Reduziere die Update-Frequenz oder entferne automatische Updates
-const UPDATE_INTERVAL = 300000; // 5 Minuten statt alle paar Sekunden
-
-// Lade Container-Status
-async function updateContainerStatus(forceRefresh = false) {
-    try {
-        if (forceRefresh) {
-            // Bei vollständiger Aktualisierung die volle Funktion verwenden
-            console.log('Vollständige UI-Aktualisierung angefordert...');
+        // Drag & Drop für Container initialisieren
+        initialize: function() {
+            WebDockLogger.info('Initialisiere Drag & Drop-System...');
             
-            // Lade zuerst die vollständigen YAML-Kategorien
-            await loadLocalCategoriesYaml();
+            // Event-Delegation für Drag & Drop
+            document.addEventListener('dragstart', this._handleDragStart.bind(this));
+            document.addEventListener('dragend', this._handleDragEnd.bind(this));
+            document.addEventListener('dragover', this._handleDragOver.bind(this));
+            document.addEventListener('dragenter', this._handleDragEnter.bind(this));
+            document.addEventListener('dragleave', this._handleDragLeave.bind(this));
+            document.addEventListener('drop', this._handleDrop.bind(this));
             
-            // Dann lade die Kategorien und Container
-            const categoriesData = await loadCategories(true);
+            WebDockLogger.info('Drag & Drop-System initialisiert');
+        },
+        
+        // Drag-Start-Event-Handler
+        _handleDragStart: function(event) {
+            const containerCard = event.target.closest('.container-card');
+            if (!containerCard) return;
             
-            // Verwende fetchAndRenderContainers, um die Container zu rendern
-            await fetchAndRenderContainers(true, categoriesData);
+            // Container-Informationen extrahieren
+            const containerName = containerCard.dataset.name || containerCard.dataset.container;
+            if (!containerName) return;
             
-            return;
-        }
-        
-        // Ansonsten nur die Status-Informationen abrufen (leichtgewichtiger API-Aufruf)
-        console.log('Aktualisiere nur Container-Status ohne vollständigen Reload');
-        const response = await fetch('/api/containers/status');
-        
-        if (!response.ok) {
-            throw new Error('Failed to fetch container status');
-        }
-        
-        const statusData = await response.json();
-        
-        // Verwende die gemeinsame Funktion zum Aktualisieren der UI
-        updateContainerStatusUI(statusData);
-    } catch (error) {
-        console.error('Error updating container status:', error);
-    }
-}
-
-// Initialisierung
-// Hauptinitialisierungsfunktion
-document.addEventListener('DOMContentLoaded', async () => {
-    // Lade die UI beim Start
-    await loadCategories(true);
-    
-    // Initialisiere Status-Updates basierend auf Benutzereinstellungen
-    initContainerStatusUpdates();
-    
-    // Refresh Button einrichten
-    const refreshButton = document.getElementById('refresh-button');
-    if (refreshButton) {
-        refreshButton.addEventListener('click', () => {
-            // Bei Klick auf Refresh vollständige Aktualisierung durchführen
-            updateContainerStatus(true);
-            showNotification('info', 'Aktualisiere Container-Status...');
-        });
-    }
-});
-
-/**
- * Initialisiert und verwaltet die Container-Status-Updates basierend auf den Benutzereinstellungen
- */
-function initContainerStatusUpdates() {
-    // Stoppe vorhandene Timer
-    if (containerStatusTimer) {
-        clearInterval(containerStatusTimer);
-        containerStatusTimer = null;
-    }
-    
-    // Prüfe, ob Auto-Update aktiviert ist (aus den Benutzereinstellungen)
-    const autoUpdateEnabled = localStorage.getItem('autoUpdate') !== 'false';
-    if (!autoUpdateEnabled) {
-        console.log('Container Auto-Update ist deaktiviert');
-        return;
-    }
-    
-    // Hole das Intervall aus den Benutzereinstellungen
-    const intervalSeconds = parseInt(localStorage.getItem('refreshInterval') || '30');
-    const updateInterval = intervalSeconds * 1000;
-    
-    console.log(`Container Status-Updates alle ${intervalSeconds} Sekunden aktiviert`);
-    
-    // Starte den Timer nur für Status-Updates (nie vollständige Refreshs)
-    containerStatusTimer = setInterval(() => {
-        updateContainerStatus(false); // Immer nur Status-Updates, nie vollständige Refreshs
-    }, updateInterval);
-}
-
-// Füge diese Funktion vor der updateContainerStatus Funktion hinzu
-function addContainerEventListeners() {
-    // Event-Listener für Install-Buttons
-    document.querySelectorAll('.install-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const containerCard = e.target.closest('.container-card');
-            if (containerCard) {
-                const containerNameElement = containerCard.querySelector('h3');
-                if (containerNameElement) {
-                    const containerName = containerNameElement.textContent;
-                    installContainer(containerName);
-                }
+            // Kategorie-Informationen
+            const categorySection = containerCard.closest('.group-section');
+            if (!categorySection) return;
+            
+            const categoryId = categorySection.dataset.categoryId;
+            if (!categoryId) return;
+            
+            // Position des Containers in der Kategorie bestimmen
+            let position = -1;
+            if (containerCard.hasAttribute('data-position')) {
+                position = parseInt(containerCard.dataset.position, 10);
+            } else {
+                // Fallback: Position aus dem DOM berechnen
+                const containerCards = Array.from(categorySection.querySelectorAll('.container-card'));
+                position = containerCards.indexOf(containerCard);
             }
-        });
-    });
-    
-    // Event-Listener für Status-Buttons
-    document.querySelectorAll('.status-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const containerCard = e.target.closest('.container-card');
-            if (containerCard) {
-                const containerNameElement = containerCard.querySelector('h3');
-                if (containerNameElement) {
-                    const containerName = containerNameElement.textContent;
-                    toggleContainer(containerName);
-                }
+            
+            // Drag-Daten speichern
+            this._dragData = {
+                type: 'container',
+                name: containerName,
+                sourceCategoryId: categoryId,
+                position: position
+            };
+            
+            // Daten für den Drag & Drop-Vorgang setzen
+            event.dataTransfer.setData('application/json', JSON.stringify(this._dragData));
+            
+            // Visuelles Feedback
+            containerCard.classList.add('dragging');
+            
+            WebDockLogger.debug(`Drag-Start: Container "${containerName}" aus Kategorie "${categoryId}" an Position ${position}`);
+        },
+        
+        // Drag-End-Event-Handler
+        _handleDragEnd: function(event) {
+            // Alle drag-over Markierungen entfernen
+            document.querySelectorAll('.dragging, .drag-over').forEach(el => {
+                el.classList.remove('dragging', 'drag-over');
+            });
+            
+            this._dragOverElements.clear();
+            
+            // Drag-Daten zurücksetzen
+            this._dragData = null;
+        },
+        
+        // Drag-Over-Event-Handler (für Drop-Zielbereiche)
+        _handleDragOver: function(event) {
+            // Nur für Container oder Kategorien
+            const target = event.target.closest('.container-card, .group-section');
+            if (!target) return;
+            
+            // Standard-Event-Verhalten verhindern, um Drop zu ermöglichen
+            event.preventDefault();
+        },
+        
+        // Drag-Enter-Event-Handler
+        _handleDragEnter: function(event) {
+            // Nur für Container oder Kategorien
+            const target = event.target.closest('.container-card, .group-section');
+            if (!target) return;
+            
+            // Elemente als Drag-Over markieren
+            target.classList.add('drag-over');
+            this._dragOverElements.add(target);
+            
+            // Standard-Event-Verhalten verhindern
+            event.preventDefault();
+        },
+        
+        // Drag-Leave-Event-Handler
+        _handleDragLeave: function(event) {
+            // Nur für Container oder Kategorien
+            const target = event.target.closest('.container-card, .group-section');
+            if (!target) return;
+            
+            // Markierung nur entfernen, wenn wir das Element wirklich verlassen
+            // (und nicht nur ein Kind-Element betreten)
+            if (!target.contains(event.relatedTarget)) {
+                target.classList.remove('drag-over');
+                this._dragOverElements.delete(target);
             }
-        });
-    });
-    
-    // Event-Listener für Container-Karten (falls vorhanden)
-    document.querySelectorAll('.container-card').forEach(card => {
-        card.addEventListener('click', function(e) {
-            // Verhindere, dass der Click-Event auf Buttons weitergeleitet wird
-            if (e.target.tagName === 'BUTTON' || e.target.closest('button')) {
+        },
+        
+        // Drop-Event-Handler
+        _handleDrop: async function(event) {
+            // Standard-Event-Verhalten verhindern
+            event.preventDefault();
+            
+            // Drag-Daten abrufen
+            let dragData;
+            try {
+                const jsonData = event.dataTransfer.getData('application/json');
+                if (!jsonData) return;
+                
+                dragData = JSON.parse(jsonData);
+                if (!dragData || !dragData.type) return;
+            } catch (error) {
+                WebDockLogger.error('Fehler beim Parsen der Drag-Daten:', error);
                 return;
             }
             
-            const containerNameElement = this.querySelector('h3');
-            if (containerNameElement) {
-                const containerName = containerNameElement.textContent;
-                // Hier können Sie eine Aktion für den Klick auf die Karte definieren
-                // z.B. openInfo(containerName);
+            // Nur Container-Drag & Drop unterstützen
+            if (dragData.type !== 'container') return;
+            
+            // Drop-Ziel bestimmen
+            const targetElement = event.target.closest('.container-card, .group-section');
+            if (!targetElement) return;
+            
+            // Container-Name aus Drag-Daten extrahieren
+            const containerName = dragData.name;
+            if (!containerName) return;
+            
+            // Quell-Kategorie bestimmen
+            const sourceCategoryId = dragData.sourceCategoryId;
+            if (!sourceCategoryId) return;
+            
+            // Ziel-Kategorie bestimmen
+            let targetCategoryId;
+            let targetPosition = -1;
+            
+            if (targetElement.classList.contains('container-card')) {
+                // Drop auf einen anderen Container
+                const groupSection = targetElement.closest('.group-section');
+                if (!groupSection) return;
+                
+                targetCategoryId = groupSection.dataset.categoryId;
+                
+                // Zielposition bestimmen
+                if (targetElement.hasAttribute('data-position')) {
+                    targetPosition = parseInt(targetElement.dataset.position, 10);
+                } else {
+                    // Fallback: Position aus dem DOM berechnen
+                    const containerCards = Array.from(groupSection.querySelectorAll('.container-card'));
+                    targetPosition = containerCards.indexOf(targetElement);
+                }
+            } else {
+                // Drop auf eine Kategorie
+                targetCategoryId = targetElement.dataset.categoryId;
+                // Am Ende der Kategorie einfügen
+                const containerGrid = targetElement.querySelector('.container-grid');
+                if (containerGrid) {
+                    targetPosition = containerGrid.children.length;
+                }
             }
-        });
-    });
-}
-
-// Füge diese Funktionen zur main.js hinzu
-
-function convertToCompose() {
-    const command = document.getElementById('docker-run-command').value;
-    
-    fetch('/api/convert-docker-run', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
+            
+            // Drop-Operation durchführen
+            if (sourceCategoryId === targetCategoryId) {
+                // Neu anordnen innerhalb derselben Kategorie
+                await this.reorderContainer(containerName, sourceCategoryId, dragData.position, targetPosition);
+            } else {
+                // Zwischen Kategorien verschieben
+                await this.moveContainer(containerName, sourceCategoryId, targetCategoryId, targetPosition);
+            }
+            
+            // Drop abschließen
+            this._handleDragEnd(event);
         },
-        body: JSON.stringify({ command: command })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.status === 'success') {
-            document.getElementById('compose-content').textContent = data.compose;
-            document.getElementById('compose-preview').classList.remove('hidden');
-        } else {
-            showNotification('error', data.message);
-        }
-    })
-    .catch(error => {
-        showNotification('error', 'Failed to convert command');
-    });
-}
-
-// File Drop Zone Handler
-document.getElementById('file-drop-zone').addEventListener('click', () => {
-    document.getElementById('compose-file').click();
-});
-
-document.getElementById('compose-file').addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (file) {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            document.getElementById('compose-content').textContent = e.target.result;
-            document.getElementById('compose-preview').classList.remove('hidden');
-        };
-        reader.readAsText(file);
-    }
-});
-
-// Drag & Drop Handler
-const dropZone = document.getElementById('file-drop-zone');
-
-dropZone.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    dropZone.classList.add('dragover');
-});
-
-dropZone.addEventListener('dragleave', () => {
-    dropZone.classList.remove('dragover');
-});
-
-dropZone.addEventListener('drop', (e) => {
-    e.preventDefault();
-    dropZone.classList.remove('dragover');
-    
-    const file = e.dataTransfer.files[0];
-    if (file) {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            document.getElementById('compose-content').textContent = e.target.result;
-            document.getElementById('compose-preview').classList.remove('hidden');
-        };
-        reader.readAsText(file);
-    }
-});
-
-function saveCompose() {
-    const compose = document.getElementById('compose-content').textContent;
-    
-    // Zeige Ladeanimation
-    const saveBtn = document.querySelector('.save-btn');
-    const originalContent = saveBtn.innerHTML;
-    saveBtn.disabled = true;
-    saveBtn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Installing...';
-    
-    // Zeige Loading Overlay
-    if (loadingOverlay) {
-        loadingOverlay.style.display = 'flex';
-    }
-    
-    fetch('/api/import-compose', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ compose: compose })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.status === 'success') {
-            showNotification('success', 'Container imported successfully');
-            // Warte kurz bevor Update
-            setTimeout(() => {
-                updateContainerStatus(true);
-                // Optional: Scrolle zur Imported Kategorie
-                const importedSection = document.querySelector('[data-category="imported"]');
-                if (importedSection) {
-                    importedSection.scrollIntoView({ behavior: 'smooth' });
-                }
-            }, 2000);
-        } else {
-            showNotification('error', data.message);
-        }
-    })
-    .catch(error => {
-        showNotification('error', 'Failed to import container');
-    })
-    .finally(() => {
-        // Entferne Ladeanimation
-        saveBtn.disabled = false;
-        saveBtn.innerHTML = originalContent;
         
-        // Verstecke Loading Overlay
-        if (loadingOverlay) {
-            loadingOverlay.style.display = 'none';
-        }
-    });
-}
-
-// Deklaration für loadContainers, die in renderCategories() aufgerufen wird
-// Globaler Zustand, um rekursive Aufrufe zu verhindern
-let loadingContainersInProgress = false;
-
-async function loadContainers(forceRefresh = false, explicitCategoriesData = null) {
-    // Anti-Rekursions-Schutz: Vermeidet mehrfache verschachtelte Aufrufe
-    if (loadingContainersInProgress && !window._forceContainerLoad) {
-        console.warn('Container-Ladung bereits im Gange, verhindere rekursiven Aufruf');
-        return null;
-    }
-    
-    // Zurücksetzen der Force-Variable, falls sie gesetzt war
-    if (window._forceContainerLoad) {
-        console.log('Erzwungenes Laden der Container, ignoriere Rekursionsschutz');
-        window._forceContainerLoad = false;
-    }
-    
-    loadingContainersInProgress = true;
-    
-    try {
-        const now = Date.now();
-        const useCachedData = containerCache && !forceRefresh && (now - lastContainersFetch < CACHE_TTL);
-        
-        // Verwende die explizit übergebenen Kategoriedaten, wenn vorhanden
-        let categoriesToUse = explicitCategoriesData || categoriesCache;
-        
-        // Überprüfen, ob Kategoriedaten verfügbar sind - wichtig für korrekte Drag & Drop Funktionalität
-        if (!categoriesToUse) {
-            console.warn('Keine Kategoriedaten verfügbar für loadContainers! Lade Kategorien...');
+        // Container innerhalb einer Kategorie neu anordnen
+        reorderContainer: async function(containerName, categoryId, fromPosition, toPosition) {
             try {
-                // Direkt Kategorien laden, aber KEIN rekursiver Aufruf mehr
-                categoriesToUse = await loadCategories(true);
-                if (!categoriesToUse) {
-                    throw new Error('Kategorien konnten nicht geladen werden');
+                WebDockLogger.info(`Ordne Container "${containerName}" in Kategorie "${categoryId}" von Position ${fromPosition} zu ${toPosition} neu an`);
+                
+                // UI-Feedback anzeigen
+                NotificationManager.info(`Ordne Container ${containerName} neu an...`);
+                
+                // Verwende die moveContainer-Funktion mit gleicher Quell- und Zielkategorie
+                // Dies funktioniert besser als die separate reorderContainer-Funktion
+                const response = await fetch('/api/container/move', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Pragma': 'no-cache'
+                    },
+                    body: JSON.stringify({
+                        containerName: containerName,
+                        sourceCategory: categoryId,
+                        targetCategory: categoryId,
+                        targetPosition: toPosition
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP-Fehler ${response.status}`);
                 }
+                
+                // Speichere Informationen für das Scrollen nach dem Reload
+                sessionStorage.setItem('lastMovedContainer', containerName);
+                sessionStorage.setItem('lastMovedCategory', categoryId);
+                
+                // Zeige Erfolgsmeldung an
+                NotificationManager.success(`Container ${containerName} wurde erfolgreich neu angeordnet`);
+                
+                // Lade die Seite neu, um die Änderungen zu übernehmen
+                setTimeout(() => {
+                    window.location.reload();
+                }, 500);
+                
+                return await response.json();
             } catch (error) {
-                console.error('Fehler beim Laden der Kategorien:', error);
-                showNotification('error', 'Fehler beim Laden der Kategoriedaten');
-                loadingContainersInProgress = false;
+                WebDockLogger.error(`Fehler beim Neuordnen des Containers ${containerName}:`, error);
+                NotificationManager.error(`Fehler beim Neuordnen: ${error.message}`);
+                return { error: error.message };
+            }
+        },
+        
+        // Container zwischen Kategorien verschieben
+        moveContainer: async function(containerName, sourceCategoryId, targetCategoryId, targetPosition) {
+            try {
+                WebDockLogger.info(`Verschiebe Container "${containerName}" von Kategorie "${sourceCategoryId}" zu "${targetCategoryId}" an Position ${targetPosition}`);
+                
+                // UI-Feedback anzeigen
+                NotificationManager.info(`Verschiebe Container ${containerName} in andere Kategorie...`);
+                
+                const response = await fetch('/api/container/move', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Pragma': 'no-cache'
+                    },
+                    body: JSON.stringify({
+                        containerName: containerName,
+                        sourceCategory: sourceCategoryId,
+                        targetCategory: targetCategoryId,
+                        targetPosition: targetPosition
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP-Fehler ${response.status}`);
+                }
+                
+                // Speichere Informationen für das Scrollen nach dem Reload
+                sessionStorage.setItem('lastMovedContainer', containerName);
+                sessionStorage.setItem('lastMovedCategory', targetCategoryId);
+                
+                // Zeige Erfolgsmeldung an
+                NotificationManager.success(`Container ${containerName} wurde erfolgreich verschoben`);
+                
+                // Lade die Seite neu, um die Änderungen zu übernehmen
+                setTimeout(() => {
+                    window.location.reload();
+                }, 500);
+                
+                return await response.json();
+            } catch (error) {
+                WebDockLogger.error(`Fehler beim Verschieben des Containers ${containerName}:`, error);
+                NotificationManager.error(`Fehler beim Verschieben: ${error.message}`);
+                return { error: error.message };
+            }
+        }
+    };
+    
+    /**
+     * Container-Rendering-System
+     * Rendert Container basierend auf YAML-Konfiguration
+     */
+    const ContainerRenderer = {
+        // Container rendern
+        render: async function() {
+            WebDockLogger.info('Rendere Container...');
+            
+            try {
+                // Lade YAML-Kategorien und -Container
+                await this._loadCategories();
+                
+                // Container rendern
+                await this._renderContainers();
+                
+                // Initialisiere Drag & Drop
+                DragDropManager.initialize();
+                
+                return true;
+            } catch (error) {
+                WebDockLogger.error('Fehler beim Rendern der Container:', error);
+                NotificationManager.error('Fehler beim Laden der Container');
+                return false;
+            }
+        },
+        
+        // YAML-Kategorien laden
+        _loadCategories: async function() {
+            try {
+                // Prüfe, ob Cache vorhanden ist
+                const cachedCategories = CacheManager.get('yamlCategories');
+                if (cachedCategories) {
+                    window.yamlCategories = cachedCategories;
+                    return cachedCategories;
+                }
+                
+                // Lade vollständige Kategorien vom Server
+                const response = await fetch('/api/categories/full');
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP-Fehler ${response.status}`);
+                }
+                
+                const categoriesData = await response.json();
+                
+                // Speichere Kategorien in globaler Variable und Cache
+                window.yamlCategories = categoriesData;
+                CacheManager.set('yamlCategories', categoriesData);
+                
+                // Extrahiere Container-Beschreibungen
+                this._extractContainerDescriptions(categoriesData);
+                
+                WebDockLogger.info('YAML-Kategorien geladen');
+                return categoriesData;
+            } catch (error) {
+                WebDockLogger.error('Fehler beim Laden der YAML-Kategorien:', error);
                 return null;
             }
-        }
+        },
         
-        if (useCachedData) {
-            WebDockLogger.debug('Verwende zwischengespeicherte Container-Daten');
-            loadingContainersInProgress = false;
-            return renderContainers(containerCache, categoriesToUse);
-        }
-        
-        WebDockLogger.info('Lade neue Container-Daten vom Server');
-        try {
-            // Cache-Busting durch Hinzufügen eines Timestamps
-            const timestamp = new Date().getTime();
-            const response = await fetch(`/api/containers?t=${timestamp}`, {
-                method: 'GET',
-                headers: {
-                    'Cache-Control': 'no-cache, no-store, must-revalidate',
-                    'Pragma': 'no-cache'
-                }
+        // Container-Beschreibungen aus YAML extrahieren
+        _extractContainerDescriptions: function(categoriesData) {
+            if (!categoriesData || !categoriesData.categories) return;
+            
+            const descriptions = {};
+            
+            categoriesData.categories.forEach(category => {
+                if (!category.containers) return;
+                
+                category.containers.forEach(container => {
+                    if (typeof container === 'string') {
+                        // Keine Beschreibung für String-Container
+                    } else if (typeof container === 'object' && container.name) {
+                        if (container.description) {
+                            descriptions[container.name] = container.description;
+                        }
+                    }
+                });
             });
             
-            if (!response.ok) {
-                throw new Error(`HTTP Fehler ${response.status}`);
-            }
+            // Speichere Beschreibungen in globaler Variable und Cache
+            window.yamlContainerDescriptions = descriptions;
+            CacheManager.set('containerDescriptions', descriptions);
             
-            const data = await response.json();
-            
-            // Aktualisiere den Cache und Zeitstempel
-            containerCache = data;
-            lastContainersFetch = now;
-            
-            // Rendere die UI mit den neuen Daten und den expliziten oder gecachten Kategoriedaten
-            return renderContainers(data, categoriesToUse);
-        } catch (error) {
-            console.error('Error loading containers:', error);
-            showNotification('error', 'Fehler beim Laden der Container: ' + (error.message || error));
-            loadingContainersInProgress = false;
-            return null;
-        }
-    } catch (outerError) {
-        console.error('Outer error in loadContainers:', outerError);
-        showNotification('error', 'Fehler beim Laden der Container: ' + (outerError.message || outerError));
-        loadingContainersInProgress = false;
-        return null;
-    }
-}
-
-// Funktion zum Laden der vollständigen Kategoriedaten mit Beschreibungen
-async function loadLocalCategoriesYaml() {
-    try {
-        // Verwende den neuen API-Endpunkt, der die vollständigen Kategorien mit Beschreibungen liefert
-        const response = await fetch('/api/categories/full');
+            WebDockLogger.debug(`${Object.keys(descriptions).length} Container-Beschreibungen extrahiert`);
+        },
         
-        if (!response.ok) {
-            throw new Error(`Fehler beim Laden der vollständigen Kategorien: ${response.status}`);
-        }
-        
-        // Parse JSON direkt
-        const categoriesData = await response.json();
-        WebDockLogger.debug('Vollständige Kategorien mit Beschreibungen geladen:', categoriesData);
-        
-        // Speichere die vollständigen Kategorien-Daten mit korrekter Reihenfolge in einer globalen Variable
-        window.yamlCategories = categoriesData;
-        
-        // Extrahiere alle Container-Beschreibungen und fülle die globale Variable
-        window.yamlContainerDescriptions = {};
-        
-        if (categoriesData && categoriesData.categories) {
-            // Unterstütze sowohl das Listen- als auch das Objekt-Format
-            const categories = Array.isArray(categoriesData.categories) ? 
-                categoriesData.categories : Object.values(categoriesData.categories);
-            
-            // Durchlaufe alle Kategorien und sammle die Beschreibungen
-            categories.forEach(category => {
-                if (category.containers && Array.isArray(category.containers)) {
-                    category.containers.forEach(container => {
-                        // Container kann ein String oder ein Objekt mit name/description sein
-                        if (typeof container === 'string') {
-                            // Keine Beschreibung verfügbar für String-Container
-                        } else if (typeof container === 'object' && container.name) {
-                            // Speichere die Beschreibung in der globalen Variable
-                            if (container.description) {
-                                window.yamlContainerDescriptions[container.name] = container.description;
-                                // Debug-Log entfernen
-                            }
+        // Container rendern
+        _renderContainers: async function() {
+            try {
+                // Container-Status vom Server laden
+                const containersResponse = await fetch('/api/containers');
+                
+                if (!containersResponse.ok) {
+                    throw new Error(`HTTP-Fehler ${containersResponse.status}`);
+                }
+                
+                const containersData = await containersResponse.json();
+                
+                // Speichere Container im Cache
+                CacheManager.set('containers', containersData);
+                
+                // Container-Gruppen-Container im DOM finden
+                const containerGroups = DOMCache.get('.container-groups');
+                if (!containerGroups) {
+                    throw new Error('Container-Gruppen nicht im DOM gefunden');
+                }
+                
+                // Container-Gruppen leeren
+                containerGroups.innerHTML = '';
+                
+                // Verwende YAML-Kategorien wenn verfügbar, sonst API-Daten
+                const categoriesToRender = window.yamlCategories && window.yamlCategories.categories ? 
+                    window.yamlCategories.categories : [];
+                
+                // Kategorien rendern
+                categoriesToRender.forEach(category => {
+                    if (!category.containers || category.containers.length === 0) return;
+                    
+                    // Kategorie-Sektion erstellen
+                    const categorySection = document.createElement('div');
+                    categorySection.className = 'group-section';
+                    categorySection.dataset.categoryId = category.id;
+                    
+                    // Kategorie-Überschrift und Container-Grid
+                    categorySection.innerHTML = `
+                        <h2><i class="fa ${category.icon || 'fa-cube'}"></i> ${category.name}</h2>
+                        <div class="container-grid"></div>
+                    `;
+                    
+                    const containerGrid = categorySection.querySelector('.container-grid');
+                    
+                    // Container in exakter YAML-Reihenfolge hinzufügen
+                    category.containers.forEach((containerEntry, index) => {
+                        // Container-Name ermitteln
+                        const containerName = typeof containerEntry === 'string' ? 
+                            containerEntry : containerEntry.name;
+                        
+                        // Container-Info aus API-Daten suchen
+                        let containerInfo;
+                        
+                        // In allen Gruppen nach dem Container suchen
+                        Object.values(containersData).forEach(group => {
+                            const found = group.containers.find(c => c.name === containerName);
+                            if (found) containerInfo = found;
+                        });
+                        
+                        if (containerInfo) {
+                            // Container-Karte erstellen und zum Grid hinzufügen
+                            containerGrid.innerHTML += this._createContainerCard(
+                                containerInfo, 
+                                category.id, 
+                                index
+                            );
                         }
                     });
-                }
-            });
-            
-            WebDockLogger.debug('Vollständige YAML-Kategorien mit korrekter Reihenfolge gespeichert');
-            console.log('Container-Beschreibungen aus categories.yaml geladen:', window.yamlContainerDescriptions);
-        }
-        
-        return categoriesData;
-    } catch (error) {
-        WebDockLogger.error('Fehler beim Laden der vollständigen Kategorien:', error);
-        return null;
-    }
-}
-
-function renderContainers(containers, categories) {
-    try {
-        if (!containers || !categories) {
-            console.error('Missing data for rendering containers', { containers, categories });
-            // Stelle sicher, dass die Sperre aufgehoben wird
-            loadingContainersInProgress = false;
-            return;
-        }
-
-        // Wichtig: Wir müssen sicherstellen, dass window.yamlCategories geladen ist
-        if (!window.yamlCategories || !window.yamlCategories.categories) {
-            WebDockLogger.warn('Keine vollständigen YAML-Kategorien verfügbar. Lade Kategorien neu...');
-            // Lade die Kategorien erneut
-            loadLocalCategoriesYaml();
-            
-            // Wenn immer noch keine Daten vorhanden, verwende API-Daten als Fallback
-            if (!window.yamlCategories || !window.yamlCategories.categories) {
-                WebDockLogger.warn('Konnte YAML-Kategorien nicht laden, verwende API-Daten als Fallback');
+                    
+                    // Kategorie zur Container-Gruppe hinzufügen
+                    containerGroups.appendChild(categorySection);
+                });
+                
+                WebDockLogger.info('Container gerendert');
+                return true;
+            } catch (error) {
+                WebDockLogger.error('Fehler beim Rendern der Container:', error);
+                return false;
             }
-        }
+        },
         
-        WebDockLogger.debug('Rendere Container mit YAML-Kategorien...');
-        
-        // Debug-Ausgabe der YAML-Struktur
-        if (window.yamlCategories && window.yamlCategories.categories) {
-            console.log('YAML Kategorien:', window.yamlCategories.categories.map(cat => ({
-                id: cat.id,
-                name: cat.name,
-                containerCount: cat.containers ? cat.containers.length : 0
-            })));
-        }
-        
-        // Finde alle Container-Gruppen im DOM
-        const groups = document.querySelector('.container-groups');
-        if (!groups) {
-            console.error('Container-Gruppen nicht gefunden im DOM');
-            loadingContainersInProgress = false;
-            return;
-        }
-        
-        // Leere die Container-Gruppen
-        groups.innerHTML = '';
-        
-        // Verwende die YAML-Kategorien, wenn verfügbar
-        const categoriesToRender = window.yamlCategories && window.yamlCategories.categories ? 
-            window.yamlCategories.categories : 
-            Object.values(categories.categories || {});
-        
-        // Rendere jede Kategorie
-        categoriesToRender.forEach(category => {
-            // Überspringe Kategorien ohne Container
-            if (!category.containers || category.containers.length === 0) {
-                return;
-            }
+        // Container-Karte erstellen
+        _createContainerCard: function(container, categoryId, position = -1) {
+            // Logo-URL und Beschreibung
+            const logoUrl = this._getContainerLogo(container.name);
+            const description = container.description || 
+                                (window.yamlContainerDescriptions && window.yamlContainerDescriptions[container.name]) || 
+                                '';
             
-            // Erstelle die Kategorie-Sektion
-            const categorySection = document.createElement('div');
-            categorySection.className = 'group-section';
-            categorySection.dataset.categoryId = category.id;
+            // Container-Status und Installation
+            const isInstalled = container.installed || false;
+            const state = container.status || 'stopped';
             
-            // Erstelle den Kategorie-Header
-            categorySection.innerHTML = `
-                <h2><i class="fa ${category.icon || 'fa-cube'}"></i> ${category.name}</h2>
-                <div class="container-grid"></div>
+            // Bestimme das Protokoll für Links
+            const protocol = container.name === 'scrypted' ? 'https' : 'http';
+            
+            // Drag & Drop Attribute
+            const dragAttributes = `
+                draggable="true"
+                data-container="${container.name}"
+                data-name="${container.name}"
+                data-position="${position}"
+                data-category="${categoryId}"
             `;
             
-            const containerGrid = categorySection.querySelector('.container-grid');
+            // Port-Anzeige
+            let portDisplay = '';
+            if (container.name === 'watchyourlan' || container.name === 'watchyourlanarm') {
+                // Spezialfall für WatchYourLAN
+                const guiPort = container.port || '8840';
+                portDisplay = `<p>Port: <a href="${protocol}://${window.location.hostname}:${guiPort}" 
+                                target="_blank" 
+                                class="port-link"
+                                title="Open WatchYourLAN interface"
+                            >${guiPort}</a></p>`;
+            } else {
+                // Standard-Port-Anzeige
+                portDisplay = `<p>Port: ${container.port ? 
+                    `<a href="${protocol}://${window.location.hostname}:${container.port}" 
+                        target="_blank" 
+                        class="port-link"
+                        title="Open container interface"
+                    >${container.port}</a>` 
+                    : 'N/A'}</p>`;
+            }
             
-            // Füge Container in der exakten Reihenfolge aus der YAML-Datei hinzu
-            category.containers.forEach((containerEntry, index) => {
-                // Bestimme den Container-Namen
-                const containerName = typeof containerEntry === 'string' ? 
-                    containerEntry : containerEntry.name;
-                    
-                // Finde den Container in der API-Antwort
-                const containerInfo = containers.find(c => c.name === containerName);
-                
-                if (containerInfo) {
-                    console.log(`Rendere Container ${containerName} an Position ${index} in Kategorie ${category.id}`);
-                    
-                    // Erstelle die Container-Karte mit der korrekten Position
-                    const containerCardHTML = createContainerCard(containerInfo, category.id, index);
-                    
-                    // Füge die Karte direkt zum Grid hinzu (ohne temporäres Element)
-                    containerGrid.innerHTML += containerCardHTML;
-                }
-            });
-            
-            // Füge die Kategorie-Sektion zur Container-Gruppen hinzu
-            groups.appendChild(categorySection);
-        });
-        
-        // Stelle sicher, dass die Sperre am Ende aufgehoben wird
-        loadingContainersInProgress = false;
-        return containers;
-    } catch (error) {
-        console.error('Error rendering containers:', error);
-        showNotification('error', 'Fehler beim Anzeigen der Container');
-        // Stelle sicher, dass die Sperre auch im Fehlerfall aufgehoben wird
-        loadingContainersInProgress = false;
-    }
-}
+            // Container-Karte erstellen
+            return `
+                <div class="container-card" ${dragAttributes}>
+                    <div class="status-indicator ${container.status}" title="Status: ${container.status}"></div>
+                    <div class="container-logo">
+                        <img src="${logoUrl}" 
+                             alt="${container.name} logo" 
+                             title="${description}" 
+                             onerror="this.src='/static/img/icons/bangertech.png'">
+                    </div>
+                    <div class="name-with-settings">
+                        <h3 ${container.installed && container.port ? 
+                            `onclick="ContainerManager.getInfo('${container.name}')" style="cursor: pointer;"` : 
+                            ''}>${container.name}</h3>
+                        ${isInstalled ? `
+                            <button class="info-btn" onclick="ContainerManager.getInfo('${container.name}')" title="Container Information">
+                                <i class="fa fa-info-circle"></i>
+                            </button>
+                        ` : ''}
+                    </div>
+                    ${portDisplay}
 
-// Fallback-Funktion, falls das Laden der lokalen YAML fehlschlägt
-function renderContainersFallback(containers, categories) {
-    try {
-        const containerSections = document.querySelectorAll('.container-section');
-        containerSections.forEach(section => {
-            const categoryId = section.getAttribute('data-category-id');
-            const containerGrid = section.querySelector('.container-grid') || document.createElement('div');
-            containerGrid.className = 'container-grid';
-            containerGrid.innerHTML = '';
+                    <div class="actions">
+                        ${isInstalled ? `
+                            <div class="button-group">
+                                <button class="status-btn ${state}" onclick="ContainerManager.toggle('${container.name}')">
+                                    ${state === 'running' ? 'Stop' : 'Start'}
+                                </button>
+                                <button class="update-btn" onclick="ContainerManager.update('${container.name}')" title="Update container">
+                                    <i class="fa fa-refresh"></i>
+                                </button>
+                            </div>
+                        ` : `
+                            <button class="install-btn" onclick="ContainerManager.install('${container.name}')">Install</button>
+                        `}
+                    </div>
+                </div>
+            `;
+        },
+        
+        // Container-Logo URL abrufen
+        _getContainerLogo: function(containerName) {
+            return `/static/img/containers/${containerName}.png`;
+        }
+    };
+    
+    // Initialisierung der Anwendung
+    const App = {
+        // Initialisierung
+        initialize: async function() {
+            WebDockLogger.info('Initialisiere WebDock UI...');
             
-            // Finde die Kategorie
-            const category = categories.categories[categoryId];
-            if (category && category.containers && category.containers.length > 0) {
-                // Füge Container in derselben Reihenfolge wie in categories.yaml hinzu
-                category.containers.forEach((containerId, index) => {
-                    const containerName = typeof containerId === 'string' ? containerId : containerId.name;
-                    const containerInfo = containers.find(c => c.name === containerName);
-                    if (containerInfo) {
-                        // Übergebe den Index als Position an die createContainerCard Funktion
-                        const containerCard = createContainerCard(containerInfo, categoryId, index);
-                        containerGrid.appendChild(containerCard);
+            try {
+                // Warte auf DOMContentLoaded, falls noch nicht fertig
+                if (document.readyState !== 'complete' && document.readyState !== 'interactive') {
+                    await new Promise(resolve => {
+                        document.addEventListener('DOMContentLoaded', resolve, { once: true });
+                    });
+                }
+                
+                // WebSocket-Verbindung initialisieren
+                WebSocketManager.connect();
+                
+                // Container rendern
+                await ContainerRenderer.render();
+                
+                // Scroll zu Container, falls nach Verschiebung
+                this._scrollToLastMovedContainer();
+                
+                // Event-Listener für manuelle Aktualisierung
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'F5' || (e.ctrlKey && e.key === 'r')) {
+                        e.preventDefault();
+                        this.refreshContainers();
                     }
                 });
                 
-                section.appendChild(containerGrid);
-            }
-        });
-    } catch (error) {
-        console.error('Error in renderContainersFallback:', error);
-    }
-}
-
-// Aktualisiert den Container-Status via API-Anfrage
-async function updateContainerStatus(forceRefresh = false) {
-    try {
-        if (forceRefresh) {
-            // Bei vollständiger Aktualisierung die volle Funktion verwenden
-            console.log('Vollständige UI-Aktualisierung angefordert...');
-            
-            // Lade zuerst die vollständigen YAML-Kategorien
-            await loadLocalCategoriesYaml();
-            
-            // Dann lade die Kategorien und Container
-            const categoriesData = await loadCategories(true);
-            
-            // Verwende fetchAndRenderContainers, um die Container zu rendern
-            await fetchAndRenderContainers(true, categoriesData);
-            
-            return;
-        }
-        
-        // Ansonsten nur die Status-Informationen abrufen (leichtgewichtiger API-Aufruf)
-        console.log('Aktualisiere nur Container-Status ohne vollständigen Reload');
-        const response = await fetch('/api/containers/status');
-        
-        if (!response.ok) {
-            throw new Error('Failed to fetch container status');
-        }
-        
-        const statusData = await response.json();
-        
-        // Verwende die gemeinsame Funktion zum Aktualisieren der UI
-        updateContainerStatusUI(statusData);
-    } catch (error) {
-        console.error('Error updating container status:', error);
-    }
-}
-
-// Aktualisiert die UI basierend auf Statusdaten (wird sowohl von API als auch WebSockets verwendet)
-function updateContainerStatusUI(statusData, isSingleContainerUpdate = false) {
-    if (!statusData || !Array.isArray(statusData)) {
-        console.error('Ungültige Statusdaten empfangen:', statusData);
-        return;
-    }
-    
-    // Speichere den aktuellen Status zur späteren Referenz und Prüfung auf Änderungen
-    const previousStates = new Map(lastContainerStates);
-    
-    // Bei einzelnem Container-Update nicht die Map zurücksetzen
-    if (!isSingleContainerUpdate) {
-        lastContainerStates.clear(); // Zurücksetzen für neue Daten
-    }
-    
-    // Aktualisiere nur die Status-Indikatoren, nicht die gesamte UI
-    statusData.forEach(container => {
-        // Speichere aktuellen Status
-        lastContainerStates.set(container.name, container.status);
-        
-        // Prüfe, ob sich der Status geändert hat
-        const previousStatus = previousStates.get(container.name) || '';
-        const statusChanged = previousStatus !== container.status;
-        
-        if (statusChanged) {
-            console.log(`Container ${container.name}: ${previousStatus} -> ${container.status} (geändert: ${statusChanged})`);
-        }
-        
-        // Finde alle Karten für diesen Container
-        const containerCards = document.querySelectorAll(`.container-card[data-name="${container.name}"]`);
-        
-        containerCards.forEach(card => {
-            // Finde den Status-Indikator
-            const statusIndicator = card.querySelector('.status-indicator');
-            const statusBtn = card.querySelector('.status-btn');
-            
-            if (statusIndicator) {
-                // Entferne alle bestehenden Status-Klassen
-                statusIndicator.classList.remove('running', 'stopped', 'error');
-                // Füge die aktuelle Statusklasse hinzu
-                statusIndicator.classList.add(container.status);
-                // Aktualisiere den Text
-                statusIndicator.setAttribute('title', `Status: ${container.status}`);
+                // Periodische Updates
+                this._startPeriodicUpdates();
                 
-                // Kurze Animation bei Statusänderung für bessere Sichtbarkeit
-                if (statusChanged) {
-                    // Kurze Animation hinzufügen
-                    statusIndicator.classList.add('status-update-flash');
-                    setTimeout(() => {
-                        statusIndicator.classList.remove('status-update-flash');
-                    }, 1000);
-                }
+                WebDockLogger.info('WebDock UI erfolgreich initialisiert');
+                return true;
+            } catch (error) {
+                WebDockLogger.error('Fehler bei der Initialisierung:', error);
+                NotificationManager.error('Fehler beim Initialisieren der Anwendung');
+                return false;
             }
+        },
+        
+        // Scroll zu Container nach Verschiebung
+        _scrollToLastMovedContainer: function() {
+            const containerName = sessionStorage.getItem('lastMovedContainer');
+            const categoryId = sessionStorage.getItem('lastMovedCategory');
             
-            if (statusBtn) {
-                // Aktualisiere den Status-Button basierend auf dem Status
-                if (container.status === 'running') {
-                    statusBtn.innerHTML = '<i class="fa fa-stop"></i>';
-                    statusBtn.classList.remove('start');
-                    statusBtn.classList.add('stop');
-                    statusBtn.setAttribute('title', 'Stop Container');
-                } else {
-                    statusBtn.innerHTML = '<i class="fa fa-play"></i>';
-                    statusBtn.classList.remove('stop');
-                    statusBtn.classList.add('start');
-                    statusBtn.setAttribute('title', 'Start Container');
+            if (containerName && categoryId) {
+                WebDockLogger.info(`Scrolle zu zuletzt verschobenem Container: ${containerName} in Kategorie ${categoryId}`);
+                
+                // Warte kurz, bis die Seite vollständig geladen ist
+                setTimeout(() => {
+                    const categorySection = DOMCache.get(`.group-section[data-category-id="${categoryId}"]`);
+                    if (!categorySection) return;
+                    
+                    const containerCard = categorySection.querySelector(`.container-card[data-name="${containerName}"]`);
+                    if (!containerCard) return;
+                    
+                    // Scrolle zum Container und hebe ihn hervor
+                    containerCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    containerCard.classList.add('highlight');
+                    
+                    // Entferne Hervorhebung nach kurzer Zeit
+                    setTimeout(() => {
+                        containerCard.classList.remove('highlight');
+                    }, 3000);
+                    
+                    // Lösche die Informationen aus dem SessionStorage
+                    sessionStorage.removeItem('lastMovedContainer');
+                    sessionStorage.removeItem('lastMovedCategory');
+                }, 1000);
+            }
+        },
+        
+        // Periodische Updates starten
+        _startPeriodicUpdates: function() {
+            // Nur alle 5 Minuten aktualisieren, wenn keine Modals offen sind
+            setInterval(() => {
+                if (!document.querySelector('.modal.show') && !document.activeElement.tagName.match(/input|select|textarea/i)) {
+                    WebDockLogger.debug('Periodisches Update der Container ausgeführt');
+                    ContainerManager.getStatus().then(statusData => {
+                        this._updateContainerStatus(statusData);
+                    });
                 }
+            }, CONFIG.REFRESH_INTERVAL);
+        },
+        
+        // Container aktualisieren
+        refreshContainers: async function() {
+            WebDockLogger.info('Manuelles Refresh der Container ausgeführt');
+            
+            const loadingOverlay = DOMCache.get('#loading-overlay');
+            if (loadingOverlay) loadingOverlay.style.display = 'flex';
+            
+            try {
+                // Cache leeren
+                CacheManager.clear();
+                
+                // Container neu rendern
+                await ContainerRenderer.render();
+                
+                NotificationManager.success('Container erfolgreich aktualisiert');
+            } catch (error) {
+                WebDockLogger.error('Fehler beim Aktualisieren der Container:', error);
+                NotificationManager.error('Fehler beim Aktualisieren der Container');
+            } finally {
+                if (loadingOverlay) loadingOverlay.style.display = 'none';
             }
-        });
-    });
-}
-
-// Hilfsfunktionen für das Modal
-function createPortMappings(ports) {
-    if (!ports || ports.length === 0) return 'No ports to configure';
-    
-    return ports.map(port => {
-        let containerPort, hostPort;
+        },
         
-        if (typeof port === 'string') {
-            [hostPort, containerPort] = port.split(':');
-        } else {
-            containerPort = port;
-            hostPort = port;
+        // Status der Container aktualisieren
+        _updateContainerStatus: function(statusData) {
+            if (!statusData || !Array.isArray(statusData)) return;
+            
+            // Für jeden Container den Status aktualisieren
+            statusData.forEach(container => {
+                if (!container.name || !container.status) return;
+                
+                // Alle Karten für diesen Container finden
+                const containerCards = document.querySelectorAll(`.container-card[data-name="${container.name}"]`);
+                
+                containerCards.forEach(card => {
+                    // Status-Indikator aktualisieren
+                    const statusIndicator = card.querySelector('.status-indicator');
+                    if (statusIndicator) {
+                        const oldStatus = statusIndicator.classList.contains('running') ? 'running' : 
+                                         statusIndicator.classList.contains('stopped') ? 'stopped' : 'error';
+                        
+                        // Nur aktualisieren, wenn sich der Status geändert hat
+                        if (oldStatus !== container.status) {
+                            // Alle Status-Klassen entfernen
+                            statusIndicator.classList.remove('running', 'stopped', 'error');
+                            
+                            // Neuen Status hinzufügen
+                            statusIndicator.classList.add(container.status);
+                            
+                            // Tooltip aktualisieren
+                            statusIndicator.setAttribute('title', `Status: ${container.status}`);
+                            
+                            // Status-Button aktualisieren
+                            const statusBtn = card.querySelector('.status-btn');
+                            if (statusBtn) {
+                                statusBtn.classList.remove('running', 'stopped', 'error');
+                                statusBtn.classList.add(container.status);
+                                statusBtn.textContent = container.status === 'running' ? 'Stop' : 'Start';
+                            }
+                            
+                            // Kurze Animation für bessere Sichtbarkeit
+                            statusIndicator.classList.add('status-update-flash');
+                            setTimeout(() => {
+                                statusIndicator.classList.remove('status-update-flash');
+                            }, 1000);
+                        }
+                    }
+                });
+            });
         }
-        
-        // Entferne eventuelle Protokoll-Suffixe (z.B. /tcp)
-        containerPort = containerPort.split('/')[0];
-        
-        return `
-            <div class="port-mapping">
-                <label>Externer Port (${containerPort} intern):</label>
-                <input type="number" 
-                       data-port="${containerPort}"
-                       value="${hostPort.split('/')[0]}"
-                       min="1"
-                       max="65535"
-                       class="form-control">
-            </div>
-        `;
-    }).join('');
-}
-
-function createEnvironmentVars(environment) {
-    if (!environment || Object.keys(environment).length === 0) {
-        return 'No environment variables to configure';
-    }
+    };
     
-    return Object.entries(environment).map(([key, defaultValue]) => `
-        <div class="env-var">
-            <label>${key}:</label>
-            <input type="text" 
-                   data-env-key="${key}"
-                   value="${defaultValue || ''}"
-                   placeholder="${getEnvPlaceholder(key)}"
-                   class="form-control">
-            ${getEnvDescription(key)}
-        </div>
-    `).join('');
-}
-
-// CSS für die neuen Komponenten
-const style = document.createElement('style');
-style.textContent = `
-    .container-card.dragging {
-        opacity: 0.5;
-        cursor: move;
-    }
-
-    .category.drag-over {
-        background-color: var(--hover-bg-color);
-        border: 2px dashed var(--accent-color);
-    }
-
-    .category-item.drag-over {
-        background-color: var(--hover-bg-color);
-        border: 2px dashed var(--accent-color);
-    }
-    
-    .port-mapping, .env-var {
-        margin-bottom: 15px;
-    }
-    
-    .port-mapping label, .env-var label {
-        display: block;
-        margin-bottom: 5px;
-        font-weight: bold;
-    }
-    
-    .form-control {
-        width: 100%;
-        padding: 8px;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        background: var(--color-background-light);
-        color: var(--color-text);
-    }
-    
-    .form-control:focus {
-        border-color: var(--color-primary);
-        outline: none;
-    }
-    
-    .section {
-        margin-bottom: 20px;
-        padding: 15px;
-        background: var(--color-background-dark);
-        border-radius: 8px;
-    }
-    
-    .section h3 {
-        margin-bottom: 15px;
-        color: var(--color-text);
-    }
-    
-    .hint {
-        display: block;
-        margin-top: 5px;
-        color: var(--color-text-muted);
-        font-size: 0.9em;
-    }
-`;
-
-document.head.appendChild(style);
-
-// Function to toggle the configuration section
-function toggleConfigSection(header) {
-    const content = header.nextElementSibling;
-    const icon = header.querySelector('i.fa');
-    
-    if (content.style.display === 'none' || !content.style.display) {
-        content.style.display = 'block';
-        icon.classList.remove('fa-chevron-down');
-        icon.classList.add('fa-chevron-up');
-    } else {
-        content.style.display = 'none';
-        icon.classList.remove('fa-chevron-up');
-        icon.classList.add('fa-chevron-down');
-    }
-}
-
-// Hilfsfunktion zum Generieren der Konfigurationsfelder
-function generateConfigFields(containerConfig, container) {
-    if (!containerConfig.config) {
-        return '';
-    }
-
-    return `
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>${container.name}</h2>
-                <button class="close-modal" onclick="closeModal()">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div class="form-group">
-                    <label for="config-file">Configuration File</label>
-                    <input type="file" id="config-file" name="config-file" class="form-control">
-                    <small class="hint">Upload a custom configuration file (optional)</small>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="save-btn" onclick="saveSettings('${container.name}')">Save & Restart</button>
-                <button class="cancel-btn" onclick="closeModal()">Cancel</button>
-            </div>
-        </div>
-    `;
-}
-
-// Funktion zum Speichern einer Konfigurationsdatei
-async function saveConfigFile(containerName, filePath) {
-    try {
-        const textarea = document.querySelector(`.config-file-editor[data-file-path="${filePath}"]`);
-        if (!textarea) {
-            throw new Error('Config file editor not found');
-        }
-        
-        const content = textarea.value;
-        
-        // Deaktiviere den Save-Button und zeige Ladeindikator
-        const saveBtn = textarea.closest('.config-file-content').querySelector('.save-btn');
-        const originalBtnText = saveBtn.innerHTML;
-        saveBtn.disabled = true;
-        saveBtn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Restarting...';
-        
-        // Sende Anfrage zum Speichern der Konfigurationsdatei
-        const response = await fetch(`/api/container/${containerName}/save-config`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                path: filePath,
-                content: content
-            })
-        });
-        
-        const result = await response.json();
-        
-        if (response.ok) {
-            showNotification('success', 'Configuration saved and container restarted');
-            // Aktualisiere Container-Status
-            updateContainerStatus();
-        } else {
-            throw new Error(result.error || 'Failed to save configuration');
-        }
-        
-        // Aktiviere den Save-Button wieder und entferne Ladeindikator
-        saveBtn.disabled = false;
-        saveBtn.innerHTML = originalBtnText;
-    } catch (error) {
-        console.error('Error saving config file:', error);
-        showNotification('error', `Error: ${error.message}`);
-        
-        // Stelle sicher, dass der Button wieder aktiviert wird
-        const saveBtn = document.querySelector('.save-btn');
-        if (saveBtn) {
-            saveBtn.disabled = false;
-            saveBtn.innerHTML = '<i class="fa fa-save"></i> Save & Restart';
-        }
-    }
-}
-
-// Hilfsfunktion zum Hervorheben und Scrollen zu einem Element
-function highlightAndScrollToElement(element) {
-    if (!element) return false;
-    
-    // Scrolle zum Element und hebe es hervor
-    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    element.classList.add('highlight-moved');
-    
-    // Entferne die Hervorhebung nach 3 Sekunden
-    setTimeout(() => {
-        element.classList.remove('highlight-moved');
-    }, 3000);
-    
-    return true;
-}
-
-// Hilfsfunktion zum Finden der tatsächlichen Position eines Containers im DOM
-function findActualContainerPosition(containerName, categoryId) {
-    // Suche nach passenden Kategoriesektionen, sowohl via data-category-id als auch nach Text
-    const allCategorySections = Array.from(document.querySelectorAll('.group-section, .category-section'));
-    
-    // Weitere Debug-Informationen
-    console.log(`Suche nach Container '${containerName}' in Kategorie '${categoryId}'`);
-    console.log(`Gefundene Kategoriesektionen: ${allCategorySections.length}`);
-    
-    // Debug: Liste alle Kategoriesektionen und ihre Attribute auf
-    allCategorySections.forEach((section, index) => {
-        const id = section.getAttribute('data-category-id');
-        const headerElement = section.querySelector('h2');
-        const headerText = headerElement ? headerElement.textContent.trim() : 'kein Header';
-        console.log(`  Sektion ${index}: data-category-id='${id || 'nicht gesetzt'}', Header='${headerText}'`);
+    // Anwendung initialisieren, wenn das Dokument geladen ist
+    document.addEventListener('DOMContentLoaded', () => {
+        App.initialize();
     });
     
-    const categorySection = allCategorySections.find(section => {
-        const sectionId = section.getAttribute('data-category-id');
-        const header = section.querySelector('h2');
-        const headerText = header ? header.textContent.trim() : '';
+    // Globale Funktionen exportieren
+    window.WebDock = {
+        // Container-Management
+        installContainer: ContainerManager.install.bind(ContainerManager),
+        updateContainer: ContainerManager.update.bind(ContainerManager),
+        toggleContainer: ContainerManager.toggle.bind(ContainerManager),
+        startContainer: ContainerManager.start.bind(ContainerManager),
+        stopContainer: ContainerManager.stop.bind(ContainerManager),
+        restartContainer: ContainerManager.restart.bind(ContainerManager),
+        getContainerInfo: ContainerManager.getInfo.bind(ContainerManager),
         
-        // Überprüfe beide Möglichkeiten: das Attribut oder den Header-Text
-        return (sectionId === categoryId) || (headerText === categoryId);
-    });
-    
-    if (!categorySection) {
-        console.warn(`Konnte keine Kategorie '${categoryId}' im DOM finden`);
-        // Versuche alternatives Matching über enthaltene Container
-        for (const section of allCategorySections) {
-            const cards = section.querySelectorAll(`.container-card[data-name="${containerName}"]`);
-            if (cards.length > 0) {
-                console.log(`Kategorie durch Container-Übereinstimmung gefunden: '${section.getAttribute('data-category-id') || section.querySelector('h2')?.textContent.trim()}'`);
-                return findContainerPosition(containerName, section);
-            }
-        }
-        return -1;
-    }
-    
-    return findContainerPosition(containerName, categorySection);
-}
-
-// Hilfsfunktion zur eigentlichen Containersuche innerhalb einer Sektion
-function findContainerPosition(containerName, categorySection) {
-    // Suche nach Container-Grid innerhalb der Kategorie
-    const containerGrid = categorySection.querySelector('.container-grid');
-    if (!containerGrid) {
-        console.warn(`Konnte kein Container-Grid in der gefundenen Kategorie finden`);
-        return -1;
-    }
-    
-    // Sammle alle Container-Karten
-    const containerCards = Array.from(containerGrid.querySelectorAll('.container-card'));
-    console.log(`Suche nach Position von '${containerName}', gefunden ${containerCards.length} Karten`);
-    
-    // Suche nach Container in der Kategorie mit allen möglichen Attributen
-    for (let i = 0; i < containerCards.length; i++) {
-        const card = containerCards[i];
-        const cardNameAttribute = card.getAttribute('data-name');
-        const cardContainerAttribute = card.getAttribute('data-container');
-        const cardNameElement = card.querySelector('.container-name');
-        const cardNameText = cardNameElement ? cardNameElement.textContent.trim() : '';
+        // UI-Funktionen
+        showNotification: NotificationManager.show.bind(NotificationManager),
+        refreshContainers: App.refreshContainers.bind(App),
         
-        console.log(`  Karte ${i}: name-attr=${cardNameAttribute}, container-attr=${cardContainerAttribute}, text=${cardNameText}`);
-        
-        // Prüfe alle möglichen Übereinstimmungen
-        if (cardNameAttribute === containerName || 
-            cardContainerAttribute === containerName || 
-            cardNameText === containerName) {
-            console.log(`  ✓ Container '${containerName}' gefunden an Position ${i}`);
-            return i;
-        }
-    }
-    
-    console.warn(`Container '${containerName}' nicht in Kategorie '${categoryId}' gefunden`);
-    return -1;
-}
+        // WebSocket-Management
+        connectWebSocket: WebSocketManager.connect.bind(WebSocketManager),
+        disconnectWebSocket: WebSocketManager.disconnect.bind(WebSocketManager)
+    };
+})();
