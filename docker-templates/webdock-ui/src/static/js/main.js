@@ -4657,9 +4657,34 @@ const UPDATE_INTERVAL = 300000; // 5 Minuten statt alle paar Sekunden
 // Lade Container-Status
 async function updateContainerStatus(forceRefresh = false) {
     try {
-        const response = await fetch('/api/containers');
-        const containers = await response.json();
-        updateContainerList(containers);
+        if (forceRefresh) {
+            // Bei vollständiger Aktualisierung die volle Funktion verwenden
+            console.log('Vollständige UI-Aktualisierung angefordert...');
+            
+            // Lade zuerst die vollständigen YAML-Kategorien
+            await loadLocalCategoriesYaml();
+            
+            // Dann lade die Kategorien und Container
+            const categoriesData = await loadCategories(true);
+            
+            // Verwende fetchAndRenderContainers, um die Container zu rendern
+            await fetchAndRenderContainers(true, categoriesData);
+            
+            return;
+        }
+        
+        // Ansonsten nur die Status-Informationen abrufen (leichtgewichtiger API-Aufruf)
+        console.log('Aktualisiere nur Container-Status ohne vollständigen Reload');
+        const response = await fetch('/api/containers/status');
+        
+        if (!response.ok) {
+            throw new Error('Failed to fetch container status');
+        }
+        
+        const statusData = await response.json();
+        
+        // Verwende die gemeinsame Funktion zum Aktualisieren der UI
+        updateContainerStatusUI(statusData);
     } catch (error) {
         console.error('Error updating container status:', error);
     }
@@ -5109,12 +5134,8 @@ function renderContainers(containers, categories) {
                     // Erstelle die Container-Karte mit der korrekten Position
                     const containerCardHTML = createContainerCard(containerInfo, category.id, index);
                     
-                    // Erstelle ein temporäres Element, um das HTML zu parsen
-                    const tempDiv = document.createElement('div');
-                    tempDiv.innerHTML = containerCardHTML;
-                    
-                    // Füge die Karte zum Grid hinzu
-                    containerGrid.appendChild(tempDiv.firstElementChild);
+                    // Füge die Karte direkt zum Grid hinzu (ohne temporäres Element)
+                    containerGrid.innerHTML += containerCardHTML;
                 }
             });
             
@@ -5171,7 +5192,16 @@ async function updateContainerStatus(forceRefresh = false) {
         if (forceRefresh) {
             // Bei vollständiger Aktualisierung die volle Funktion verwenden
             console.log('Vollständige UI-Aktualisierung angefordert...');
-            await loadCategories(true);
+            
+            // Lade zuerst die vollständigen YAML-Kategorien
+            await loadLocalCategoriesYaml();
+            
+            // Dann lade die Kategorien und Container
+            const categoriesData = await loadCategories(true);
+            
+            // Verwende fetchAndRenderContainers, um die Container zu rendern
+            await fetchAndRenderContainers(true, categoriesData);
+            
             return;
         }
         
