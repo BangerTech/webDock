@@ -2101,7 +2101,9 @@ function setupRefreshInterval() {
     
     // Hilfsfunktion zum Hervorheben und Scrollen zu einem Container nach Verschiebung
     function highlightAndScrollToContainer(containerName, categoryId) {
-        // Verzögere die Suche, um sicherzustellen, dass das DOM aktualisiert wurde
+        console.log(`Versuche zu Container ${containerName} in Kategorie ${categoryId} zu scrollen...`);
+        
+        // Erhöhe die Verzögerung, um sicherzustellen, dass das DOM vollständig geladen ist
         setTimeout(() => {
             // Versuche zuerst, die richtige Kategoriesektion zu finden
             const categorySection = document.querySelector(`.category-section[data-category-id="${categoryId}"]`) ||
@@ -2109,11 +2111,26 @@ function setupRefreshInterval() {
             
             if (!categorySection) {
                 console.warn(`Konnte Kategoriesektion für ${categoryId} nicht finden`);
-                // Wenn die Kategorie nicht gefunden wird, führe einen Seiten-Reload durch
-                console.log('Führe Seiten-Reload durch, da Kategorie nicht gefunden wurde...');
-                setTimeout(() => {
-                    window.location.reload();
-                }, 500);
+                
+                // Versuche, nach dem Container direkt zu suchen, unabhängig von der Kategorie
+                const allContainerCards = document.querySelectorAll('.container-card');
+                let foundContainer = null;
+                
+                allContainerCards.forEach(card => {
+                    const cardName = card.getAttribute('data-container') || 
+                                    card.getAttribute('data-name');
+                    if (cardName === containerName) {
+                        foundContainer = card;
+                    }
+                });
+                
+                if (foundContainer) {
+                    console.log(`Container ${containerName} gefunden, scrolle dazu...`);
+                    return highlightAndScrollToElement(foundContainer);
+                }
+                
+                // Wenn der Container nicht gefunden wurde, gib auf
+                console.warn(`Container ${containerName} konnte in keiner Kategorie gefunden werden`);
                 return false;
             }
             
@@ -2124,6 +2141,8 @@ function setupRefreshInterval() {
             ];
             
             let containerCard = null;
+            
+            // Suche zuerst in der angegebenen Kategorie
             for (const selector of containerSelectors) {
                 const candidate = categorySection.querySelector(selector);
                 if (candidate) {
@@ -2132,19 +2151,27 @@ function setupRefreshInterval() {
                 }
             }
             
+            // Wenn der Container nicht in der angegebenen Kategorie gefunden wurde,
+            // suche im gesamten Dokument
+            if (!containerCard) {
+                for (const selector of containerSelectors) {
+                    const candidate = document.querySelector(selector);
+                    if (candidate) {
+                        containerCard = candidate;
+                        break;
+                    }
+                }
+            }
+            
             if (!containerCard) {
                 console.warn(`Konnte Container ${containerName} in Kategorie ${categoryId} nicht finden`);
-                // Wenn der Container nicht gefunden wird, führe einen Seiten-Reload durch
-                console.log('Führe Seiten-Reload durch, da Container nicht gefunden wurde...');
-                setTimeout(() => {
-                    window.location.reload();
-                }, 500);
                 return false;
             }
             
+            console.log(`Container ${containerName} gefunden, scrolle dazu...`);
             // Verwende die neue Hilfsfunktion zum Hervorheben und Scrollen
             return highlightAndScrollToElement(containerCard);
-        }, 500); // Erhöhe die Verzögerung auf 500ms für bessere Zuverlässigkeit
+        }, 1000); // Erhöhe die Verzögerung auf 1000ms für bessere Zuverlässigkeit
     }
     
     // Hilfsfunktion zum Finden der tatsächlichen Position eines Containers im DOM
@@ -2238,9 +2265,8 @@ function setupRefreshInterval() {
             // Zeige UI-Feedback an, dass etwas passiert
             showNotification('info', `Container ${containerName} wird neu positioniert...`, 1000);
             
-            // Sende die Anfrage zum Server mit allen erforderlichen Informationen
-            // Stelle sicher, dass die Parameternamen genau mit dem Backend übereinstimmen
-            const response = await fetch('/api/container/reorder', {
+            // Die API-Anfrage zum Neu-Anordnen des Containers
+            const response = await fetch('/api/container/move', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -2249,10 +2275,9 @@ function setupRefreshInterval() {
                 },
                 body: JSON.stringify({
                     containerName: containerName,
-                    categoryId: categoryId,
-                    toGroup: categoryId, // Beide Parameter senden für Kompatibilität
-                    fromPosition: fromPosition,
-                    toPosition: toPosition
+                    sourceCategory: categoryId,
+                    targetCategory: categoryId,
+                    targetPosition: toPosition
                 })
             });
 
@@ -2267,20 +2292,7 @@ function setupRefreshInterval() {
                 throw new Error(errorMsg);
             }
 
-            console.log('Container erfolgreich neu positioniert, lade Seite neu...');
-            
-            // Server-Cache-Reset durchführen
-            try {
-                await fetch('/api/categories/refresh', {
-                    method: 'POST',
-                    headers: {
-                        'Cache-Control': 'no-cache, no-store, must-revalidate',
-                        'Pragma': 'no-cache'
-                    }
-                });
-            } catch (resetError) {
-                console.error('Fehler beim Server-Cache-Reset:', resetError);
-            }
+            console.log('Container erfolgreich neu positioniert');
             
             // Speichere Informationen zum verschobenen Container für die Hervorhebung nach dem Reload
             sessionStorage.setItem('lastMovedContainer', containerName);
@@ -2290,6 +2302,7 @@ function setupRefreshInterval() {
             showNotification('success', `Container ${containerName} wurde erfolgreich neu angeordnet!`, 1000);
             
             // Seite neu laden
+            console.log('Lade Seite neu, um Änderungen zu übernehmen...');
             window.location.reload();
             
         } catch (error) {
@@ -2682,6 +2695,32 @@ function setupRefreshInterval() {
     
     // Führe die Initialisierung aus
     initializeOnLoad();
+
+    // Funktion, die nach dem Neuladen der Seite zu dem verschobenen Container scrollt
+    function scrollToLastMovedContainer() {
+        const containerName = sessionStorage.getItem('lastMovedContainer');
+        const categoryId = sessionStorage.getItem('lastMovedCategory');
+        
+        if (containerName && categoryId) {
+            console.log(`Scrolle zu zuletzt verschobenem Container: ${containerName} in Kategorie ${categoryId}`);
+            
+            // Warte kurz, bis die Seite vollständig geladen ist
+            setTimeout(() => {
+                // Finde den Container und scrolle dazu
+                highlightAndScrollToContainer(containerName, categoryId);
+                
+                // Lösche die Informationen aus dem SessionStorage, damit wir beim nächsten manuellen Neuladen nicht erneut dorthin scrollen
+                sessionStorage.removeItem('lastMovedContainer');
+                sessionStorage.removeItem('lastMovedCategory');
+            }, 1000);
+        }
+    }
+    
+    // Füge Event-Listener für das Laden der Seite hinzu
+    document.addEventListener('DOMContentLoaded', scrollToLastMovedContainer);
+    
+    // Initialer Update-Aufruf mit Loading-Anzeige
+    updateContainerStatus(true);
 });
 // Container control functions
 function installContainer(name) {
