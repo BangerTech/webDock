@@ -535,8 +535,11 @@
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        container: containerName,
-                        config: config
+                        name: containerName,
+                        path: `/app/config/compose-files/${containerName}`,
+                        ports: {}, // Ports-Mapping
+                        env: {},   // Umgebungsvariablen
+                        volumes: [] // Volume-Mapping
                     })
                 });
                 
