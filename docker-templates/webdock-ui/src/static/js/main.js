@@ -4968,6 +4968,39 @@ async function loadContainers(forceRefresh = false, explicitCategoriesData = nul
     }
 }
 
+// Funktion zum direkten Laden der categories.yaml Datei
+async function loadLocalCategoriesYaml() {
+    try {
+        // Lade die YAML-Datei direkt vom Server
+        const response = await fetch('/src/config/categories.yaml');
+        if (!response.ok) {
+            throw new Error(`Fehler beim Laden der categories.yaml: ${response.status}`);
+        }
+        
+        const yamlText = await response.text();
+        
+        // YAML-Parser importieren, falls noch nicht vorhanden
+        if (typeof jsyaml === 'undefined') {
+            // Lade js-yaml dynamisch, wenn nicht vorhanden
+            await new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js';
+                script.onload = resolve;
+                script.onerror = reject;
+                document.head.appendChild(script);
+            });
+        }
+        
+        // Parse YAML
+        const categoriesData = jsyaml.load(yamlText);
+        WebDockLogger.debug('Lokale categories.yaml geladen:', categoriesData);
+        return categoriesData;
+    } catch (error) {
+        WebDockLogger.error('Fehler beim Laden der lokalen categories.yaml:', error);
+        return null;
+    }
+}
+
 function renderContainers(containers, categories) {
     try {
         if (!containers || !categories) {
@@ -4977,6 +5010,78 @@ function renderContainers(containers, categories) {
             return;
         }
 
+        // Lade die lokale categories.yaml für korrekte Beschreibungen und Reihenfolge
+        loadLocalCategoriesYaml().then(localCategories => {
+            const containerSections = document.querySelectorAll('.container-section');
+            containerSections.forEach(section => {
+                const categoryId = section.getAttribute('data-category-id');
+                const containerGrid = section.querySelector('.container-grid') || document.createElement('div');
+                containerGrid.className = 'container-grid';
+                containerGrid.innerHTML = '';
+                
+                // Finde die Kategorie in beiden Quellen
+                const category = categories.categories[categoryId];
+                const localCategory = localCategories && localCategories.categories ? 
+                    localCategories.categories.find(cat => cat.id === categoryId) : null;
+                
+                if (category && category.containers && category.containers.length > 0) {
+                    // Nutze die lokale categories.yaml für die korrekte Reihenfolge
+                    const orderedContainers = localCategory && localCategory.containers ? 
+                        localCategory.containers : category.containers;
+                    
+                    // Füge Container in der korrekten Reihenfolge hinzu
+                    orderedContainers.forEach((containerEntry, index) => {
+                        // Bestimme den Container-Namen
+                        const containerName = typeof containerEntry === 'string' ? 
+                            containerEntry : containerEntry.name;
+                            
+                        // Finde den Container in der API-Antwort
+                        const containerInfo = containers.find(c => c.name === containerName);
+                        
+                        if (containerInfo) {
+                            // Nutze die Beschreibung aus der lokalen categories.yaml
+                            if (localCategory) {
+                                const localContainerEntry = localCategory.containers.find(c => {
+                                    return (typeof c === 'string' && c === containerName) || 
+                                           (typeof c === 'object' && c.name === containerName);
+                                });
+                                
+                                if (localContainerEntry && typeof localContainerEntry === 'object' && 
+                                    localContainerEntry.description) {
+                                    // Überschreibe die Beschreibung mit der aus der lokalen YAML
+                                    containerInfo.description = localContainerEntry.description;
+                                }
+                            }
+                            
+                            // Erstelle die Container-Karte mit korrekter Position und Beschreibung
+                            const containerCard = createContainerCard(containerInfo, categoryId, index);
+                            containerGrid.appendChild(containerCard);
+                        }
+                    });
+                    
+                    section.appendChild(containerGrid);
+                }
+            });
+        }).catch(error => {
+            WebDockLogger.error('Fehler beim Verarbeiten der lokalen categories.yaml:', error);
+            // Fallback auf die ursprüngliche Rendering-Logik
+            renderContainersFallback(containers, categories);
+        });
+        
+        // Stelle sicher, dass die Sperre am Ende aufgehoben wird
+        loadingContainersInProgress = false;
+        return containers;
+    } catch (error) {
+        console.error('Error rendering containers:', error);
+        showNotification('error', 'Fehler beim Anzeigen der Container');
+        // Stelle sicher, dass die Sperre auch im Fehlerfall aufgehoben wird
+        loadingContainersInProgress = false;
+    }
+}
+
+// Fallback-Funktion, falls das Laden der lokalen YAML fehlschlägt
+function renderContainersFallback(containers, categories) {
+    try {
         const containerSections = document.querySelectorAll('.container-section');
         containerSections.forEach(section => {
             const categoryId = section.getAttribute('data-category-id');
@@ -4988,7 +5093,6 @@ function renderContainers(containers, categories) {
             const category = categories.categories[categoryId];
             if (category && category.containers && category.containers.length > 0) {
                 // Füge Container in derselben Reihenfolge wie in categories.yaml hinzu
-                // Dies ist wichtig für die korrekte Funktionalität von Drag & Drop
                 category.containers.forEach((containerId, index) => {
                     const containerName = typeof containerId === 'string' ? containerId : containerId.name;
                     const containerInfo = containers.find(c => c.name === containerName);
@@ -5002,15 +5106,8 @@ function renderContainers(containers, categories) {
                 section.appendChild(containerGrid);
             }
         });
-        
-        // Stelle sicher, dass die Sperre am Ende aufgehoben wird
-        loadingContainersInProgress = false;
-        return containers;
     } catch (error) {
-        console.error('Error rendering containers:', error);
-        showNotification('error', 'Fehler beim Anzeigen der Container');
-        // Stelle sicher, dass die Sperre auch im Fehlerfall aufgehoben wird
-        loadingContainersInProgress = false;
+        console.error('Error in renderContainersFallback:', error);
     }
 }
 
