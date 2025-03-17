@@ -5052,17 +5052,28 @@ function renderContainers(containers, categories) {
             return;
         }
 
-        // Wir nutzen die vollständigen Kategorien mit korrekter Reihenfolge aus window.yamlCategories
-        if (!window.yamlCategories) {
-            WebDockLogger.warn('Keine vollständigen YAML-Kategorien verfügbar. Erzwinge Neuladen...');
-            // Wir laden die Kategorien synchron, um sicherzustellen, dass die Reihenfolge korrekt ist
+        // Wichtig: Wir müssen sicherstellen, dass window.yamlCategories geladen ist
+        if (!window.yamlCategories || !window.yamlCategories.categories) {
+            WebDockLogger.warn('Keine vollständigen YAML-Kategorien verfügbar. Lade Kategorien neu...');
+            // Lade die Kategorien erneut
             loadLocalCategoriesYaml();
             
-            // Da wir noch keine YAML-Kategorien haben, verwenden wir die API-Daten als Fallback
-            WebDockLogger.warn('Verwende API-Daten als Fallback für die Reihenfolge');
+            // Wenn immer noch keine Daten vorhanden, verwende API-Daten als Fallback
+            if (!window.yamlCategories || !window.yamlCategories.categories) {
+                WebDockLogger.warn('Konnte YAML-Kategorien nicht laden, verwende API-Daten als Fallback');
+            }
         }
         
-        WebDockLogger.debug('Rendere Container mit YAML-Daten');
+        WebDockLogger.debug('Rendere Container mit YAML-Kategorien...');
+        
+        // Debug-Ausgabe der YAML-Struktur
+        if (window.yamlCategories && window.yamlCategories.categories) {
+            console.log('YAML Kategorien:', window.yamlCategories.categories.map(cat => ({
+                id: cat.id,
+                name: cat.name,
+                containerCount: cat.containers ? cat.containers.length : 0
+            })));
+        }
         
         const containerSections = document.querySelectorAll('.container-section');
         containerSections.forEach(section => {
@@ -5074,21 +5085,34 @@ function renderContainers(containers, categories) {
             // Finde die Kategorie in der API-Antwort
             const apiCategory = categories.categories[categoryId];
             
-            // Finde dieselbe Kategorie in den vollständigen YAML-Daten für die korrekte Reihenfolge
+            // Suche die Kategorie direkt im YAML-Objekt
             let yamlCategory = null;
             if (window.yamlCategories && window.yamlCategories.categories) {
+                // WICHTIG: Exakter Vergleich der IDs!
                 yamlCategory = window.yamlCategories.categories.find(cat => cat.id === categoryId);
+                if (yamlCategory) {
+                    WebDockLogger.debug(`✅ YAML-Kategorie gefunden für ID '${categoryId}': ${yamlCategory.name}`);
+                    // Log alle Container dieser Kategorie
+                    if (yamlCategory.containers && yamlCategory.containers.length > 0) {
+                        const containerNames = yamlCategory.containers.map((c, idx) => {
+                            return `${idx}: ${typeof c === 'string' ? c : c.name}`;
+                        });
+                        console.log(`Originale YAML-Reihenfolge für '${categoryId}':`, containerNames);
+                    }
+                } else {
+                    WebDockLogger.warn(`❌ Keine YAML-Kategorie für ID '${categoryId}' gefunden!`);
+                }
             }
             
-            // Verwende YAML-Reihenfolge, falls verfügbar, sonst API-Reihenfolge als Fallback
+            // Container nur anzeigen, wenn API-Kategorie Daten enthält
             if (apiCategory && apiCategory.containers && apiCategory.containers.length > 0) {
-                // Bestimme die zu verwendende Container-Liste mit korrekter Reihenfolge
+                // WICHTIG: Verwende IMMER die YAML-Reihenfolge, wenn verfügbar!
                 const orderedContainers = (yamlCategory && yamlCategory.containers) ? 
                     yamlCategory.containers : apiCategory.containers;
                 
-                WebDockLogger.debug(`Kategorie ${categoryId}: Verwende ${yamlCategory ? 'YAML' : 'API'}-Reihenfolge mit ${orderedContainers.length} Containern`);
+                WebDockLogger.debug(`Kategorie ${categoryId}: ${yamlCategory ? 'YAML' : 'API'}-Reihenfolge mit ${orderedContainers.length} Containern`);
                 
-                // Füge Container in der Reihenfolge aus der YAML-Datei hinzu
+                // Füge Container in der exakten Reihenfolge aus der YAML-Datei hinzu
                 orderedContainers.forEach((containerEntry, index) => {
                     // Bestimme den Container-Namen
                     const containerName = typeof containerEntry === 'string' ? 
@@ -5098,10 +5122,12 @@ function renderContainers(containers, categories) {
                     const containerInfo = containers.find(c => c.name === containerName);
                     
                     if (containerInfo) {
-                        // Erstelle die Container-Karte mit korrekter Position aus der YAML
-                        // Die Beschreibung wird in createContainerCard aus window.yamlContainerDescriptions geholt
+                        // Erstelle die Container-Karte mit exakter Position aus der YAML
+                        WebDockLogger.debug(`Container ${containerName}: Position ${index} in Kategorie ${categoryId}`);
                         const containerCard = createContainerCard(containerInfo, categoryId, index);
                         containerGrid.appendChild(containerCard);
+                    } else {
+                        WebDockLogger.warn(`Container ${containerName} in YAML, aber nicht in API-Daten gefunden`);
                     }
                 });
                 
