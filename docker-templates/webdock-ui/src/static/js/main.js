@@ -119,32 +119,13 @@ let lastContainerStates = new Map();
 
 // Funktion, um Beschreibungen für Container zu erhalten
 function getContainerDescription(containerName) {
-    // Zuerst prüfe, ob wir eine Beschreibung aus der categories.yaml haben
+    // Verwende die Beschreibung aus der categories.yaml
     if (window.yamlContainerDescriptions && window.yamlContainerDescriptions[containerName]) {
         return window.yamlContainerDescriptions[containerName];
     }
     
-    // Fallback auf die hardcodierten Beschreibungen
-    const descriptions = {
-        'prometheus': 'Monitoring and alerting toolkit for metrics collection and visualization.',
-        'node-exporter': 'Prometheus exporter for hardware and OS metrics with pluggable metric collectors.',
-        'grafana': 'Platform for monitoring and observability with powerful visualization tools.',
-        'influxdb': 'Time series database designed to handle high write and query loads.',
-        'mosquitto': 'Lightweight message broker implementing the MQTT protocol.',
-        'mosquitto-broker': 'Lightweight message broker implementing the MQTT protocol.',
-        'portainer': 'Container management platform for Docker environments.',
-        'dockge': 'Modern, easy-to-use, and responsive self-hosted docker compose.yaml stack-oriented manager.',
-        'filebrowser': 'Web-based file manager with a clean interface.',
-        'filestash': 'Modern web client for SFTP, S3, FTP, WebDAV, Git, and more.',
-        'homepage': 'A highly customizable homepage for your server with service monitoring.',
-        'hoarder': 'Media server and content management system for your digital collections.',
-        'wud': 'Watch your Docker containers and update them when new images are available.',
-        'watchyourlan': 'Tool to monitor your local network and alert on new devices.',
-        'webdock': 'Docker container management interface with a clean and simple UI.',
-        // Füge hier weitere Container-Beschreibungen hinzu
-    };
-    
-    return descriptions[containerName] || 'Docker container management.';
+    // Einfacher Fallback ohne hardcodierte Descriptions
+    return 'Docker container for ' + containerName + '.';
 }
 
 // Globale closeModal Funktion
@@ -5067,62 +5048,42 @@ function renderContainers(containers, categories) {
             return;
         }
 
-        // Lade die lokale categories.yaml für korrekte Beschreibungen und Reihenfolge
-        loadLocalCategoriesYaml().then(localCategories => {
-            const containerSections = document.querySelectorAll('.container-section');
-            containerSections.forEach(section => {
-                const categoryId = section.getAttribute('data-category-id');
-                const containerGrid = section.querySelector('.container-grid') || document.createElement('div');
-                containerGrid.className = 'container-grid';
-                containerGrid.innerHTML = '';
+        // Wir verwenden die Beschreibungen aus window.yamlContainerDescriptions, die bereits geladen wurden
+        WebDockLogger.debug('Rendere Container mit YAML-Beschreibungen:', window.yamlContainerDescriptions);
+        
+        const containerSections = document.querySelectorAll('.container-section');
+        containerSections.forEach(section => {
+            const categoryId = section.getAttribute('data-category-id');
+            const containerGrid = section.querySelector('.container-grid') || document.createElement('div');
+            containerGrid.className = 'container-grid';
+            containerGrid.innerHTML = '';
+            
+            // Finde die Kategorie in der API-Antwort
+            const category = categories.categories[categoryId];
+            
+            if (category && category.containers && category.containers.length > 0) {
+                // Die Reihenfolge der Container ist direkt aus der API-Antwort:
+                // Diese wurde korrekt aus der categories.yaml geladen
                 
-                // Finde die Kategorie in beiden Quellen
-                const category = categories.categories[categoryId];
-                const localCategory = localCategories && localCategories.categories ? 
-                    localCategories.categories.find(cat => cat.id === categoryId) : null;
-                
-                if (category && category.containers && category.containers.length > 0) {
-                    // Nutze die lokale categories.yaml für die korrekte Reihenfolge
-                    const orderedContainers = localCategory && localCategory.containers ? 
-                        localCategory.containers : category.containers;
-                    
-                    // Füge Container in der korrekten Reihenfolge hinzu
-                    orderedContainers.forEach((containerEntry, index) => {
-                        // Bestimme den Container-Namen
-                        const containerName = typeof containerEntry === 'string' ? 
-                            containerEntry : containerEntry.name;
-                            
-                        // Finde den Container in der API-Antwort
-                        const containerInfo = containers.find(c => c.name === containerName);
+                // Füge Container in der Reihenfolge hinzu
+                category.containers.forEach((containerEntry, index) => {
+                    // Bestimme den Container-Namen
+                    const containerName = typeof containerEntry === 'string' ? 
+                        containerEntry : containerEntry.name;
                         
-                        if (containerInfo) {
-                            // Nutze die Beschreibung aus der lokalen categories.yaml
-                            if (localCategory) {
-                                const localContainerEntry = localCategory.containers.find(c => {
-                                    return (typeof c === 'string' && c === containerName) || 
-                                           (typeof c === 'object' && c.name === containerName);
-                                });
-                                
-                                if (localContainerEntry && typeof localContainerEntry === 'object' && 
-                                    localContainerEntry.description) {
-                                    // Überschreibe die Beschreibung mit der aus der lokalen YAML
-                                    containerInfo.description = localContainerEntry.description;
-                                }
-                            }
-                            
-                            // Erstelle die Container-Karte mit korrekter Position und Beschreibung
-                            const containerCard = createContainerCard(containerInfo, categoryId, index);
-                            containerGrid.appendChild(containerCard);
-                        }
-                    });
+                    // Finde den Container in der API-Antwort
+                    const containerInfo = containers.find(c => c.name === containerName);
                     
-                    section.appendChild(containerGrid);
-                }
-            });
-        }).catch(error => {
-            WebDockLogger.error('Fehler beim Verarbeiten der lokalen categories.yaml:', error);
-            // Fallback auf die ursprüngliche Rendering-Logik
-            renderContainersFallback(containers, categories);
+                    if (containerInfo) {
+                        // Erstelle die Container-Karte mit korrekter Position und Beschreibung
+                        // Die Beschreibung wird in createContainerCard aus window.yamlContainerDescriptions geholt
+                        const containerCard = createContainerCard(containerInfo, categoryId, index);
+                        containerGrid.appendChild(containerCard);
+                    }
+                });
+                
+                section.appendChild(containerGrid);
+            }
         });
         
         // Stelle sicher, dass die Sperre am Ende aufgehoben wird
