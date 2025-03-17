@@ -384,19 +384,27 @@ document.addEventListener('DOMContentLoaded', function() {
                         
                         // Aktualisiere die Anzeige
                         groups.innerHTML = '';
-                        Object.entries(groupedContainers)
-                            .filter(([name, group]) => group.containers.length > 0)
-                            .forEach(([name, group]) => {
-                                // WICHTIG: Für das data-category-id Attribut den Namen direkt verwenden
-                                groups.innerHTML += `
-                                    <div class="group-section" data-category-id="${name}">
-                                        <h2><i class="fa ${group.icon}"></i> ${name}</h2>
-                                        <div class="container-grid">
-                                            ${group.containers.map((container, index) => createContainerCard(container, name, index)).join('')}
+                        
+                        // Verwende die YAML-Kategorien, wenn verfügbar
+                        if (window.yamlCategories && window.yamlCategories.categories) {
+                            console.log('Verwende YAML-Kategorien für das Rendering');
+                            renderContainers(data, { categories: categories });
+                        } else {
+                            // Fallback: Verwende die ursprüngliche Rendering-Logik
+                            Object.entries(groupedContainers)
+                                .filter(([name, group]) => group.containers.length > 0)
+                                .forEach(([name, group]) => {
+                                    // WICHTIG: Für das data-category-id Attribut den Namen direkt verwenden
+                                    groups.innerHTML += `
+                                        <div class="group-section" data-category-id="${name}">
+                                            <h2><i class="fa ${group.icon}"></i> ${name}</h2>
+                                            <div class="container-grid">
+                                                ${group.containers.map((container, index) => createContainerCard(container, name, index)).join('')}
+                                            </div>
                                         </div>
-                                    </div>
-                                `;
-                            });
+                                    `;
+                                });
+                        }
                             
                         // Event-Listener wieder hinzufügen
                         addContainerEventListeners();
@@ -416,7 +424,10 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     // Initialer Update-Aufruf mit Loading-Anzeige
-    updateContainerStatus(true);
+    // Lade zuerst die YAML-Kategorien, dann aktualisiere den Container-Status
+    loadLocalCategoriesYaml().then(() => {
+        updateContainerStatus(true);
+    });
 
     // Periodische Updates ohne Loading-Anzeige
     setInterval(() => {
