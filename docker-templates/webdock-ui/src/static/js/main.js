@@ -633,8 +633,8 @@
                 }
                 
                 const response = await fetch('/api/containers/status');
-                
-                if (!response.ok) {
+            
+            if (!response.ok) {
                     throw new Error(`HTTP-Fehler ${response.status}`);
                 }
                 
@@ -644,7 +644,7 @@
                 CacheManager.set('containerStatus', statusData);
                 
                 return statusData;
-            } catch (error) {
+        } catch (error) {
                 WebDockLogger.error('Fehler beim Abrufen des Container-Status:', error);
                 return [];
             }
@@ -660,12 +660,12 @@
                     <div class="modal-content" style="max-width: 400px;">
                         <div class="modal-header">
                             <h2><i class="fa fa-spinner fa-spin"></i> Lade Container-Info</h2>
-                        </div>
+                </div>
                         <div class="modal-body" style="text-align: center;">
                             <p>Container-Informationen werden abgerufen...</p>
-                        </div>
-                    </div>
-                `;
+                </div>
+                </div>
+            `;
                 document.body.appendChild(loadingModal);
                 setTimeout(() => loadingModal.classList.add('show'), 10);
                 
@@ -778,13 +778,13 @@
             ` : '';
             
             // Modal-Inhalt erstellen
-            modal.innerHTML = `
+        modal.innerHTML = `
                 <div class="modal-content" style="max-width: 700px;">
-                    <div class="modal-header">
+                <div class="modal-header">
                         <h2><i class="fa fa-info-circle"></i> ${containerName} Info</h2>
-                        <button class="close-modal">&times;</button>
-                    </div>
-                    <div class="modal-body">
+                    <button class="close-modal">&times;</button>
+                </div>
+                <div class="modal-body">
                         <div class="container-info">
                             ${statusHtml}
                             ${imageHtml}
@@ -794,8 +794,8 @@
                             ${envVarsHtml}
                             ${networksHtml}
                         </div>
-                    </div>
-                    <div class="modal-footer">
+                </div>
+                <div class="modal-footer">
                         <button class="action-btn" onclick="window.WebDock.${containerInfo.status === 'running' ? 'stopContainer' : 'startContainer'}('${containerName}'); closeModal();">
                             <i class="fa fa-${containerInfo.status === 'running' ? 'stop' : 'play'}"></i> 
                             ${containerInfo.status === 'running' ? 'Stoppen' : 'Starten'}
@@ -804,10 +804,10 @@
                             <i class="fa fa-sync"></i> Neustart
                         </button>
                         <button class="cancel-btn" onclick="closeModal()">Schließen</button>
-                    </div>
                 </div>
-            `;
-            
+            </div>
+        `;
+
             document.body.appendChild(modal);
             setTimeout(() => modal.classList.add('show'), 10);
             
@@ -863,7 +863,7 @@
             let position = -1;
             if (containerCard.hasAttribute('data-position')) {
                 position = parseInt(containerCard.dataset.position, 10);
-            } else {
+        } else {
                 // Fallback: Position aus dem DOM berechnen
                 const containerCards = Array.from(categorySection.querySelectorAll('.container-card'));
                 position = containerCards.indexOf(containerCard);
@@ -1622,7 +1622,7 @@
             // Event-Listener für Info-Buttons
             document.querySelectorAll('.info-btn').forEach(btn => {
                 btn.onclick = function(e) {
-                    e.preventDefault();
+                e.preventDefault();
                     e.stopPropagation();
                     const containerName = this.closest('.container-card').getAttribute('data-name');
                     window.WebDock.getContainerInfo(containerName);
@@ -1657,7 +1657,7 @@
                 // Event-Listener für manuelle Aktualisierung
                 document.addEventListener('keydown', (e) => {
                     if (e.key === 'F5' || (e.ctrlKey && e.key === 'r')) {
-                        e.preventDefault();
+                    e.preventDefault();
                         this.refreshContainers();
                     }
                 });
@@ -1829,13 +1829,13 @@
             loadingModal.className = 'modal';
             loadingModal.id = 'loadingModal';
             loadingModal.innerHTML = `
-                <div class="modal-content" style="max-width: 400px;">
-                    <div class="modal-header">
-                        <h2><i class="fa fa-spinner fa-spin"></i> Lade Konfiguration</h2>
+                <div class="modal-content" style="max-width: 450px; border-radius: 12px; box-shadow: 0 5px 25px rgba(0,0,0,0.15);">
+                    <div class="modal-header" style="background: var(--color-primary); color: white; border-radius: 10px 10px 0 0;">
+                        <h2><i class="fa fa-spinner fa-spin"></i> Loading Configuration</h2>
                     </div>
-                    <div class="modal-body" style="text-align: center;">
-                        <p>Container-Konfiguration wird abgerufen...</p>
-                        <div class="progress-bar" style="margin-top: 15px; height: 4px; width: 100%; background: #f0f0f0; overflow: hidden;">
+                    <div class="modal-body" style="text-align: center; padding: 20px;">
+                        <p style="font-size: 16px; margin-bottom: 15px;">Fetching container configuration...</p>
+                        <div class="progress-bar" style="margin-top: 15px; height: 4px; width: 100%; background: #f0f0f0; overflow: hidden; border-radius: 2px;">
                             <div class="progress-bar-fill" style="height: 100%; width: 10%; background: var(--color-primary); animation: progress-animation 1.5s infinite ease-in-out;"></div>
                         </div>
                         <style>
@@ -1854,31 +1854,56 @@
             // Normalisiere den Container-Namen für die API-Anfrage
             const apiContainerName = containerName === 'mosquitto' ? 'mosquitto-broker' : containerName;
             
-            // Lade Konfiguration vom Server
-            const response = await fetch(`/api/container/${apiContainerName}/config?template=true`);
+            // Bereite alle Anfragen parallel vor
+            const requests = [
+                fetch(`/api/container/${apiContainerName}/config?template=true`).then(res => {
+                    if (!res.ok) throw new Error(`Failed to load config: ${res.status}`);
+                    return res.json();
+                })
+            ];
             
-            if (!response.ok) {
-                throw new Error(`Fehler beim Laden der Konfiguration: ${response.status}`);
+            // Bei WatchYourLAN zusätzliche Netzwerkinformationen laden
+            if (containerName === 'watchyourlan' || containerName === 'watchyourlanarm') {
+                requests.push(
+                    fetch('/api/network-info')
+                    .then(res => res.ok ? res.json() : null)
+                    .then(networkData => {
+                        let networkInterface = 'eth0';
+                        let ipRange = '192.168.1.0/24';
+                        
+                        if (networkData) {
+                            if (networkData.interface) {
+                                networkInterface = networkData.interface;
+                            }
+                            
+                            if (networkData.ip_range) {
+                                ipRange = networkData.ip_range;
+                            } else if (networkData.client_ip && networkData.client_ip !== "127.0.0.1") {
+                                // Verwende die Client-IP vom Server
+                                const ipParts = networkData.client_ip.split('.');
+                                if (ipParts.length === 4) {
+                                    ipRange = `${ipParts[0]}.${ipParts[1]}.${ipParts[2]}.0/24`;
+                                }
+                            }
+                        }
+                        return { networkInterface, ipRange };
+                    })
+                );
             }
             
-            const config = await response.json();
+            // Hole alle Daten parallel
+            const results = await Promise.all(requests);
+            const config = results[0];
             
-            // Lade-Modal entfernen
+            // Entferne das Lade-Modal
             document.body.removeChild(loadingModal);
             
             if (!config.yaml) {
-                throw new Error('Keine YAML-Konfiguration erhalten');
+                throw new Error('No YAML configuration received');
             }
 
             // Parse YAML für Environment-Variablen und Ports
-            let yamlConfig;
-            try {
-                // Verwende das integrierte JSON-Objekt wenn vorhanden
-                yamlConfig = config.service || {};
-            } catch (error) {
-                console.error('Fehler beim Parsen der YAML-Konfiguration:', error);
-                yamlConfig = {};
-            }
+            const yamlConfig = config.service || {};
             
             // Extrahiere Ports und Environment-Variablen
             const ports = yamlConfig.ports || [];
@@ -1893,25 +1918,36 @@
             // Für WatchYourLAN nicht anzeigen, da wir spezifische Port-Felder haben
             const showPortConfig = !(containerName === 'watchyourlan' || containerName === 'watchyourlanarm');
             
-            // Modal-Inhalt erstellen
+            // Bestimme ein passendes Icon für den Container
+            const containerIcon = getContainerLogo(containerName);
+            
+            // Modal-Inhalt erstellen - mit modernem Styling
             modal.innerHTML = `
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h2><i class="fa fa-download"></i> Install ${containerName}</h2>
-                        <button class="close-modal">&times;</button>
+                <div class="modal-content" style="max-width: 600px; border-radius: 12px; box-shadow: 0 5px 25px rgba(0,0,0,0.2);">
+                    <div class="modal-header" style="background: var(--color-primary); color: white; border-radius: 10px 10px 0 0; padding: 15px 20px;">
+                        <h2 style="display: flex; align-items: center; gap: 10px;">
+                            <img src="${containerIcon}" style="height: 24px; width: 24px; object-fit: contain;" 
+                                 onerror="this.src='/static/img/icons/bangertech.png'">
+                            Install ${containerName}
+                        </h2>
+                        <button class="close-modal" style="background: transparent; border: none; color: white; font-size: 22px;">&times;</button>
                     </div>
-                    <div class="modal-body">
+                    <div class="modal-body" style="padding: 20px;">
                         ${showPortConfig && ports.length > 0 ? `
-                            <div class="config-section" style="margin-bottom: 20px; padding: 15px; background: var(--color-background-dark); border-radius: 8px;">
-                                <h3 style="margin-bottom: 15px;">Port-Konfiguration</h3>
+                            <div class="config-section" style="margin-bottom: 20px; padding: 20px; background: var(--color-background-dark); border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
+                                <h3 style="margin-bottom: 15px; color: var(--color-primary); font-size: 18px;">
+                                    <i class="fa fa-exchange"></i> Port Configuration
+                                </h3>
                                 <div class="port-mappings">
                                     ${createPortMappings(ports)}
                                 </div>
                             </div>
                         ` : ''}
                         ${Object.keys(environment).length > 0 ? `
-                            <div class="config-section" style="margin-bottom: 20px; padding: 15px; background: var(--color-background-dark); border-radius: 8px;">
-                                <h3 style="margin-bottom: 15px;">Umgebungsvariablen</h3>
+                            <div class="config-section" style="margin-bottom: 20px; padding: 20px; background: var(--color-background-dark); border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
+                                <h3 style="margin-bottom: 15px; color: var(--color-primary); font-size: 18px;">
+                                    <i class="fa fa-code"></i> Environment Variables
+                                </h3>
                                 <div class="env-vars">
                                     ${createEnvironmentVars(environment)}
                                 </div>
@@ -1919,9 +1955,11 @@
                         ` : ''}
                         ${getSpecialContainerFields(containerName)}
                     </div>
-                    <div class="modal-footer">
-                        <button class="install-btn" onclick="executeInstall('${containerName}')">Install</button>
-                        <button class="cancel-btn" onclick="closeModal()">Cancel</button>
+                    <div class="modal-footer" style="padding: 15px 20px; display: flex; justify-content: flex-end; gap: 10px; border-top: 1px solid #eee;">
+                        <button class="cancel-btn" style="padding: 8px 16px; background: #f5f5f5; border: none; border-radius: 4px; cursor: pointer;">Cancel</button>
+                        <button class="install-btn" style="padding: 8px 16px; background: var(--color-primary); color: white; border: none; border-radius: 4px; cursor: pointer;">
+                            <i class="fa fa-download"></i> Install
+                        </button>
                     </div>
                 </div>
             `;
@@ -1929,22 +1967,29 @@
             document.body.appendChild(modal);
             setTimeout(() => modal.classList.add('show'), 10);
             
-            // Event-Listener für Schließen-Buttons
-            modal.querySelector('.close-modal').addEventListener('click', () => closeModal());
-            modal.querySelector('.cancel-btn').addEventListener('click', () => closeModal());
+            // Event-Listener für Buttons
+            const installButton = modal.querySelector('.install-btn');
+            const cancelButton = modal.querySelector('.cancel-btn');
+            const closeButton = modal.querySelector('.close-modal');
+
+            // Install-Button Event-Listener
+            installButton.addEventListener('click', () => executeInstall(containerName));
+
+            // Schließen-Funktionalität
+            cancelButton.addEventListener('click', () => closeModal());
+            closeButton.addEventListener('click', () => closeModal());
             
-            // Event-Listener für Container-spezifische Felder
+            // Event-Listener für spezielle Container-Felder
             setupSpecialContainerFields(containerName, modal);
-            
         } catch (error) {
-            console.error('Fehler beim Erstellen des Installations-Modals:', error);
-            NotificationManager.error(`Fehler beim Laden der Konfiguration: ${error.message}`);
+            console.error('Error:', error);
+            showNotification('error', `Error preparing installation for ${containerName}: ${error.message}`);
         }
     };
     
     // Hilfsfunktion für Port-Mappings
     function createPortMappings(ports) {
-        if (!ports || ports.length === 0) return 'Keine Ports zu konfigurieren';
+        if (!ports || ports.length === 0) return 'No ports to configure';
         
         return ports.map(port => {
             let containerPort, hostPort;
@@ -1960,38 +2005,40 @@
             containerPort = String(containerPort).split('/')[0];
             
             return `
-                <div class="port-mapping">
-                    <label>Externer Port (${containerPort} intern):</label>
+                <div class="port-mapping" style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">External Port (${containerPort} internal):</label>
                     <input type="number" 
-                           data-internal-port="${containerPort}"
-                           value="${hostPort.split('/')[0]}"
-                           min="1"
-                           max="65535"
-                           class="form-control">
+                        data-internal-port="${containerPort}"
+                        value="${hostPort.split('/')[0]}"
+                        min="1"
+                        max="65535"
+                        class="form-control" 
+                        style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
                 </div>
             `;
         }).join('');
     }
-    
+
     // Hilfsfunktion für Umgebungsvariablen
     function createEnvironmentVars(environment) {
         if (!environment || Object.keys(environment).length === 0) {
-            return 'Keine Umgebungsvariablen zu konfigurieren';
+            return 'No environment variables to configure';
         }
         
         return Object.entries(environment).map(([key, defaultValue]) => `
-            <div class="env-var">
-                <label>${key}:</label>
+            <div class="env-var" style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: bold;">${key}:</label>
                 <input type="text" 
-                       data-env-key="${key}"
-                       value="${defaultValue || ''}"
-                       placeholder="${getEnvPlaceholder(key)}"
-                       class="form-control">
+                    data-env-key="${key}"
+                    value="${defaultValue || ''}"
+                    placeholder="${getEnvPlaceholder(key)}"
+                    class="form-control"
+                    style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
                 ${getEnvDescription(key)}
             </div>
         `).join('');
     }
-    
+
     // Hilfsfunktion für Platzhalter
     function getEnvPlaceholder(key) {
         const placeholders = {
@@ -2022,43 +2069,54 @@
             case 'watchyourlan':
             case 'watchyourlanarm':
                 return `
-                    <div class="watchyourlan-section" style="margin-bottom: 20px; padding: 15px; background: var(--color-background-dark); border-radius: 8px;">
-                        <h3 style="margin-bottom: 15px;">WatchYourLAN-Einstellungen</h3>
-                        <div class="form-group">
-                            <label for="network-interface">Netzwerkschnittstelle</label>
-                            <input type="text" id="network-interface" name="network-interface" value="eth0" placeholder="Netzwerkschnittstelle eingeben" class="form-control">
-                            <small class="hint">Die zu überwachende Netzwerkschnittstelle (z.B. eth0, ens18)</small>
+                    <div class="watchyourlan-section" style="margin-bottom: 20px; padding: 20px; background: var(--color-background-dark); border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
+                        <h3 style="margin-bottom: 15px; color: var(--color-primary); font-size: 18px;">
+                            <i class="fa fa-network-wired"></i> WatchYourLAN Settings
+                        </h3>
+                        <div class="form-group" style="margin-bottom: 15px;">
+                            <label for="network-interface" style="display: block; margin-bottom: 5px; font-weight: bold;">Network Interface</label>
+                            <input type="text" id="network-interface" name="network-interface" value="eth0" placeholder="Enter network interface" class="form-control" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
+                            <small class="hint" style="display: block; margin-top: 5px; color: #666; font-size: 0.9em;">The network interface to monitor (e.g. eth0, ens18)</small>
                         </div>
-                        <div class="form-group">
-                            <label for="ip-range">IP-Bereich</label>
-                            <input type="text" id="ip-range" name="ip-range" value="192.168.1.0/24" placeholder="IP-Bereich eingeben" class="form-control">
-                            <small class="hint">Der zu scannende IP-Bereich (z.B. 192.168.1.0/24)</small>
+                        <div class="form-group" style="margin-bottom: 15px;">
+                            <label for="ip-range" style="display: block; margin-bottom: 5px; font-weight: bold;">IP Range</label>
+                            <input type="text" id="ip-range" name="ip-range" value="192.168.1.0/24" placeholder="Enter IP range" class="form-control" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
+                            <small class="hint" style="display: block; margin-top: 5px; color: #666; font-size: 0.9em;">The IP range to scan (e.g. 192.168.1.0/24)</small>
                         </div>
-                        <div class="form-group">
-                            <label for="wyl-port">WatchYourLAN GUI-Port</label>
-                            <input type="text" id="wyl-port" name="wyl-port" value="8840" placeholder="Port eingeben" class="form-control">
-                            <small class="hint">Der Port für die WatchYourLAN-Weboberfläche (Standard: 8840)</small>
+                        <div class="form-group" style="margin-bottom: 15px;">
+                            <label for="wyl-port" style="display: block; margin-bottom: 5px; font-weight: bold;">WatchYourLAN GUI Port</label>
+                            <input type="text" id="wyl-port" name="wyl-port" value="8840" placeholder="Enter port" class="form-control" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
+                            <small class="hint" style="display: block; margin-top: 5px; color: #666; font-size: 0.9em;">The port for WatchYourLAN web interface (default: 8840)</small>
+                        </div>
+                        <div class="alert alert-info" style="padding: 12px 15px; background-color: rgba(0, 130, 201, 0.1); color: var(--color-primary); border-radius: 4px; margin-top: 15px; border-left: 4px solid var(--color-primary);">
+                            <p style="margin-bottom: 8px;"><strong>Note:</strong> The network interface and IP range are automatically detected. Please verify they are correct for your network.</p>
+                            <p><strong>Important:</strong> WatchYourLAN requires host network mode to properly scan your network. The main interface will be available at the GUI port specified above.</p>
                         </div>
                     </div>
                 `;
             case 'mosquitto':
             case 'mosquitto-broker':
                 return `
-                    <div class="mosquitto-section" style="margin-bottom: 20px; padding: 15px; background: var(--color-background-dark); border-radius: 8px;">
-                        <h3 style="margin-bottom: 15px;">Mosquitto-Einstellungen</h3>
-                        <div class="form-group">
-                            <label for="mqtt-auth">Authentifizierung aktivieren</label>
-                            <input type="checkbox" id="mqtt-auth" name="mqtt-auth">
+                    <div class="mosquitto-section" style="margin-bottom: 20px; padding: 20px; background: var(--color-background-dark); border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
+                        <h3 style="margin-bottom: 15px; color: var(--color-primary); font-size: 18px;">
+                            <i class="fa fa-exchange"></i> Mosquitto Settings
+                        </h3>
+                        <div class="form-group" style="margin-bottom: 15px; display: flex; align-items: center;">
+                            <input type="checkbox" id="mqtt-auth" name="mqtt-auth" style="margin-right: 10px;">
+                            <label for="mqtt-auth" style="font-weight: bold; cursor: pointer;">Enable Authentication</label>
                         </div>
-                        <div class="auth-credentials" style="display: none;">
-                            <div class="form-group">
-                                <label for="mqtt-username">Benutzername</label>
-                                <input type="text" id="mqtt-username" name="mqtt-username" value="admin" class="form-control">
+                        <div class="auth-credentials" style="display: none; padding: 15px; background: rgba(0,0,0,0.03); border-radius: 4px; margin-top: 5px; border-left: 3px solid var(--color-primary);">
+                            <div class="form-group" style="margin-bottom: 15px;">
+                                <label for="mqtt-username" style="display: block; margin-bottom: 5px; font-weight: bold;">Username</label>
+                                <input type="text" id="mqtt-username" name="mqtt-username" value="admin" class="form-control" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
                             </div>
-                            <div class="form-group">
-                                <label for="mqtt-password">Passwort</label>
-                                <input type="password" id="mqtt-password" name="mqtt-password" value="password" class="form-control">
+                            <div class="form-group" style="margin-bottom: 10px;">
+                                <label for="mqtt-password" style="display: block; margin-bottom: 5px; font-weight: bold;">Password</label>
+                                <input type="password" id="mqtt-password" name="mqtt-password" value="password" class="form-control" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
                             </div>
+                        </div>
+                        <div class="alert alert-info" style="padding: 12px 15px; background-color: rgba(0, 130, 201, 0.1); color: var(--color-primary); border-radius: 4px; margin-top: 15px; border-left: 4px solid var(--color-primary);">
+                            <p><strong>Note:</strong> Mosquitto MQTT broker will be available on ports 1883 (MQTT) and 9001 (WebSockets). The default configuration allows anonymous access unless authentication is enabled above.</p>
                         </div>
                     </div>
                 `;
@@ -2086,10 +2144,12 @@
     // Ausführung der Installation
     window.executeInstall = async function(containerName) {
         try {
-            // Loading-Overlay anzeigen
+            // Zeige Loading-Overlay
             const loadingOverlay = document.getElementById('loading-overlay');
-            if (loadingOverlay) loadingOverlay.style.display = 'flex';
-            
+            if (loadingOverlay) {
+                loadingOverlay.style.display = 'flex';
+            }
+
             // Installationsdaten sammeln
             const installData = {
                 name: containerName,
@@ -2098,7 +2158,7 @@
                 env: {},
                 volumes: []
             };
-            
+
             // Port-Mappings sammeln
             const portInputs = document.querySelectorAll('.modal .port-mapping input');
             if (portInputs.length > 0) {
@@ -2109,7 +2169,7 @@
                     }
                 });
             }
-            
+
             // Umgebungsvariablen sammeln
             const envInputs = document.querySelectorAll('.modal .env-var input');
             if (envInputs.length > 0) {
@@ -2120,7 +2180,7 @@
                     }
                 });
             }
-            
+
             // Spezielle Container-Konfigurationen
             if (containerName === 'mosquitto' || containerName === 'mosquitto-broker') {
                 const authEnabled = document.getElementById('mqtt-auth')?.checked || false;
@@ -2133,11 +2193,34 @@
                     password: password
                 };
                 
+                // Ensure proper volume mapping for mosquitto
                 installData.volumes = [
                     `./config:/mosquitto/config`,
                     `./data:/mosquitto/data`,
                     `./log:/mosquitto/log`
                 ];
+                
+                // Add a config template to ensure the config file exists
+                installData.config_template = `
+# Default listener
+listener 1883
+
+# WebSockets listener
+listener 9001
+protocol websockets
+
+# Persistence
+persistence true
+persistence_location /mosquitto/data/
+
+# Logging
+log_dest file /mosquitto/log/mosquitto.log
+log_dest stdout
+
+# Authentication
+allow_anonymous ${authEnabled ? 'false' : 'true'}
+${authEnabled ? 'password_file /mosquitto/config/passwd' : ''}
+`;
             } 
             else if (containerName === 'watchyourlan' || containerName === 'watchyourlanarm') {
                 const networkInterface = document.getElementById('network-interface')?.value || 'eth0';
@@ -2160,7 +2243,16 @@
                     `./data:/data`
                 ];
             }
-            
+            else {
+                // Default volumes for other containers
+                installData.volumes = [
+                    `./config:/config`,
+                    `./data:/data`
+                ];
+            }
+
+            console.log('Installation data:', installData);
+
             // Installation ausführen
             const installResponse = await fetch('/api/install', {
                 method: 'POST',
@@ -2171,28 +2263,34 @@
             });
             
             if (!installResponse.ok) {
-                throw new Error(`Installation fehlgeschlagen: ${installResponse.status}`);
+                throw new Error(`Installation failed: ${installResponse.status}`);
             }
             
             const result = await installResponse.json();
+            console.log('Installation result:', result);
             
-            // Erfolg anzeigen
-            NotificationManager.success(`Container ${containerName} erfolgreich installiert`);
+            // Success notification
+            showNotification('success', `Container ${containerName} installed successfully`);
             
-            // Modal schließen
+            // Close modal
             closeModal();
             
-            // Container-Status aktualisieren ohne vollständigen Reload
-            window.WebDock.refreshContainers();
+            // Refresh container status
+            setTimeout(() => {
+                // Update container list
+                updateContainerStatus(true);
+            }, 1000);
             
             return result;
         } catch (error) {
             console.error('Installation error:', error);
-            NotificationManager.error(`Fehler bei der Installation: ${error.message}`);
+            showNotification('error', `Installation error: ${error.message}`);
             
-            // Loading-Overlay ausblenden
+            // Hide loading overlay
             const loadingOverlay = document.getElementById('loading-overlay');
-            if (loadingOverlay) loadingOverlay.style.display = 'none';
+            if (loadingOverlay) {
+                loadingOverlay.style.display = 'none';
+            }
             
             return { error: error.message };
         }
