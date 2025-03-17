@@ -333,7 +333,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         Object.values(data).forEach(group => {
                             group.containers.forEach(container => {
                                 let assigned = false;
-                                                                // Suche die passende Kategorie
+                                // Suche die passende Kategorie
                                 Object.entries(categories || {}).forEach(([id, category]) => {
                                     // Sicherstellen, dass die Kategorie existiert und ein containers-Array hat
                                     if (category && Array.isArray(category.containers)) {
@@ -4989,11 +4989,12 @@ function renderContainers(containers, categories) {
             if (category && category.containers && category.containers.length > 0) {
                 // Füge Container in derselben Reihenfolge wie in categories.yaml hinzu
                 // Dies ist wichtig für die korrekte Funktionalität von Drag & Drop
-                category.containers.forEach(containerId => {
+                category.containers.forEach((containerId, index) => {
                     const containerName = typeof containerId === 'string' ? containerId : containerId.name;
                     const containerInfo = containers.find(c => c.name === containerName);
                     if (containerInfo) {
-                        const containerCard = createContainerCard(containerInfo, categoryId);
+                        // Übergebe den Index als Position an die createContainerCard Funktion
+                        const containerCard = createContainerCard(containerInfo, categoryId, index);
                         containerGrid.appendChild(containerCard);
                     }
                 });
