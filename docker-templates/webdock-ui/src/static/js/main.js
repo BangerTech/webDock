@@ -1330,10 +1330,20 @@ function setupRefreshInterval() {
         // Bei einer Neuanordnung immer neue Daten laden
         const useCachedData = categoriesCache && !forceRefresh && (now - lastCategoriesFetch < CACHE_TTL);
         
+        // WICHTIG: Zuerst immer die vollständigen Kategorien mit Beschreibungen laden
+        // Diese werden in window.yamlContainerDescriptions für die Container-Karten gespeichert
+        console.log('Lade vollständige Kategorien mit Beschreibungen...');
+        try {
+            await loadLocalCategoriesYaml();
+        } catch (error) {
+            console.warn('Fehler beim Laden der vollständigen Kategorien mit Beschreibungen:', error);
+            // Trotzdem weitermachen, wir verwenden dann Fallback-Beschreibungen
+        }
+        
         if (useCachedData) {
             console.log('Verwende zwischengespeicherte Kategoriedaten');
             renderCategories(categoriesCache);
-            return;
+            return categoriesCache;
         }
 
         console.log('Lade neue Kategoriedaten vom Server');
