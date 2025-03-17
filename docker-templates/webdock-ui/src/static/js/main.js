@@ -5003,6 +5003,9 @@ async function loadLocalCategoriesYaml() {
         const categoriesData = await response.json();
         WebDockLogger.debug('Vollständige Kategorien mit Beschreibungen geladen:', categoriesData);
         
+        // Speichere die vollständigen Kategorien-Daten mit korrekter Reihenfolge in einer globalen Variable
+        window.yamlCategories = categoriesData;
+        
         // Extrahiere alle Container-Beschreibungen und fülle die globale Variable
         window.yamlContainerDescriptions = {};
         
@@ -5029,6 +5032,7 @@ async function loadLocalCategoriesYaml() {
                 }
             });
             
+            WebDockLogger.debug('Vollständige YAML-Kategorien mit korrekter Reihenfolge gespeichert');
             console.log('Container-Beschreibungen aus categories.yaml geladen:', window.yamlContainerDescriptions);
         }
         
@@ -5048,8 +5052,17 @@ function renderContainers(containers, categories) {
             return;
         }
 
-        // Wir verwenden die Beschreibungen aus window.yamlContainerDescriptions, die bereits geladen wurden
-        WebDockLogger.debug('Rendere Container mit YAML-Beschreibungen:', window.yamlContainerDescriptions);
+        // Wir nutzen die vollständigen Kategorien mit korrekter Reihenfolge aus window.yamlCategories
+        if (!window.yamlCategories) {
+            WebDockLogger.warn('Keine vollständigen YAML-Kategorien verfügbar. Erzwinge Neuladen...');
+            // Wir laden die Kategorien synchron, um sicherzustellen, dass die Reihenfolge korrekt ist
+            loadLocalCategoriesYaml();
+            
+            // Da wir noch keine YAML-Kategorien haben, verwenden wir die API-Daten als Fallback
+            WebDockLogger.warn('Verwende API-Daten als Fallback für die Reihenfolge');
+        }
+        
+        WebDockLogger.debug('Rendere Container mit YAML-Daten');
         
         const containerSections = document.querySelectorAll('.container-section');
         containerSections.forEach(section => {
@@ -5059,14 +5072,24 @@ function renderContainers(containers, categories) {
             containerGrid.innerHTML = '';
             
             // Finde die Kategorie in der API-Antwort
-            const category = categories.categories[categoryId];
+            const apiCategory = categories.categories[categoryId];
             
-            if (category && category.containers && category.containers.length > 0) {
-                // Die Reihenfolge der Container ist direkt aus der API-Antwort:
-                // Diese wurde korrekt aus der categories.yaml geladen
+            // Finde dieselbe Kategorie in den vollständigen YAML-Daten für die korrekte Reihenfolge
+            let yamlCategory = null;
+            if (window.yamlCategories && window.yamlCategories.categories) {
+                yamlCategory = window.yamlCategories.categories.find(cat => cat.id === categoryId);
+            }
+            
+            // Verwende YAML-Reihenfolge, falls verfügbar, sonst API-Reihenfolge als Fallback
+            if (apiCategory && apiCategory.containers && apiCategory.containers.length > 0) {
+                // Bestimme die zu verwendende Container-Liste mit korrekter Reihenfolge
+                const orderedContainers = (yamlCategory && yamlCategory.containers) ? 
+                    yamlCategory.containers : apiCategory.containers;
                 
-                // Füge Container in der Reihenfolge hinzu
-                category.containers.forEach((containerEntry, index) => {
+                WebDockLogger.debug(`Kategorie ${categoryId}: Verwende ${yamlCategory ? 'YAML' : 'API'}-Reihenfolge mit ${orderedContainers.length} Containern`);
+                
+                // Füge Container in der Reihenfolge aus der YAML-Datei hinzu
+                orderedContainers.forEach((containerEntry, index) => {
                     // Bestimme den Container-Namen
                     const containerName = typeof containerEntry === 'string' ? 
                         containerEntry : containerEntry.name;
@@ -5075,7 +5098,7 @@ function renderContainers(containers, categories) {
                     const containerInfo = containers.find(c => c.name === containerName);
                     
                     if (containerInfo) {
-                        // Erstelle die Container-Karte mit korrekter Position und Beschreibung
+                        // Erstelle die Container-Karte mit korrekter Position aus der YAML
                         // Die Beschreibung wird in createContainerCard aus window.yamlContainerDescriptions geholt
                         const containerCard = createContainerCard(containerInfo, categoryId, index);
                         containerGrid.appendChild(containerCard);
