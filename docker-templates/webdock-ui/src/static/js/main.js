@@ -529,18 +529,20 @@
                 const config = await response.json();
                 
                 // Container-Installation starten
+                const installData = {
+                    name: containerName,
+                    path: `/app/config/compose-files/${containerName}`,
+                    ports: {},
+                    env: {},
+                    volumes: []
+                };
+                
                 const installResponse = await fetch('/api/install', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({
-                        name: containerName,
-                        path: `/app/config/compose-files/${containerName}`,
-                        ports: {}, // Ports-Mapping
-                        env: {},   // Umgebungsvariablen
-                        volumes: [] // Volume-Mapping
-                    })
+                    body: JSON.stringify(installData)
                 });
                 
                 if (!installResponse.ok) {
@@ -1703,5 +1705,10 @@
         // WebSocket-Management
         connectWebSocket: WebSocketManager.connect.bind(WebSocketManager),
         disconnectWebSocket: WebSocketManager.disconnect.bind(WebSocketManager)
+    };
+    
+    // Globale Funktionen für direkten Zugriff aus HTML
+    window.installContainer = function(containerName) {
+        window.WebDock.installContainer(containerName);
     };
 })();
