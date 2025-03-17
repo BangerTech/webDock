@@ -996,203 +996,369 @@
     };
     
     /**
-     * Container-Rendering-System
-     * Rendert Container basierend auf YAML-Konfiguration
+     * Container-Renderer-System
+     * Zeichnet Container basierend auf YAML-Konfiguration
      */
     const ContainerRenderer = {
         // Container rendern
         render: async function() {
             WebDockLogger.info('Rendere Container...');
             
+            // Loading-Overlay anzeigen
+            const loadingOverlay = document.getElementById('loading-overlay');
+            if (loadingOverlay) loadingOverlay.style.display = 'flex';
+            
             try {
-                // Lade YAML-Kategorien und -Container
+                // YAML-Kategorien laden
                 await this._loadCategories();
+                WebDockLogger.info('YAML-Kategorien geladen');
                 
                 // Container rendern
                 await this._renderContainers();
+                WebDockLogger.info('Container gerendert');
                 
-                // Initialisiere Drag & Drop
+                // Drag & Drop-System initialisieren
+                WebDockLogger.info('Initialisiere Drag & Drop-System...');
                 DragDropManager.initialize();
+                WebDockLogger.info('Drag & Drop-System initialisiert');
                 
                 return true;
             } catch (error) {
                 WebDockLogger.error('Fehler beim Rendern der Container:', error);
                 NotificationManager.error('Fehler beim Laden der Container');
                 return false;
+            } finally {
+                // Loading-Overlay verstecken
+                if (loadingOverlay) loadingOverlay.style.display = 'none';
             }
         },
         
         // YAML-Kategorien laden
         _loadCategories: async function() {
+            // Prüfe, ob wir Kategorien im Cache haben
+            const cachedCategories = CacheManager.get('categories');
+            if (cachedCategories) {
+                WebDockLogger.debug('Verwende gecachte Kategorien');
+                window.yamlCategories = cachedCategories;
+                // Extrahiere Container-Beschreibungen aus dem Cache
+                this._extractContainerDescriptions(cachedCategories);
+                return cachedCategories;
+            }
+            
+            // Lade Kategorien vom Server
             try {
-                // Prüfe, ob Cache vorhanden ist
-                const cachedCategories = CacheManager.get('yamlCategories');
-                if (cachedCategories) {
-                    window.yamlCategories = cachedCategories;
-                    return cachedCategories;
-                }
-                
-                // Lade vollständige Kategorien vom Server
-                const response = await fetch('/api/categories/full');
+                const response = await fetch('/api/categories/full', {
+                    headers: {
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Pragma': 'no-cache'
+                    }
+                });
                 
                 if (!response.ok) {
-                    throw new Error(`HTTP-Fehler ${response.status}`);
+                    throw new Error(`Fehler beim Laden der Kategorien: ${response.status}`);
                 }
                 
                 const categoriesData = await response.json();
+                WebDockLogger.debug('Kategorien vom Server geladen');
                 
-                // Speichere Kategorien in globaler Variable und Cache
+                // Speichere Kategorien im Cache
+                CacheManager.set('categories', categoriesData);
                 window.yamlCategories = categoriesData;
-                CacheManager.set('yamlCategories', categoriesData);
                 
                 // Extrahiere Container-Beschreibungen
                 this._extractContainerDescriptions(categoriesData);
                 
-                WebDockLogger.info('YAML-Kategorien geladen');
                 return categoriesData;
             } catch (error) {
-                WebDockLogger.error('Fehler beim Laden der YAML-Kategorien:', error);
-                return null;
+                WebDockLogger.error('Fehler beim Laden der Kategorien:', error);
+                throw error;
             }
         },
         
-        // Container-Beschreibungen aus YAML extrahieren
+        // Container-Beschreibungen aus Kategorien extrahieren
         _extractContainerDescriptions: function(categoriesData) {
-            if (!categoriesData || !categoriesData.categories) return;
+            // Globale Variable für Container-Beschreibungen initialisieren
+            window.yamlContainerDescriptions = {};
             
-            const descriptions = {};
-            
-            categoriesData.categories.forEach(category => {
-                if (!category.containers) return;
+            if (categoriesData && categoriesData.categories) {
+                // Unterstütze sowohl das Listen- als auch das Objekt-Format
+                const categories = Array.isArray(categoriesData.categories) ? 
+                    categoriesData.categories : Object.values(categoriesData.categories);
                 
-                category.containers.forEach(container => {
-                    if (typeof container === 'string') {
-                        // Keine Beschreibung für String-Container
-                    } else if (typeof container === 'object' && container.name) {
-                        if (container.description) {
-                            descriptions[container.name] = container.description;
-                        }
+                // Durchlaufe alle Kategorien und sammle die Beschreibungen
+                categories.forEach(category => {
+                    if (category.containers && Array.isArray(category.containers)) {
+                        category.containers.forEach(container => {
+                            // Container kann ein String oder ein Objekt mit name/description sein
+                            if (typeof container === 'string') {
+                                // Keine Beschreibung verfügbar für String-Container
+                            } else if (typeof container === 'object' && container.name) {
+                                // Speichere die Beschreibung in der globalen Variable
+                                if (container.description) {
+                                    window.yamlContainerDescriptions[container.name] = container.description;
+                                }
+                            }
+                        });
                     }
                 });
-            });
-            
-            // Speichere Beschreibungen in globaler Variable und Cache
-            window.yamlContainerDescriptions = descriptions;
-            CacheManager.set('containerDescriptions', descriptions);
-            
-            WebDockLogger.debug(`${Object.keys(descriptions).length} Container-Beschreibungen extrahiert`);
+                
+                // Cache für Container-Beschreibungen setzen
+                CacheManager.set('descriptions', window.yamlContainerDescriptions);
+            }
         },
         
         // Container rendern
         _renderContainers: async function() {
             try {
                 // Container-Status vom Server laden
-                const containersResponse = await fetch('/api/containers');
+                const response = await fetch('/api/containers', {
+                    headers: {
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Pragma': 'no-cache'
+                    }
+                });
                 
-                if (!containersResponse.ok) {
-                    throw new Error(`HTTP-Fehler ${containersResponse.status}`);
+                if (!response.ok) {
+                    throw new Error(`Fehler beim Laden der Container: ${response.status}`);
                 }
                 
-                const containersData = await containersResponse.json();
+                const containersData = await response.json();
                 
-                // Speichere Container im Cache
-                CacheManager.set('containers', containersData);
-                
-                // Container-Gruppen-Container im DOM finden
-                const containerGroups = DOMCache.get('.container-groups');
+                // Container-Gruppen-Container finden
+                const containerGroups = document.querySelector('.container-groups');
                 if (!containerGroups) {
-                    throw new Error('Container-Gruppen nicht im DOM gefunden');
+                    throw new Error('Container-Gruppen-Element nicht gefunden');
                 }
                 
-                // Container-Gruppen leeren
+                // Existierende Container-Gruppen leeren
                 containerGroups.innerHTML = '';
                 
-                // Verwende YAML-Kategorien wenn verfügbar, sonst API-Daten
-                const categoriesToRender = window.yamlCategories && window.yamlCategories.categories ? 
-                    window.yamlCategories.categories : [];
-                
-                // Kategorien rendern
-                categoriesToRender.forEach(category => {
-                    if (!category.containers || category.containers.length === 0) return;
+                // Wenn YAML-Kategorien vorhanden sind, verwende sie zur Gruppierung der Container
+                const yamlCategories = window.yamlCategories?.categories;
+                if (yamlCategories) {
+                    // Container nach Kategorien gruppieren
+                    const groupedContainers = {};
+                    const assignedContainers = new Set();
                     
-                    // Kategorie-Sektion erstellen
-                    const categorySection = document.createElement('div');
-                    categorySection.className = 'group-section';
-                    categorySection.dataset.categoryId = category.id;
+                    // Kategorien aus YAML in exakter Reihenfolge initialisieren
+                    const sortedCategories = Array.isArray(yamlCategories) ? 
+                        yamlCategories : Object.values(yamlCategories);
                     
-                    // Kategorie-Überschrift und Container-Grid
-                    categorySection.innerHTML = `
-                        <h2><i class="fa ${category.icon || 'fa-cube'}"></i> ${category.name}</h2>
-                        <div class="container-grid"></div>
-                    `;
+                    // Initialisiere alle Kategorien aus YAML
+                    sortedCategories.forEach(category => {
+                        groupedContainers[category.name] = {
+                            name: category.name,
+                            icon: category.icon || 'fa-cube',
+                            containers: []
+                        };
+                    });
                     
-                    const containerGrid = categorySection.querySelector('.container-grid');
+                    // Füge "Imported" Kategorie hinzu
+                    if (!groupedContainers['Imported']) {
+                        groupedContainers['Imported'] = {
+                            name: 'Imported',
+                            icon: 'fa-cloud-download-alt',
+                            containers: []
+                        };
+                    }
                     
-                    // Container in exakter YAML-Reihenfolge hinzufügen
-                    category.containers.forEach((containerEntry, index) => {
-                        // Container-Name ermitteln
-                        const containerName = typeof containerEntry === 'string' ? 
-                            containerEntry : containerEntry.name;
-                        
-                        // Container-Info aus API-Daten suchen
-                        let containerInfo;
-                        
-                        // In allen Gruppen nach dem Container suchen
-                        Object.values(containersData).forEach(group => {
-                            const found = group.containers.find(c => c.name === containerName);
-                            if (found) containerInfo = found;
+                    // Containers aus API-Antwort gruppieren
+                    Object.values(containersData).forEach(group => {
+                        group.containers.forEach(container => {
+                            let assigned = false;
+                            
+                            // Suche die passende Kategorie in YAML-Daten
+                            sortedCategories.forEach(category => {
+                                if (category && Array.isArray(category.containers)) {
+                                    // Prüfe, ob der Container in der Kategorie ist
+                                    const containerInCategory = category.containers.some(c => {
+                                        if (typeof c === 'string') {
+                                            return c === container.name;
+                                        } else if (c && typeof c === 'object') {
+                                            return c.name === container.name;
+                                        }
+                                        return false;
+                                    });
+                                    
+                                    if (containerInCategory && !assignedContainers.has(container.name)) {
+                                        // Füge Container zur Kategorie hinzu
+                                        groupedContainers[category.name].containers.push(container);
+                                        assignedContainers.add(container.name);
+                                        assigned = true;
+                                    }
+                                }
+                            });
+                            
+                            // Wenn keine Kategorie gefunden wurde, zu "Imported" hinzufügen
+                            if (!assigned && !assignedContainers.has(container.name)) {
+                                groupedContainers['Imported'].containers.push(container);
+                                assignedContainers.add(container.name);
+                            }
                         });
+                    });
+                    
+                    // Container in YAML-Reihenfolge rendern
+                    sortedCategories.forEach(category => {
+                        const groupData = groupedContainers[category.name];
                         
-                        if (containerInfo) {
-                            // Container-Karte erstellen und zum Grid hinzufügen
-                            containerGrid.innerHTML += this._createContainerCard(
-                                containerInfo, 
-                                category.id, 
-                                index
-                            );
+                        // Nur Kategorien mit Containern anzeigen
+                        if (groupData && groupData.containers.length > 0) {
+                            this._renderCategorySection(containerGroups, category.name, groupData);
                         }
                     });
                     
-                    // Kategorie zur Container-Gruppe hinzufügen
-                    containerGroups.appendChild(categorySection);
-                });
+                    // Imported-Kategorie zum Schluss rendern, falls vorhanden
+                    const importedGroup = groupedContainers['Imported'];
+                    if (importedGroup && importedGroup.containers.length > 0) {
+                        this._renderCategorySection(containerGroups, 'Imported', importedGroup);
+                    }
+                } 
+                // Fallback, wenn keine YAML-Kategorien vorhanden sind
+                else {
+                    // Direkt die Gruppen aus den API-Daten rendern
+                    Object.values(containersData).forEach(group => {
+                        this._renderCategorySection(containerGroups, group.name, group);
+                    });
+                }
                 
-                WebDockLogger.info('Container gerendert');
+                // Event-Listener für Container-Karten hinzufügen
+                this._addContainerEventListeners();
+                
                 return true;
             } catch (error) {
                 WebDockLogger.error('Fehler beim Rendern der Container:', error);
-                return false;
+                throw error;
             }
+        },
+        
+        // Kategorie-Sektion rendern
+        _renderCategorySection: function(parent, categoryId, groupData) {
+            // Erstelle Kategorie-Sektion
+            const groupSection = document.createElement('div');
+            groupSection.className = 'group-section';
+            groupSection.setAttribute('data-category-id', categoryId);
+            
+            // Erstelle Kategorie-Header
+            const categoryHeader = document.createElement('h2');
+            categoryHeader.innerHTML = `<i class="fa ${groupData.icon}"></i> ${groupData.name}`;
+            groupSection.appendChild(categoryHeader);
+            
+            // Erstelle Container-Grid
+            const containerGrid = document.createElement('div');
+            containerGrid.className = 'container-grid';
+            
+            // Container in der exakten Reihenfolge aus YAML rendern
+            if (window.yamlCategories && window.yamlCategories.categories) {
+                // Finde die Kategorie in den YAML-Daten
+                const yamlCategories = Array.isArray(window.yamlCategories.categories) ?
+                    window.yamlCategories.categories : Object.values(window.yamlCategories.categories);
+                
+                const yamlCategory = yamlCategories.find(cat => 
+                    cat.name === groupData.name || cat.id === categoryId
+                );
+                
+                if (yamlCategory && yamlCategory.containers && Array.isArray(yamlCategory.containers)) {
+                    // Container in der exakten YAML-Reihenfolge rendern
+                    yamlCategory.containers.forEach((containerEntry, index) => {
+                        // Bestimme den Container-Namen
+                        const containerName = typeof containerEntry === 'string' ? 
+                            containerEntry : (containerEntry.name || '');
+                            
+                        if (!containerName) return;
+                        
+                        // Finde den Container in den API-Daten
+                        const containerInfo = groupData.containers.find(c => c.name === containerName);
+                        
+                        if (containerInfo) {
+                            // Container-Karte erstellen und hinzufügen
+                            const containerCard = this._createContainerCard(containerInfo, categoryId, index);
+                            containerGrid.appendChild(containerCard);
+                        }
+                    });
+                    
+                    // Füge verbleibende Container hinzu, die nicht in YAML waren
+                    groupData.containers.forEach((container, index) => {
+                        const isInYaml = yamlCategory.containers.some(c => {
+                            const yamlName = typeof c === 'string' ? c : (c.name || '');
+                            return yamlName === container.name;
+                        });
+                        
+                        if (!isInYaml) {
+                            // Container-Karte erstellen und hinzufügen
+                            const containerCard = this._createContainerCard(container, categoryId, 
+                                yamlCategory.containers.length + index);
+                            containerGrid.appendChild(containerCard);
+                        }
+                    });
+                } else {
+                    // Fallback: Alle Container der Gruppe rendern
+                    groupData.containers.forEach((container, index) => {
+                        const containerCard = this._createContainerCard(container, categoryId, index);
+                        containerGrid.appendChild(containerCard);
+                    });
+                }
+            } else {
+                // Kein YAML vorhanden: Einfach alle Container rendern
+                groupData.containers.forEach((container, index) => {
+                    const containerCard = this._createContainerCard(container, categoryId, index);
+                    containerGrid.appendChild(containerCard);
+                });
+            }
+            
+            // Container-Grid zur Sektion hinzufügen
+            groupSection.appendChild(containerGrid);
+            
+            // Kategorie-Sektion zum übergeordneten Element hinzufügen
+            parent.appendChild(groupSection);
         },
         
         // Container-Karte erstellen
         _createContainerCard: function(container, categoryId, position = -1) {
-            // Logo-URL und Beschreibung
+            // Container-Logo abrufen
             const logoUrl = this._getContainerLogo(container.name);
-            const description = container.description || 
-                                (window.yamlContainerDescriptions && window.yamlContainerDescriptions[container.name]) || 
-                                '';
             
-            // Container-Status und Installation
+            // Container-Beschreibung abrufen
+            let description = '';
+            
+            // Priorisiere YAML-Beschreibung
+            if (window.yamlContainerDescriptions && window.yamlContainerDescriptions[container.name]) {
+                description = window.yamlContainerDescriptions[container.name];
+            }
+            // Fallback auf container.description
+            else if (container.description) {
+                description = container.description;
+            }
+            // Letzter Fallback
+            else {
+                description = `Docker container for ${container.name}`;
+            }
+            
+            // Bestimme Container-Status
             const isInstalled = container.installed || false;
             const state = container.status || 'stopped';
             
-            // Bestimme das Protokoll für Links
+            // Bestimme das richtige Protokoll
             const protocol = container.name === 'scrypted' ? 'https' : 'http';
             
-            // Drag & Drop Attribute
+            // Drag & Drop-Attribute
             const dragAttributes = `
                 draggable="true"
+                ondragstart="handleContainerDragStart(event, '${container.name}', '${categoryId}')"
+                ondragend="handleContainerDragEnd(event)"
+                ondragover="handleContainerDragOver(event)"
+                ondragenter="handleContainerDragEnter(event)"
+                ondragleave="handleContainerDragLeave(event)"
+                ondrop="handleContainerDrop(event)"
                 data-container="${container.name}"
                 data-name="${container.name}"
                 data-position="${position}"
                 data-category="${categoryId}"
             `;
             
-            // Port-Anzeige
+            // Spezielle Port-Anzeige für WatchYourLAN
             let portDisplay = '';
             if (container.name === 'watchyourlan' || container.name === 'watchyourlanarm') {
-                // Spezialfall für WatchYourLAN
+                // Für WatchYourLAN zeigen wir den GUI-Port an
                 const guiPort = container.port || '8840';
                 portDisplay = `<p>Port: <a href="${protocol}://${window.location.hostname}:${guiPort}" 
                                 target="_blank" 
@@ -1200,7 +1366,7 @@
                                 title="Open WatchYourLAN interface"
                             >${guiPort}</a></p>`;
             } else {
-                // Standard-Port-Anzeige
+                // Standard-Port-Anzeige für andere Container
                 portDisplay = `<p>Port: ${container.port ? 
                     `<a href="${protocol}://${window.location.hostname}:${container.port}" 
                         target="_blank" 
@@ -1211,48 +1377,143 @@
             }
             
             // Container-Karte erstellen
-            return `
-                <div class="container-card" ${dragAttributes}>
-                    <div class="status-indicator ${container.status}" title="Status: ${container.status}"></div>
-                    <div class="container-logo">
-                        <img src="${logoUrl}" 
-                             alt="${container.name} logo" 
-                             title="${description}" 
-                             onerror="this.src='/static/img/icons/bangertech.png'">
-                    </div>
-                    <div class="name-with-settings">
-                        <h3 ${container.installed && container.port ? 
-                            `onclick="ContainerManager.getInfo('${container.name}')" style="cursor: pointer;"` : 
-                            ''}>${container.name}</h3>
-                        ${isInstalled ? `
-                            <button class="info-btn" onclick="ContainerManager.getInfo('${container.name}')" title="Container Information">
-                                <i class="fa fa-info-circle"></i>
+            const containerCard = document.createElement('div');
+            containerCard.className = 'container-card';
+            containerCard.setAttribute('draggable', 'true');
+            
+            // Drag & Drop-Attribute setzen
+            const attrs = dragAttributes.trim().split('\n');
+            attrs.forEach(attr => {
+                const parts = attr.trim().split('=');
+                if (parts.length === 2) {
+                    const attrName = parts[0].trim();
+                    // Entferne Anführungszeichen vom Attributwert
+                    const attrValue = parts[1].trim().replace(/^["'](.*)["']$/, '$1');
+                    containerCard.setAttribute(attrName, attrValue);
+                }
+            });
+            
+            // Container-Karte-HTML setzen
+            containerCard.innerHTML = `
+                <div class="status-indicator ${container.status}" title="Status: ${container.status}"></div>
+                <div class="container-logo">
+                    <img src="${logoUrl}" 
+                         alt="${container.name} logo" 
+                         title="${description}" 
+                         onerror="this.src='/static/img/icons/bangertech.png'">
+                </div>
+                <div class="name-with-settings">
+                    <h3 ${isInstalled && container.port ? `onclick="window.open('${protocol}://${window.location.hostname}:${container.port}', '_blank')" style="cursor: pointer;"` : ''}>${container.name}</h3>
+                    ${isInstalled ? `
+                        <button class="info-btn" onclick="window.WebDock.getContainerInfo('${container.name}')" title="Container Information">
+                            <i class="fa fa-info-circle"></i>
+                        </button>
+                    ` : ''}
+                </div>
+                ${portDisplay}
+                <div class="actions">
+                    ${isInstalled ? `
+                        <div class="button-group">
+                            <button class="status-btn ${state}" onclick="window.WebDock.toggleContainer('${container.name}')">
+                                ${state === 'running' ? 'Stop' : 'Start'}
                             </button>
-                        ` : ''}
-                    </div>
-                    ${portDisplay}
-
-                    <div class="actions">
-                        ${isInstalled ? `
-                            <div class="button-group">
-                                <button class="status-btn ${state}" onclick="ContainerManager.toggle('${container.name}')">
-                                    ${state === 'running' ? 'Stop' : 'Start'}
-                                </button>
-                                <button class="update-btn" onclick="ContainerManager.update('${container.name}')" title="Update container">
-                                    <i class="fa fa-refresh"></i>
-                                </button>
-                            </div>
-                        ` : `
-                            <button class="install-btn" onclick="ContainerManager.install('${container.name}')">Install</button>
-                        `}
-                    </div>
+                            <button class="update-btn" onclick="window.WebDock.updateContainer('${container.name}')" title="Update container">
+                                <i class="fa fa-refresh"></i>
+                            </button>
+                        </div>
+                    ` : `
+                        <button class="install-btn" onclick="window.WebDock.installContainer('${container.name}')">Install</button>
+                    `}
                 </div>
             `;
+            
+            return containerCard;
         },
         
-        // Container-Logo URL abrufen
+        // Logo für Container abrufen
         _getContainerLogo: function(containerName) {
-            return `/static/img/containers/${containerName}.png`;
+            // Mapping von Container-Namen zu Logo-Dateien
+            const logoMapping = {
+                'homeassistant': 'homeassistant.png',
+                'whatsupdocker': 'wud.png',
+                'wud': 'wud.png',
+                'code-server': 'codeserver.png',
+                'grafana': 'grafana.png',
+                'filebrowser': 'filebrowser.png',
+                'filestash': 'filebrowser.png',  // Fallback auf filebrowser icon
+                'mosquitto-broker': 'mosquitto.png',
+                'mosquitto': 'mosquitto.png',
+                'raspberrymatic': 'raspberrymatic.png',
+                'dockge': 'dockge.png',
+                'portainer': 'portainer.png',
+                'openhab': 'openhab.png',
+                'zigbee2mqtt': 'mqtt.png',
+                'heimdall': 'heimdall.png',
+                'prometheus': 'prometheus.png',
+                'homebridge': 'homebridge.png',
+                'hoarder': 'hoarder.png',
+                'homepage': 'homepage.png',
+                'node-red': 'node-red.png',
+                'dozzle': 'dozzle.png',
+                'watchyourlan': 'watchyourlan.png',
+                'watchyourlanarm': 'watchyourlan.png',
+                'influxdb': 'influxdb.png',
+                'influxdb-arm': 'influxdb.png',
+                'influxdb-x86': 'influxdb.png',
+                'uptime-kuma': 'uptime-kuma.png',
+                'spoolman': 'spoolman.png',
+                'scrypted': 'scrypted.png',
+                'jellyfin': 'jellyfin.png',
+                'backuppro': 'backuppro.png',
+                'bambucam': 'bambucam.png'
+            };
+            
+            // Wenn ein Mapping existiert, verwende es, ansonsten verwende den Container-Namen
+            const logoFile = logoMapping[containerName] || `${containerName}.png`;
+            return `/static/img/icons/${logoFile}`;
+        },
+        
+        // Event-Listener für Container-Karten hinzufügen
+        _addContainerEventListeners: function() {
+            // Event-Listener für Install-Buttons
+            document.querySelectorAll('.install-btn').forEach(btn => {
+                btn.onclick = function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const containerName = this.closest('.container-card').getAttribute('data-name');
+                    window.WebDock.installContainer(containerName);
+                };
+            });
+            
+            // Event-Listener für Status-Buttons
+            document.querySelectorAll('.status-btn').forEach(btn => {
+                btn.onclick = function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const containerName = this.closest('.container-card').getAttribute('data-name');
+                    window.WebDock.toggleContainer(containerName);
+                };
+            });
+            
+            // Event-Listener für Update-Buttons
+            document.querySelectorAll('.update-btn').forEach(btn => {
+                btn.onclick = function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const containerName = this.closest('.container-card').getAttribute('data-name');
+                    window.WebDock.updateContainer(containerName);
+                };
+            });
+            
+            // Event-Listener für Info-Buttons
+            document.querySelectorAll('.info-btn').forEach(btn => {
+                btn.onclick = function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const containerName = this.closest('.container-card').getAttribute('data-name');
+                    window.WebDock.getContainerInfo(containerName);
+                };
+            });
         }
     };
     

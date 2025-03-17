@@ -55,7 +55,7 @@
                 </div>
             </div>
             <div class="container-groups">
-                <!-- Container-Gruppen werden durch JavaScript eingefügt -->
+                <!-- Container-Gruppen werden durch JavaScript hinzugefügt -->
             </div>
         </div>
 
@@ -393,170 +393,46 @@
         </div>
     </main>
 
-    <script src="static/js/main.js"></script>
-    <div id="debug" style="display:none; padding: 20px;">
-        <h3>Debug Information</h3>
-        <pre id="debug-info"></pre>
+    <!-- Container Installation Modal -->
+    <div id="install-modal" class="modal">
+        <!-- Modal wird dynamisch durch JS gefüllt -->
     </div>
-    <script>
-        // Container-Anzeige
-        fetch('/api/containers')
-            .then(response => response.json())
-            .then(data => {
-                const groups = document.querySelector('.container-groups');
-                if (!data || typeof data !== 'object') {
-                    throw new Error('Invalid data format received from server');
-                }
-                Object.values(data).forEach(group => {
-                    if (!group || !group.containers) {
-                        console.warn('Invalid group data:', group);
-                        return;
-                    }
-                    groups.innerHTML += `
-                        <div class="group-section">
-                            <h2><i class="fa ${group.icon}"></i> ${group.name}</h2>
-                            <div class="container-grid">
-                                ${group.containers.map(container => `
-                                    <div class="container-card">
-                                        <div class="container-logo">
-                                            <img src="/static/img/icons/${container.icon || container.name + '.png'}" 
-                                                 onerror="this.src='/static/img/icons/default.png'" 
-                                                 alt="${container.name}">
-                                        </div>
-                                        <div class="status-indicator ${container.status}"></div>
-                                        <div class="name-with-settings">
-                                            <h3>${container.name}</h3>
-                                            <button class="info-btn" onclick="showContainerInfo('${container.name}')">
-                                                <i class="fa fa-info-circle"></i>
-                                            </button>
-                                        </div>
-                                        <p>Port: ${container.port ? `<a href="http://${window.location.hostname}:${container.port}" target="_blank">${container.port}</a>` : 'N/A'}</p>
-                                        <p>${container.description || ''}</p>
-                                        <div class="actions">
-                                            ${container.installed ? `
-                                                <div class="button-group">
-                                                    <button class="status-btn ${container.status}" 
-                                                            onclick="toggleContainer('${container.name}')">
-                                                        ${container.status === 'running' ? 'Stop' : 'Start'}
-                                                    </button>
-                                                    <button class="update-btn" onclick="updateContainer('${container.name}')">
-                                                        <i class="fa fa-refresh"></i>
-                                                    </button>
-                                                </div>
-                                            ` : `
-                                                <button class="install-btn" 
-                                                        onclick="installContainer('${container.name}')">
-                                                    Install
-                                                </button>
-                                            `}
-                                        </div>
-                                    </div>
-                                `).join('')}
-                            </div>
-                        </div>
-                    `;
-                });
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                document.getElementById('debug-info').textContent = 'Error: ' + error;
-                document.getElementById('debug').style.display = 'block';
-            });
 
-        // Funktion zum Laden der Kategorien
-        function loadCategories() {
-            fetch('/api/categories')
-                .then(response => response.json())
-                .then(data => {
-                    const categories = data.categories || {};
-                    // Aktualisiere die Kategorie-Anzeige
-                    Object.entries(categories).forEach(([id, category]) => {
-                        // Hier die UI-Elemente aktualisieren
-                        const categoryElement = document.querySelector(`[data-category-id="${id}"]`);
-                        if (categoryElement) {
-                            // Aktualisiere die Container-Liste
-                            const containersList = categoryElement.querySelector('.containers-list');
-                            if (containersList) {
-                                containersList.innerHTML = category.containers
-                                    .map(container => `<li>${container}</li>`)
-                                    .join('');
-                            }
-                        }
-                    });
-                })
-                .catch(error => console.error('Error loading categories:', error));
-        }
+    <!-- Loading Overlay -->
+    <div id="loading-overlay">
+        <div class="loading-spinner">
+            <i class="fa fa-spinner fa-spin"></i>
+            <span>Loading...</span>
+        </div>
+    </div>
 
-        // Lade Kategorien beim Start
-        document.addEventListener('DOMContentLoaded', loadCategories);
-    </script>
+    <!-- Notification Container -->
+    <div id="notification-container"></div>
+
     <!-- Directory Browser Modal -->
     <div id="directory-modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>Select Directory</h2>
+                <h3>Select Directory</h3>
                 <button class="close-modal">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="directory-nav">
-                    <button id="parent-dir" class="nav-btn">
-                        <i class="fa fa-level-up"></i> Parent Directory
-                    </button>
-                    <span id="current-path">/</span>
-                </div>
-                <div class="directory-list">
-                    <!-- Directories will be listed here -->
+                <div class="directory-browser">
+                    <div class="directory-toolbar">
+                        <button id="parent-dir" title="Parent Directory"><i class="fa fa-arrow-up"></i></button>
+                        <span id="current-path">/</span>
+                    </div>
+                    <div class="directory-list"></div>
                 </div>
             </div>
             <div class="modal-footer">
-                <button id="select-directory" class="save-btn">Select</button>
+                <button id="select-directory">Select</button>
                 <button class="close-modal">Cancel</button>
             </div>
         </div>
     </div>
-    <!-- Category Modal -->
-    <div id="category-modal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2><i class="fa fa-folder"></i> <span id="category-modal-title">Add Category</span></h2>
-                <button class="close-modal">&times;</button>
-            </div>
-            <div class="modal-body">
-                <form id="category-form">
-                    <div class="form-group">
-                        <label for="category-name">Name</label>
-                        <input type="text" id="category-name" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="category-icon">Icon</label>
-                        <select id="category-icon" required>
-                            <option value="fa-folder">📁 Folder</option>
-                            <option value="fa-home">🏠 Home</option>
-                            <option value="fa-chart-line">📈 Chart</option>
-                            <option value="fa-network-wired">🌐 Network</option>
-                            <option value="fa-code">💻 Code</option>
-                            <option value="fa-comments">💬 Chat</option>
-                            <option value="fa-play-circle">▶️ Media</option>
-                            <option value="fa-th-large">📊 Dashboard</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label for="category-description">Description</label>
-                        <textarea id="category-description" rows="3"></textarea>
-                    </div>
-                    <div class="form-group">
-                        <label>Containers</label>
-                        <div class="container-selector">
-                            <!-- Container-Liste wird dynamisch gefüllt -->
-                        </div>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="submit" form="category-form" class="save-btn">Save Category</button>
-                <button class="close-modal">Cancel</button>
-            </div>
-        </div>
-    </div>
+
+    <!-- Main JavaScript -->
+    <script src="/static/js/main.js"></script>
 </body>
 </html> 
