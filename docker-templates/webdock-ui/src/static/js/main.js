@@ -40,7 +40,7 @@ let lastCategoriesFetch = 0;
 let lastContainersFetch = 0;
 const CACHE_TTL = 60000; // Cache-Gültigkeit in Millisekunden (1 Minute)
 
-// Alias für loadContainers, um Kompatibilität mit moveContainer zu gewährleisten
+// Definiere fetchAndRenderContainers als Alias für loadContainers mit Logging
 const fetchAndRenderContainers = async (forceRefresh = false, explicitCategoriesData = null) => {
     console.log('fetchAndRenderContainers aufgerufen (Alias für loadContainers)');
     
@@ -50,8 +50,27 @@ const fetchAndRenderContainers = async (forceRefresh = false, explicitCategories
     // Warte kurz, um sicherzustellen, dass die UI-Updates abgeschlossen sind
     await new Promise(resolve => setTimeout(resolve, 500));
     
-    // Rufe loadContainers mit den übergebenen Parametern auf
-    return await loadContainers(forceRefresh, explicitCategoriesData);
+    try {
+        // Rufe loadContainers mit den übergebenen Parametern auf
+        const result = await loadContainers(forceRefresh, explicitCategoriesData);
+        
+        // Wenn loadContainers fehlschlägt, versuche einen Fallback mit Seiten-Reload
+        if (!result) {
+            console.warn('loadContainers fehlgeschlagen, versuche Fallback mit Seiten-Reload');
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
+        }
+        
+        return result;
+    } catch (error) {
+        console.error('Fehler in fetchAndRenderContainers:', error);
+        // Im Fehlerfall als Fallback einen Reload durchführen
+        setTimeout(() => {
+            window.location.reload();
+        }, 1000);
+        return null;
+    }
 };
 
 // Hilfsfunktion zum vollständigen Löschen des Browser-Caches für Container und Kategorien
@@ -2133,12 +2152,21 @@ function setupRefreshInterval() {
                     
                     // Container-Daten laden und neu rendern
                     WebDockLogger.info('Lade Container-Daten nach Kategorieänderung...');
-                    fetchAndRenderContainers(false, freshCatData.categories);
-                    
-                    // Warte kurz und scrolle dann zum verschobenen Container
-                    setTimeout(() => {
-                        highlightAndScrollToContainer(containerName, targetCategoryId);
-                    }, 1000);
+                    try {
+                        await fetchAndRenderContainers(false, freshCatData.categories);
+                        
+                        // Warte kurz und scrolle dann zum verschobenen Container
+                        setTimeout(() => {
+                            highlightAndScrollToContainer(containerName, targetCategoryId);
+                        }, 1000);
+                    } catch (containerError) {
+                        console.error('Fehler beim Laden der Container:', containerError);
+                        // Fallback: Seite neu laden
+                        console.log('Führe Fallback mit Seiten-Reload durch...');
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 1000);
+                    }
                 } catch (renderError) {
                     console.error('Fehler beim dynamischen Rendern:', renderError);
                     // Im Fehlerfall als Fallback doch einen Reload durchführen
