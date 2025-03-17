@@ -118,7 +118,7 @@ WebDock fully supports both ARM (Raspberry Pi) and x86/x64 architectures. The sy
 
 ## Installation
 
-The setup script is currently the only supported installation method. It handles all the necessary setup automatically, including:
+The setup script is currently the only supported installation method. It handles all the necessary setup automatically,including:
 
 1. Creating the required directory structure
 2. Setting up configuration files
