@@ -520,7 +520,7 @@
                 NotificationManager.info(`Bereite Installation von ${containerName} vor...`);
                 
                 // Lade die Konfiguration für den Container
-                const response = await fetch(`/api/container/${containerName}/config`);
+                const response = await fetch(`/api/container/${containerName}/config?template=true`);
                 
                 if (!response.ok) {
                     throw new Error(`HTTP-Fehler ${response.status}`);
