@@ -2948,8 +2948,11 @@ def setup_mosquitto(container_name, install_path, config_data=None):
         data_dir = os.path.join(install_path, "data")
         log_dir = os.path.join(install_path, "log")
         
+        # Create directories with correct ownership
         for dir_path in [config_dir, data_dir, log_dir]:
             os.makedirs(dir_path, exist_ok=True, mode=0o755)
+            # Set ownership to mosquitto user (1883:1883)
+            os.chown(dir_path, 1883, 1883)
 
         # Default Werte
         auth_enabled = False
@@ -3073,15 +3076,17 @@ allow_anonymous true
                 logger.info(f"Created password file for user {username}")
                 logger.info(f"Command output: {result.stdout}")
                 
-                # Setze Berechtigungen
+                # Setze Berechtigungen und Ownership
                 os.chmod(passwd_file, 0o644)
+                os.chown(passwd_file, 1883, 1883)
                 
             except subprocess.CalledProcessError as e:
                 logger.error(f"Error creating password file: {e.stderr}")
                 raise
         
-        # Setze Berechtigungen für die Konfigurationsdatei
+        # Setze Berechtigungen und Ownership für die Konfigurationsdatei
         os.chmod(config_path, 0o644)
+        os.chown(config_path, 1883, 1883)
         
         # Prüfe, ob eine Template docker-compose.yml existiert
         template_compose_path = os.path.join(COMPOSE_FILES_DIR, container_name, "docker-compose.yml")
