@@ -339,7 +339,7 @@
                         }
                     })
                     .catch(error => {
-                        WebDockLogger.error('Fehler beim Polling-Abruf:', error);
+                        WebDockLogger.error('Error during polling request:', error);
                     });
             }, 30000); // Alle 30 Sekunden
             
@@ -520,8 +520,8 @@
                 window.showInstallModal(containerName);
                 return { success: true };
             } catch (error) {
-                WebDockLogger.error(`Fehler bei der Installation von ${containerName}:`, error);
-                NotificationManager.error(`Fehler bei der Installation: ${error.message}`);
+                WebDockLogger.error(`Error installing ${containerName}:`, error);
+                NotificationManager.error(`Installation error: ${error.message}`);
                 return { error: error.message };
             }
         },
@@ -529,29 +529,29 @@
         // Container aktualisieren
         update: async function(containerName) {
             try {
-                NotificationManager.info(`Aktualisiere Container ${containerName}...`);
+                NotificationManager.info(`Updating container ${containerName}...`);
                 
                 const response = await fetch(`/api/container/${containerName}/update`, {
                     method: 'POST'
             });
             
             if (!response.ok) {
-                    throw new Error(`HTTP-Fehler ${response.status}`);
+                    throw new Error(`HTTP Error ${response.status}`);
                 }
                 
                 const result = await response.json();
                 
-                NotificationManager.success(`Container ${containerName} erfolgreich aktualisiert`);
+                NotificationManager.success(`Container ${containerName} successfully updated`);
                 
-                // Aktualisiere die UI nach kurzer Verzögerung
+                // Update the UI after a short delay
                 setTimeout(() => {
                     this.getStatus();
                 }, 1000);
                 
                 return result;
         } catch (error) {
-                WebDockLogger.error(`Fehler bei der Aktualisierung von ${containerName}:`, error);
-                NotificationManager.error(`Fehler bei der Aktualisierung: ${error.message}`);
+                WebDockLogger.error(`Error updating ${containerName}:`, error);
+                NotificationManager.error(`Update error: ${error.message}`);
                 return { error: error.message };
             }
         },
@@ -571,32 +571,32 @@
             return this._changeContainerState(containerName, 'restart');
         },
         
-        // Zustandsänderung eines Containers
+        // Change state of a container
         _changeContainerState: async function(containerName, action) {
             try {
-                NotificationManager.info(`${action === 'start' ? 'Starte' : (action === 'stop' ? 'Stoppe' : 'Starte neu')}: ${containerName}...`);
+                NotificationManager.info(`${action === 'start' ? 'Starting' : (action === 'stop' ? 'Stopping' : 'Restarting')}: ${containerName}...`);
                 
                 const response = await fetch(`/api/container/${containerName}/${action}`, {
                     method: 'POST'
                 });
                 
                 if (!response.ok) {
-                    throw new Error(`HTTP-Fehler ${response.status}`);
+                    throw new Error(`HTTP Error ${response.status}`);
                 }
                 
                 const result = await response.json();
                 
-                NotificationManager.success(`Container ${containerName} erfolgreich ${action === 'start' ? 'gestartet' : (action === 'stop' ? 'gestoppt' : 'neugestartet')}`);
+                NotificationManager.success(`Container ${containerName} successfully ${action === 'start' ? 'started' : (action === 'stop' ? 'stopped' : 'restarted')}`);
                 
-                // Aktualisiere die UI nach kurzer Verzögerung
+                // Update the UI after a short delay
                 setTimeout(() => {
                     this.getStatus();
                 }, 1000);
                 
                 return result;
             } catch (error) {
-                WebDockLogger.error(`Fehler beim ${action} von ${containerName}:`, error);
-                NotificationManager.error(`Fehler: ${error.message}`);
+                WebDockLogger.error(`Error ${action} container ${containerName}:`, error);
+                NotificationManager.error(`Error: ${error.message}`);
                 return { error: error.message };
             }
         },
@@ -617,8 +617,8 @@
                 // Starte oder stoppe den Container je nach aktuellem Status
                 return isRunning ? this.stop(containerName) : this.start(containerName);
             } catch (error) {
-                WebDockLogger.error(`Fehler beim Toggle von ${containerName}:`, error);
-                NotificationManager.error(`Fehler: ${error.message}`);
+                WebDockLogger.error(`Error toggling ${containerName}:`, error);
+                NotificationManager.error(`Error: ${error.message}`);
                 return { error: error.message };
             }
         },
@@ -635,7 +635,7 @@
                 const response = await fetch('/api/containers/status');
             
             if (!response.ok) {
-                    throw new Error(`HTTP-Fehler ${response.status}`);
+                    throw new Error(`HTTP Error ${response.status}`);
                 }
                 
                 const statusData = await response.json();
@@ -645,7 +645,7 @@
                 
                 return statusData;
         } catch (error) {
-                WebDockLogger.error('Fehler beim Abrufen des Container-Status:', error);
+                WebDockLogger.error('Error retrieving container status:', error);
                 return [];
             }
         },
@@ -672,7 +672,7 @@
                 const response = await fetch(`/api/container/${containerName}/info`);
                 
                 if (!response.ok) {
-                    throw new Error(`HTTP-Fehler ${response.status}`);
+                    throw new Error(`HTTP Error ${response.status}`);
                 }
                 
                 const containerInfo = await response.json();
@@ -685,8 +685,8 @@
                 
                 return containerInfo;
             } catch (error) {
-                WebDockLogger.error(`Fehler beim Abrufen der Info für ${containerName}:`, error);
-                NotificationManager.error(`Fehler beim Abrufen der Container-Info: ${error.message}`);
+                WebDockLogger.error(`Error retrieving info for ${containerName}:`, error);
+                NotificationManager.error(`Error retrieving container info: ${error.message}`);
                 return { error: error.message };
             }
         },
@@ -751,11 +751,14 @@
             // Formatiere Netzwerke
             let networksHtml = '';
             if (containerData.network) {
+                // Umwandlung in Array falls es String ist
+                const networks = Array.isArray(containerData.network) ? containerData.network : [containerData.network];
                 networksHtml = `
                     <div class="info-section">
                         <h3><i class="fa fa-network-wired"></i> Netzwerke</h3>
-                        <div class="info-grid">
-                            <div class="info-item">${containerData.network}</div>
+                        <div class="network-badge-container">
+                            ${networks.map(network => 
+                                `<div class="network-badge"><i class="fa fa-network-wired"></i>${network}</div>`).join('')}
                         </div>
                     </div>
                 `;
@@ -800,7 +803,7 @@
             const idHtml = containerData.id ? `
                 <div class="info-section">
                     <h3><i class="fa fa-fingerprint"></i> Container ID</h3>
-                    <p class="monospace">${containerData.id}</p>
+                    <p class="monospace">${containerData.id.substring(0, 12)}</p>
                 </div>
             ` : '';
             
@@ -833,7 +836,11 @@
                 const response = await fetch(`/api/container/${containerName}/config-files`);
                 const data = await response.json();
                 if (data.config_files && data.config_files.length > 0) {
-                    configFiles = [...configFiles, ...data.config_files];
+                    // Entferne doppelte Dateien basierend auf dem Dateipfad
+                    const existingPaths = configFiles.map(file => file.path);
+                    const uniqueAdditionalFiles = data.config_files.filter(file => 
+                        !existingPaths.includes(file.path));
+                    configFiles = [...configFiles, ...uniqueAdditionalFiles];
                 }
             } catch (error) {
                 console.error('Error loading config files:', error);
@@ -959,13 +966,13 @@
                         });
 
                         if (response.ok) {
-                            NotificationManager.success('Konfiguration erfolgreich gespeichert');
+                            NotificationManager.success('Configuration successfully saved');
                         } else {
                             throw new Error('Failed to save configuration');
                         }
                     } catch (error) {
                         console.error('Error saving config:', error);
-                        NotificationManager.error('Fehler beim Speichern der Konfiguration');
+                        NotificationManager.error('Error saving configuration');
                     }
                 });
             });
@@ -1106,7 +1113,7 @@
                 dragData = JSON.parse(jsonData);
                 if (!dragData || !dragData.type) return;
             } catch (error) {
-                WebDockLogger.error('Fehler beim Parsen der Drag-Daten:', error);
+                WebDockLogger.error('Error parsing drag data:', error);
                 return;
             }
             
@@ -1193,7 +1200,7 @@
             });
 
             if (!response.ok) {
-                    throw new Error(`HTTP-Fehler ${response.status}`);
+                    throw new Error(`HTTP Error ${response.status}`);
                 }
                 
                 // Speichere Informationen für das Scrollen nach dem Reload
@@ -1201,7 +1208,7 @@
                 sessionStorage.setItem('lastMovedCategory', categoryId);
                 
                 // Zeige Erfolgsmeldung an
-                NotificationManager.success(`Container ${containerName} wurde erfolgreich neu angeordnet`);
+                NotificationManager.success(`Container ${containerName} successfully rearranged`);
                 
                 // Lade die Seite neu, um die Änderungen zu übernehmen
                 setTimeout(() => {
@@ -1210,8 +1217,8 @@
                 
                 return await response.json();
             } catch (error) {
-                WebDockLogger.error(`Fehler beim Neuordnen des Containers ${containerName}:`, error);
-                NotificationManager.error(`Fehler beim Neuordnen: ${error.message}`);
+                WebDockLogger.error(`Error rearranging container ${containerName}:`, error);
+                NotificationManager.error(`Error rearranging: ${error.message}`);
                 return { error: error.message };
             }
         },
@@ -1240,7 +1247,7 @@
                 });
                 
                 if (!response.ok) {
-                    throw new Error(`HTTP-Fehler ${response.status}`);
+                    throw new Error(`HTTP Error ${response.status}`);
                 }
                 
                 // Speichere Informationen für das Scrollen nach dem Reload
@@ -1248,7 +1255,7 @@
                 sessionStorage.setItem('lastMovedCategory', targetCategoryId);
                 
                 // Zeige Erfolgsmeldung an
-                NotificationManager.success(`Container ${containerName} wurde erfolgreich verschoben`);
+                NotificationManager.success(`Container ${containerName} successfully moved`);
                 
                 // Lade die Seite neu, um die Änderungen zu übernehmen
                     setTimeout(() => {
@@ -1257,8 +1264,8 @@
                 
                 return await response.json();
             } catch (error) {
-                WebDockLogger.error(`Fehler beim Verschieben des Containers ${containerName}:`, error);
-                NotificationManager.error(`Fehler beim Verschieben: ${error.message}`);
+                WebDockLogger.error(`Error moving container ${containerName}:`, error);
+                NotificationManager.error(`Error moving: ${error.message}`);
                 return { error: error.message };
             }
         }
@@ -1293,8 +1300,8 @@
                 
                 return true;
             } catch (error) {
-                WebDockLogger.error('Fehler beim Rendern der Container:', error);
-                NotificationManager.error('Fehler beim Laden der Container');
+                WebDockLogger.error('Error rendering containers:', error);
+                NotificationManager.error('Error loading containers');
                 return false;
             } finally {
                 // Loading-Overlay verstecken
@@ -1324,7 +1331,7 @@
                 });
                 
                 if (!response.ok) {
-                    throw new Error(`Fehler beim Laden der Kategorien: ${response.status}`);
+                    throw new Error(`Error loading categories: ${response.status}`);
                 }
                 
                 const categoriesData = await response.json();
@@ -1339,7 +1346,7 @@
                 
                 return categoriesData;
             } catch (error) {
-                WebDockLogger.error('Fehler beim Laden der Kategorien:', error);
+                WebDockLogger.error('Error loading categories:', error);
                 throw error;
             }
         },
@@ -1388,7 +1395,7 @@
                 });
                 
                 if (!response.ok) {
-                    throw new Error(`Fehler beim Laden der Container: ${response.status}`);
+                    throw new Error(`Error loading containers: ${response.status}`);
                 }
                 
                 const containersData = await response.json();
@@ -1495,7 +1502,7 @@
                 
                 return true;
             } catch (error) {
-                WebDockLogger.error('Fehler beim Rendern der Container:', error);
+                WebDockLogger.error('Error rendering containers:', error);
                 throw error;
             }
         },
@@ -1817,14 +1824,17 @@
                     }
                 });
                 
+                // Navigationsleiste initialisieren
+                this._setupNavigation();
+                
                 // Periodische Updates
                 this._startPeriodicUpdates();
                 
-                WebDockLogger.info('WebDock UI erfolgreich initialisiert');
+                WebDockLogger.info('WebDock UI successfully initialized');
                 return true;
     } catch (error) {
-                WebDockLogger.error('Fehler bei der Initialisierung:', error);
-                NotificationManager.error('Fehler beim Initialisieren der Anwendung');
+                WebDockLogger.error('Error during initialization:', error);
+                NotificationManager.error('Error initializing the application');
                 return false;
             }
         },
@@ -1861,6 +1871,50 @@
             }
         },
         
+        // Navigationsleiste initialisieren
+        _setupNavigation: function() {
+            WebDockLogger.info('Initialisiere Navigation...');
+            
+            // Hole alle Tab-Links aus der Navigationsleiste
+            const navLinks = document.querySelectorAll('nav a[data-tab]');
+            const tabContents = document.querySelectorAll('.tab-content');
+            
+            // Füge Event-Listener für jeden Tab hinzu
+            navLinks.forEach(link => {
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    
+                    // Hole den Tab-Namen aus dem data-tab Attribut
+                    const tabId = this.getAttribute('data-tab');
+                    
+                    // Entferne active Klasse von allen Links
+                    navLinks.forEach(navLink => navLink.classList.remove('active'));
+                    
+                    // Verstecke alle Tab-Inhalte
+                    tabContents.forEach(content => content.classList.remove('active'));
+                    
+                    // Aktiviere den ausgewählten Tab
+                    this.classList.add('active');
+                    document.getElementById(tabId).classList.add('active');
+                    
+                    // Speichere den aktiven Tab im localStorage
+                    localStorage.setItem('activeTab', tabId);
+                    
+                    WebDockLogger.info(`Tab gewechselt zu: ${tabId}`);
+                });
+            });
+            
+            // Stelle den letzten aktiven Tab wieder her, wenn vorhanden
+            const activeTab = localStorage.getItem('activeTab');
+            if (activeTab) {
+                const activeLink = document.querySelector(`nav a[data-tab="${activeTab}"]`);
+                if (activeLink) {
+                    // Simuliere einen Klick auf den aktiven Tab
+                    activeLink.click();
+                }
+            }
+        },
+        
         // Periodische Updates starten
         _startPeriodicUpdates: function() {
             // Nur alle 5 Minuten aktualisieren, wenn keine Modals offen sind
@@ -1888,10 +1942,10 @@
                 // Container neu rendern
                 await ContainerRenderer.render();
                 
-                NotificationManager.success('Container erfolgreich aktualisiert');
+                NotificationManager.success('Containers successfully updated');
             } catch (error) {
-                WebDockLogger.error('Fehler beim Aktualisieren der Container:', error);
-                NotificationManager.error('Fehler beim Aktualisieren der Container');
+                WebDockLogger.error('Error updating containers:', error);
+                NotificationManager.error('Error updating containers');
             } finally {
                 if (loadingOverlay) loadingOverlay.style.display = 'none';
             }

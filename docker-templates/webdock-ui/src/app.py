@@ -1568,8 +1568,8 @@ def get_docker_compose_cmd():
 @app.route('/api/toggle/<container_name>', methods=['POST'])
 def toggle_container(container_name):
     try:
-        # Prüfe, ob die Docker-Compose-Datei existiert
-        # Verwende COMPOSE_DATA_DIR statt hartcodiertem Pfad, um Benutzereinstellungen zu respektieren
+        # Check if the Docker Compose file exists
+        # Use COMPOSE_DATA_DIR instead of hardcoded path to respect user settings
         compose_file_path = os.path.join(COMPOSE_DATA_DIR, container_name, 'docker-compose.yml')
         logger.info(f"Checking for docker-compose file at: {compose_file_path}")
         if not os.path.isfile(compose_file_path):
@@ -1579,7 +1579,7 @@ def toggle_container(container_name):
                 'message': f"Docker Compose file not found for {container_name}. The container might not be properly installed."
             }), 404
             
-        # Prüfe ob Container läuft
+        # Check if container is running
         result = subprocess.run(
             ['docker', 'ps', '--format', '{{.Names}}'],
             capture_output=True,
@@ -1587,7 +1587,7 @@ def toggle_container(container_name):
         )
         running_containers = set(result.stdout.strip().split('\n')) if result.stdout.strip() else set()
         
-        # Mögliche Container-Namen
+        # Possible container names
         container_names = [
             container_name,
             f"{container_name}-1",
@@ -1599,12 +1599,12 @@ def toggle_container(container_name):
         
         try:
             if is_running:
-                # Stoppe Container
+                # Stop container
                 subprocess.run(f'{docker_compose_cmd} -f {compose_file_path} down',
                              shell=True, check=True)
                 message = f"Container {container_name} stopped"
             else:
-                # Starte Container
+                # Start container
                 subprocess.run(f'{docker_compose_cmd} -f {compose_file_path} up -d',
                              shell=True, check=True)
                 message = f"Container {container_name} started"
@@ -1629,16 +1629,16 @@ def toggle_container(container_name):
 @app.route('/api/update/<container_name>', methods=['POST'])
 def update_container(container_name):
     try:
-        # Führe Pull und Neustart durch
-        compose_file = f'/home/webDock/webdock-data/{container_name}/docker-compose.yml'
+        # Perform pull and restart
+        compose_file = os.path.join(COMPOSE_DATA_DIR, container_name, 'docker-compose.yml')
         
-        # Stoppe Container
+        # Stop container
         subprocess.run(['docker', 'compose', '-f', compose_file, 'down'])
         
-        # Hole neuestes Image
+        # Pull latest image
         subprocess.run(['docker', 'compose', '-f', compose_file, 'pull'])
         
-        # Starte Container neu
+        # Restart container
         subprocess.run(['docker', 'compose', '-f', compose_file, 'up', '-d'])
         
         return jsonify({
@@ -1647,6 +1647,169 @@ def update_container(container_name):
         })
     except Exception as e:
         logger.exception(f"Error updating container {container_name}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+# New endpoints for container control via REST API
+@app.route('/api/container/<container_name>/start', methods=['POST'])
+def start_container(container_name):
+    try:
+        # Check if the Docker Compose file exists
+        compose_file_path = os.path.join(COMPOSE_DATA_DIR, container_name, 'docker-compose.yml')
+        logger.info(f"Starting container {container_name} with compose file: {compose_file_path}")
+        
+        if not os.path.isfile(compose_file_path):
+            # Try alternative locations
+            alt_paths = [
+                os.path.join(WEBDOCK_BASE_PATH, 'webdock-data', container_name, 'docker-compose.yml'),
+                os.path.join(WEBDOCK_BASE_PATH, 'docker-compose-data', container_name, 'docker-compose.yml')
+            ]
+            
+            for path in alt_paths:
+                if os.path.isfile(path):
+                    compose_file_path = path
+                    logger.info(f"Found alternative compose file at: {compose_file_path}")
+                    break
+            else:
+                logger.error(f"Docker Compose file not found for container {container_name}")
+                return jsonify({
+                    'status': 'error',
+                    'message': f"Docker Compose file not found for {container_name}. The container might not be properly installed."
+                }), 404
+        
+        # Start the container
+        docker_compose_cmd = get_docker_compose_cmd()
+        result = subprocess.run(
+            f'{docker_compose_cmd} -f {compose_file_path} up -d',
+            shell=True,
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode != 0:
+            logger.error(f"Failed to start container {container_name}: {result.stderr}")
+            return jsonify({
+                'status': 'error',
+                'message': f"Failed to start container {container_name}: {result.stderr}"
+            }), 500
+            
+        return jsonify({
+            'status': 'success',
+            'message': f"Container {container_name} started successfully"
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error starting container {container_name}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/container/<container_name>/stop', methods=['POST'])
+def stop_container(container_name):
+    try:
+        # Check if the Docker Compose file exists
+        compose_file_path = os.path.join(COMPOSE_DATA_DIR, container_name, 'docker-compose.yml')
+        logger.info(f"Stopping container {container_name} with compose file: {compose_file_path}")
+        
+        if not os.path.isfile(compose_file_path):
+            # Try alternative locations
+            alt_paths = [
+                os.path.join(WEBDOCK_BASE_PATH, 'webdock-data', container_name, 'docker-compose.yml'),
+                os.path.join(WEBDOCK_BASE_PATH, 'docker-compose-data', container_name, 'docker-compose.yml')
+            ]
+            
+            for path in alt_paths:
+                if os.path.isfile(path):
+                    compose_file_path = path
+                    logger.info(f"Found alternative compose file at: {compose_file_path}")
+                    break
+            else:
+                logger.error(f"Docker Compose file not found for container {container_name}")
+                return jsonify({
+                    'status': 'error',
+                    'message': f"Docker Compose file not found for {container_name}. The container might not be properly installed."
+                }), 404
+        
+        # Stop the container
+        docker_compose_cmd = get_docker_compose_cmd()
+        result = subprocess.run(
+            f'{docker_compose_cmd} -f {compose_file_path} down',
+            shell=True,
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode != 0:
+            logger.error(f"Failed to stop container {container_name}: {result.stderr}")
+            return jsonify({
+                'status': 'error',
+                'message': f"Failed to stop container {container_name}: {result.stderr}"
+            }), 500
+            
+        return jsonify({
+            'status': 'success',
+            'message': f"Container {container_name} stopped successfully"
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error stopping container {container_name}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/container/<container_name>/restart', methods=['POST'])
+def restart_container(container_name):
+    try:
+        # Check if the Docker Compose file exists
+        compose_file_path = os.path.join(COMPOSE_DATA_DIR, container_name, 'docker-compose.yml')
+        logger.info(f"Restarting container {container_name} with compose file: {compose_file_path}")
+        
+        if not os.path.isfile(compose_file_path):
+            # Try alternative locations
+            alt_paths = [
+                os.path.join(WEBDOCK_BASE_PATH, 'webdock-data', container_name, 'docker-compose.yml'),
+                os.path.join(WEBDOCK_BASE_PATH, 'docker-compose-data', container_name, 'docker-compose.yml')
+            ]
+            
+            for path in alt_paths:
+                if os.path.isfile(path):
+                    compose_file_path = path
+                    logger.info(f"Found alternative compose file at: {compose_file_path}")
+                    break
+            else:
+                logger.error(f"Docker Compose file not found for container {container_name}")
+                return jsonify({
+                    'status': 'error',
+                    'message': f"Docker Compose file not found for {container_name}. The container might not be properly installed."
+                }), 404
+        
+        # Restart the container
+        docker_compose_cmd = get_docker_compose_cmd()
+        result = subprocess.run(
+            f'{docker_compose_cmd} -f {compose_file_path} restart',
+            shell=True,
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode != 0:
+            logger.error(f"Failed to restart container {container_name}: {result.stderr}")
+            return jsonify({
+                'status': 'error',
+                'message': f"Failed to restart container {container_name}: {result.stderr}"
+            }), 500
+            
+        return jsonify({
+            'status': 'success',
+            'message': f"Container {container_name} restarted successfully"
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error restarting container {container_name}")
         return jsonify({
             'status': 'error',
             'message': str(e)
