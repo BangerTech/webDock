@@ -2730,25 +2730,7 @@ def get_container_config(container_name):
         return jsonify({'error': str(e)}), 500
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/container/<container_name>/restart', methods=['POST'])
-def restart_container(container_name):
-    try:
-        compose_file = f'/home/webDock/webdock-data/{container_name}/docker-compose.yml'
-        
-        # Neustart des Containers
-        subprocess.run(['docker', 'compose', '-f', compose_file, 'down'])
-        subprocess.run(['docker', 'compose', '-f', compose_file, 'up', '-d'])
-        
-        return jsonify({
-            'status': 'success',
-            'message': f'Container {container_name} restarted successfully'
-        })
-    except Exception as e:
-        logger.exception(f"Error restarting {container_name}")
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 500
+
 
 def update_port_mapping(compose_content, new_port):
     """Aktualisiert Port-Mappings in der docker-compose.yml"""
