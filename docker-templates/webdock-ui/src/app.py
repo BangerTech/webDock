@@ -2933,6 +2933,46 @@ def debug_icons():
         'full_path': os.path.abspath(img_dir)
     })
 
+def set_file_permissions(path, user=None, group=None, mode=None):
+    """Set file permissions and ownership for a file or directory
+    
+    Args:
+        path (str): Path to file or directory
+        user (str, optional): User ID or name
+        group (str, optional): Group ID or name 
+        mode (int, optional): File mode (e.g. 0o644)
+    """
+    try:
+        if mode is not None:
+            os.chmod(path, mode)
+            logger.debug(f"Set mode {oct(mode)} for {path}")
+            
+        if user is not None or group is not None:
+            # Convert user/group names to IDs if needed
+            uid = -1
+            gid = -1
+            
+            if user is not None:
+                try:
+                    uid = int(user)
+                except ValueError:
+                    import pwd
+                    uid = pwd.getpwnam(user).pw_uid
+                    
+            if group is not None:
+                try:
+                    gid = int(group)
+                except ValueError:
+                    import grp
+                    gid = grp.getgrnam(group).gr_gid
+                    
+            os.chown(path, uid, gid)
+            logger.debug(f"Set ownership {user}:{group} for {path}")
+            
+    except Exception as e:
+        logger.error(f"Error setting permissions for {path}: {e}")
+        raise
+
 def setup_mosquitto(container_name, install_path, config_data=None):
     """Setup für Mosquitto Broker"""
     try:
@@ -2943,16 +2983,19 @@ def setup_mosquitto(container_name, install_path, config_data=None):
         logger.info(f"Container name: {container_name}")
         logger.info(f"Install path: {install_path}")
         
-        # Erstelle Verzeichnisse
+        # Get user/group from config
+        user = config_data.get('user', '1883:1883').split(':')[0] if config_data else '1883'
+        group = config_data.get('user', '1883:1883').split(':')[1] if config_data else '1883'
+        
+        # Create directories
         config_dir = os.path.join(install_path, "config")
         data_dir = os.path.join(install_path, "data")
         log_dir = os.path.join(install_path, "log")
         
-        # Create directories with correct ownership
+        # Create directories with proper permissions
         for dir_path in [config_dir, data_dir, log_dir]:
-            os.makedirs(dir_path, exist_ok=True, mode=0o755)
-            # Set ownership to mosquitto user (1883:1883)
-            os.chown(dir_path, 1883, 1883)
+            os.makedirs(dir_path, exist_ok=True)
+            set_file_permissions(dir_path, user=user, group=group, mode=0o755)
 
         # Default Werte
         auth_enabled = False
@@ -3063,7 +3106,18 @@ allow_anonymous true
                 # Erstelle leere Passwort-Datei
                 with open(passwd_file, 'w') as f:
                     pass
-                os.chmod(passwd_file, 0o644)
+                # Set permissions for passwd file
+                passwd_perms = config_files.get('passwd', {
+                    'user': user,
+                    'group': group,
+                    'mode': 0o600
+                })
+                set_file_permissions(
+                    passwd_file,
+                    user=passwd_perms['user'],
+                    group=passwd_perms['group'],
+                    mode=passwd_perms['mode']
+                )
                 
                 # Erstelle die Passwort-Datei im Container
                 result = subprocess.run([
@@ -3076,17 +3130,39 @@ allow_anonymous true
                 logger.info(f"Created password file for user {username}")
                 logger.info(f"Command output: {result.stdout}")
                 
-                # Setze Berechtigungen und Ownership
-                os.chmod(passwd_file, 0o644)
-                os.chown(passwd_file, 1883, 1883)
+                # Setze Berechtigungen
+                # Set permissions for passwd file
+                passwd_perms = config_files.get('passwd', {
+                    'user': user,
+                    'group': group,
+                    'mode': 0o600
+                })
+                set_file_permissions(
+                    passwd_file,
+                    user=passwd_perms['user'],
+                    group=passwd_perms['group'],
+                    mode=passwd_perms['mode']
+                )
                 
             except subprocess.CalledProcessError as e:
                 logger.error(f"Error creating password file: {e.stderr}")
                 raise
         
-        # Setze Berechtigungen und Ownership für die Konfigurationsdatei
-        os.chmod(config_path, 0o644)
-        os.chown(config_path, 1883, 1883)
+        # Set permissions for config files based on config_files spec
+        config_files = config_data.get('config_files', {}) if config_data else {}
+        
+        # Set permissions for mosquitto.conf
+        mosquitto_conf_perms = config_files.get('mosquitto.conf', {
+            'user': user,
+            'group': group,
+            'mode': 0o644
+        })
+        set_file_permissions(
+            config_path,
+            user=mosquitto_conf_perms['user'],
+            group=mosquitto_conf_perms['group'],
+            mode=mosquitto_conf_perms['mode']
+        )
         
         # Prüfe, ob eine Template docker-compose.yml existiert
         template_compose_path = os.path.join(COMPOSE_FILES_DIR, container_name, "docker-compose.yml")

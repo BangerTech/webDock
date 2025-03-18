@@ -692,7 +692,7 @@
         },
         
         // Container-Info-Modal anzeigen
-        _showContainerInfoModal: function(containerName, containerInfo) {
+        _showContainerInfoModal: async function(containerName, containerInfo) {
             // Erstelle Modal
             const modal = document.createElement('div');
             modal.className = 'modal';
@@ -703,10 +703,10 @@
             if (containerInfo.ports && containerInfo.ports.length > 0) {
                 portsHtml = `
                     <div class="info-section">
-                        <h3>Ports</h3>
-                        <ul>
-                            ${containerInfo.ports.map(port => `<li>${port}</li>`).join('')}
-                        </ul>
+                        <h3><i class="fa fa-plug"></i> Ports</h3>
+                        <div class="info-grid">
+                            ${containerInfo.ports.map(port => `<div class="info-item">${port}</div>`).join('')}
+                        </div>
                     </div>
                 `;
             }
@@ -716,10 +716,10 @@
             if (containerInfo.volumes && containerInfo.volumes.length > 0) {
                 volumesHtml = `
                     <div class="info-section">
-                        <h3>Volumes</h3>
-                        <ul>
-                            ${containerInfo.volumes.map(volume => `<li>${volume}</li>`).join('')}
-                        </ul>
+                        <h3><i class="fa fa-hdd"></i> Volumes</h3>
+                        <div class="info-grid">
+                            ${containerInfo.volumes.map(volume => `<div class="info-item">${volume}</div>`).join('')}
+                        </div>
                     </div>
                 `;
             }
@@ -729,10 +729,15 @@
             if (containerInfo.environment && Object.keys(containerInfo.environment).length > 0) {
                 envVarsHtml = `
                     <div class="info-section">
-                        <h3>Umgebungsvariablen</h3>
-                        <ul>
-                            ${Object.entries(containerInfo.environment).map(([key, value]) => `<li><strong>${key}:</strong> ${value}</li>`).join('')}
-                        </ul>
+                        <h3><i class="fa fa-cog"></i> Umgebungsvariablen</h3>
+                        <div class="env-vars-grid">
+                            ${Object.entries(containerInfo.environment).map(([key, value]) => `
+                                <div class="env-var-item">
+                                    <div class="env-var-key">${key}</div>
+                                    <div class="env-var-value">${value}</div>
+                                </div>
+                            `).join('')}
+                        </div>
                     </div>
                 `;
             }
@@ -742,21 +747,25 @@
             if (containerInfo.networks && containerInfo.networks.length > 0) {
                 networksHtml = `
                     <div class="info-section">
-                        <h3>Netzwerke</h3>
-                        <ul>
-                            ${containerInfo.networks.map(network => `<li>${network}</li>`).join('')}
-                        </ul>
+                        <h3><i class="fa fa-network-wired"></i> Netzwerke</h3>
+                        <div class="info-grid">
+                            ${containerInfo.networks.map(network => `<div class="info-item">${network}</div>`).join('')}
+                        </div>
                     </div>
                 `;
             }
             
             // Formatiere Status
             const statusHtml = `
-                <div class="info-section">
-                    <h3>Status</h3>
+                <div class="info-section status-section">
                     <div class="status-block ${containerInfo.status}">
-                        <i class="fa fa-${containerInfo.status === 'running' ? 'play-circle' : 'stop-circle'}"></i> 
-                        ${containerInfo.status === 'running' ? 'Läuft seit ' + (containerInfo.uptime || 'unbekannt') : 'Gestoppt'}
+                        <div class="status-icon">
+                            <i class="fa fa-${containerInfo.status === 'running' ? 'play-circle' : 'stop-circle'}"></i>
+                        </div>
+                        <div class="status-info">
+                            <h3>Status</h3>
+                            <p>${containerInfo.status === 'running' ? 'Läuft seit ' + (containerInfo.uptime || 'unbekannt') : 'Gestoppt'}</p>
+                        </div>
                     </div>
                 </div>
             `;
@@ -764,49 +773,118 @@
             // Formatiere Image
             const imageHtml = containerInfo.image ? `
                 <div class="info-section">
-                    <h3>Image</h3>
-                    <p>${containerInfo.image}</p>
+                    <h3><i class="fa fa-cube"></i> Image</h3>
+                    <div class="image-info">
+                        <p>${containerInfo.image}</p>
+                        ${containerInfo.platform ? `<p class="platform-info"><i class="fa fa-microchip"></i> ${containerInfo.platform}</p>` : ''}
+                    </div>
                 </div>
             ` : '';
             
             // Formatiere ID 
             const idHtml = containerInfo.id ? `
                 <div class="info-section">
-                    <h3>Container ID</h3>
-                    <p>${containerInfo.id}</p>
+                    <h3><i class="fa fa-fingerprint"></i> Container ID</h3>
+                    <p class="monospace">${containerInfo.id}</p>
                 </div>
             ` : '';
             
-            // Modal-Inhalt erstellen
-        modal.innerHTML = `
-                <div class="modal-content" style="max-width: 700px;">
-                <div class="modal-header">
-                        <h2><i class="fa fa-info-circle"></i> ${containerName} Info</h2>
-                    <button class="close-modal">&times;</button>
+            // Formatiere Health Check
+            const healthHtml = containerInfo.health ? `
+                <div class="info-section">
+                    <h3><i class="fa fa-heartbeat"></i> Health Check</h3>
+                    <div class="health-status ${containerInfo.health.toLowerCase()}">
+                        <span class="health-indicator"></span>
+                        ${containerInfo.health}
+                    </div>
                 </div>
-                <div class="modal-body">
-                        <div class="container-info">
-                            ${statusHtml}
-                            ${imageHtml}
-                            ${idHtml}
-                            ${portsHtml}
-                            ${volumesHtml}
-                            ${envVarsHtml}
-                            ${networksHtml}
+            ` : '';
+            
+            // Lade Konfigurationsdateien
+            let configFiles = [];
+            try {
+                const response = await fetch(`/api/container/${containerName}/config-files`);
+                const data = await response.json();
+                configFiles = data.config_files || [];
+            } catch (error) {
+                console.error('Error loading config files:', error);
+            }
+
+            // Formatiere Konfigurationsdateien-Tabs
+            const configTabsHtml = configFiles.length > 0 ? `
+                <div class="config-tabs">
+                    <div class="tab-header">
+                        <button class="tab-btn active" data-tab="info"><i class="fa fa-info-circle"></i> Info</button>
+                        ${configFiles.map((file, index) => `
+                            <button class="tab-btn" data-tab="config-${index}">
+                                <i class="fa fa-file-code"></i> ${file.name}
+                            </button>
+                        `).join('')}
+                    </div>
+                </div>
+            ` : '';
+
+            // Formatiere Konfigurationsdateien-Inhalte
+            const configContentsHtml = configFiles.length > 0 ? `
+                ${configFiles.map((file, index) => `
+                    <div class="tab-content" id="config-${index}" style="display: none;">
+                        <div class="config-file-header">
+                            <span class="config-file-path">${file.path}</span>
+                            <button class="save-config-btn" data-file-index="${index}">
+                                <i class="fa fa-save"></i> Speichern
+                            </button>
                         </div>
+                        <textarea class="config-editor" data-file-path="${file.path}">${file.content}</textarea>
+                    </div>
+                `).join('')}
+            ` : '';
+
+            // Modal-Inhalt erstellen
+            modal.innerHTML = `
+                <div class="modal-content info-modal">
+                    <div class="modal-header">
+                        <div class="header-content">
+                            <img src="${getContainerLogo(containerName)}" alt="${containerName} logo" class="container-logo">
+                            <h2>${containerName}</h2>
+                        </div>
+                        <button class="close-modal" title="Schließen">&times;</button>
+                    </div>
+                    ${configTabsHtml}
+                    <div class="modal-body">
+                        <div class="tab-content" id="info" style="display: block;">
+                            <div class="container-info">
+                                <div class="info-grid-layout">
+                                    ${statusHtml}
+                                    ${healthHtml}
+                                    ${imageHtml}
+                                    ${idHtml}
+                                    ${portsHtml}
+                                    ${volumesHtml}
+                                    ${envVarsHtml}
+                                    ${networksHtml}
+                                </div>
+                            </div>
+                        </div>
+                        ${configContentsHtml}
+                    </div>
+                    <div class="modal-footer">
+                        <div class="button-group">
+                            <button class="action-btn ${containerInfo.status === 'running' ? 'stop-btn' : 'start-btn'}" 
+                                    onclick="window.WebDock.${containerInfo.status === 'running' ? 'stopContainer' : 'startContainer'}('${containerName}'); closeModal();">
+                                <i class="fa fa-${containerInfo.status === 'running' ? 'stop' : 'play'}"></i> 
+                                ${containerInfo.status === 'running' ? 'Stoppen' : 'Starten'}
+                            </button>
+                            <button class="action-btn restart-btn" onclick="window.WebDock.restartContainer('${containerName}'); closeModal();">
+                                <i class="fa fa-sync"></i> Neustart
+                            </button>
+                            <button class="cancel-btn" onclick="closeModal()">
+                                <i class="fa fa-times"></i> Schließen
+                            </button>
+                        </div>
+                    </div>
                 </div>
-                <div class="modal-footer">
-                        <button class="action-btn" onclick="window.WebDock.${containerInfo.status === 'running' ? 'stopContainer' : 'startContainer'}('${containerName}'); closeModal();">
-                            <i class="fa fa-${containerInfo.status === 'running' ? 'stop' : 'play'}"></i> 
-                            ${containerInfo.status === 'running' ? 'Stoppen' : 'Starten'}
-                        </button>
-                        <button class="action-btn" onclick="window.WebDock.restartContainer('${containerName}'); closeModal();">
-                            <i class="fa fa-sync"></i> Neustart
-                        </button>
-                        <button class="cancel-btn" onclick="closeModal()">Schließen</button>
-                </div>
-            </div>
-        `;
+            `;
+
 
             document.body.appendChild(modal);
             setTimeout(() => modal.classList.add('show'), 10);
@@ -814,6 +892,54 @@
             // Event-Listener für Schließen-Buttons
             modal.querySelector('.close-modal').addEventListener('click', () => closeModal());
             modal.querySelector('.cancel-btn').addEventListener('click', () => closeModal());
+
+            // Event-Listener für Tabs
+            const tabButtons = modal.querySelectorAll('.tab-btn');
+            tabButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    // Deaktiviere alle Tabs
+                    tabButtons.forEach(btn => btn.classList.remove('active'));
+                    modal.querySelectorAll('.tab-content').forEach(content => content.style.display = 'none');
+
+                    // Aktiviere ausgewählten Tab
+                    button.classList.add('active');
+                    const tabId = button.dataset.tab;
+                    modal.querySelector(`#${tabId}`).style.display = 'block';
+                });
+            });
+
+            // Event-Listener für Speichern-Buttons
+            const saveButtons = modal.querySelectorAll('.save-config-btn');
+            saveButtons.forEach(button => {
+                button.addEventListener('click', async () => {
+                    const fileIndex = button.dataset.fileIndex;
+                    const textarea = modal.querySelector(`#config-${fileIndex} .config-editor`);
+                    const filePath = textarea.dataset.filePath;
+                    const content = textarea.value;
+
+                    try {
+                        const response = await fetch(`/api/container/${containerName}/save-config`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                path: filePath,
+                                content: content
+                            })
+                        });
+
+                        if (response.ok) {
+                            NotificationManager.success('Konfiguration erfolgreich gespeichert');
+                        } else {
+                            throw new Error('Failed to save configuration');
+                        }
+                    } catch (error) {
+                        console.error('Error saving config:', error);
+                        NotificationManager.error('Fehler beim Speichern der Konfiguration');
+                    }
+                });
+            });
         }
     };
     
@@ -2181,7 +2307,7 @@
                 });
             }
 
-            // Spezielle Container-Konfigurationen
+            // Container-specific configurations
             if (containerName === 'mosquitto' || containerName === 'mosquitto-broker') {
                 const authEnabled = document.getElementById('mqtt-auth')?.checked || false;
                 const username = document.getElementById('mqtt-username')?.value || 'admin';
@@ -2203,7 +2329,21 @@
                 // Add user and group configuration
                 installData.user = "1883:1883";
                 
-                // Add a config template to ensure the config file exists
+                // Specify config file permissions
+                installData.config_files = {
+                    "mosquitto.conf": {
+                        user: "1883",
+                        group: "1883",
+                        mode: "644"
+                    },
+                    "passwd": {
+                        user: "1883",
+                        group: "1883",
+                        mode: "600"
+                    }
+                };
+                
+                // Add config template
                 installData.config_template = `
 # Default listener
 listener 1883
