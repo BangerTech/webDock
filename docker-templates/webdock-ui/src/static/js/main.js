@@ -2032,6 +2032,287 @@
      * Settings Management
      * Handles the settings page functionality
      */
+    /**
+     * Terminal and File Explorer Management
+     */
+    const TerminalManager = {
+        // Current terminal session
+        currentSession: null,
+        // Terminal instance
+        terminal: null,
+        
+        // Initialize the terminal
+        initializeTerminal: function() {
+            // Terminal setup would go here if using a terminal library like xterm.js
+            const terminalElement = document.getElementById('terminal');
+            if (terminalElement) {
+                terminalElement.innerHTML = '<div class="terminal-output"></div><input type="text" class="terminal-input" placeholder="Enter command...">';
+                
+                const terminalInput = terminalElement.querySelector('.terminal-input');
+                terminalInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        const command = terminalInput.value;
+                        this.executeCommand(command);
+                        terminalInput.value = '';
+                    }
+                });
+            }
+        },
+        
+        // Execute a command in the terminal
+        executeCommand: function(command) {
+            if (!this.currentSession) return;
+            
+            const terminalOutput = document.querySelector('.terminal-output');
+            terminalOutput.innerHTML += `<div class="command">${command}</div>`;
+            
+            fetch('/api/execute', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    connection: this.currentSession,
+                    command: command
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    terminalOutput.innerHTML += `<div class="response">${data.output}</div>`;
+                } else {
+                    terminalOutput.innerHTML += `<div class="error">${data.message}</div>`;
+                }
+                terminalOutput.scrollTop = terminalOutput.scrollHeight;
+            })
+            .catch(error => {
+                terminalOutput.innerHTML += `<div class="error">Error: ${error.message}</div>`;
+                terminalOutput.scrollTop = terminalOutput.scrollHeight;
+            });
+        },
+        
+        // Update terminal connection info
+        updateConnectionInfo: function(host, username) {
+            const connectionInfo = document.querySelector('.connection-info');
+            if (connectionInfo) {
+                connectionInfo.textContent = `${username}@${host}`;
+            }
+        }
+    };
+    
+    /**
+     * Cron Job Editor
+     */
+    const CronJobManager = {
+        // Initialize cron job editor
+        initialize: function() {
+            this.loadCrontabs();
+            this.setupEventHandlers();
+        },
+        
+        // Load crontabs from server
+        loadCrontabs: function() {
+            fetch('/api/crontabs')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        this.displayCrontabs(data.crontabs);
+                    } else {
+                        NotificationManager.error(`Failed to load crontabs: ${data.message}`);
+                    }
+                })
+                .catch(error => {
+                    NotificationManager.error(`Error loading crontabs: ${error.message}`);
+                });
+        },
+        
+        // Display crontabs in the UI
+        displayCrontabs: function(crontabs) {
+            const crontabsList = document.getElementById('crontabs-list');
+            if (!crontabsList) return;
+            
+            crontabsList.innerHTML = '';
+            
+            if (crontabs.length === 0) {
+                crontabsList.innerHTML = '<div class="no-crontabs">No scheduled tasks found</div>';
+                return;
+            }
+            
+            crontabs.forEach(crontab => {
+                const crontabItem = document.createElement('div');
+                crontabItem.className = 'crontab-item';
+                crontabItem.innerHTML = `
+                    <div class="crontab-schedule">${crontab.schedule}</div>
+                    <div class="crontab-command">${crontab.command}</div>
+                    <div class="crontab-actions">
+                        <button class="edit-btn" data-id="${crontab.id}"><i class="fa fa-edit"></i></button>
+                        <button class="delete-btn" data-id="${crontab.id}"><i class="fa fa-trash"></i></button>
+                    </div>
+                `;
+                crontabsList.appendChild(crontabItem);
+            });
+            
+            // Setup edit and delete buttons
+            crontabsList.querySelectorAll('.edit-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    this.editCrontab(btn.dataset.id);
+                });
+            });
+            
+            crontabsList.querySelectorAll('.delete-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    this.deleteCrontab(btn.dataset.id);
+                });
+            });
+        },
+        
+        // Setup event handlers for cron editor
+        setupEventHandlers: function() {
+            const addBtn = document.getElementById('add-crontab');
+            if (addBtn) {
+                addBtn.addEventListener('click', () => {
+                    this.showCrontabForm();
+                });
+            }
+        },
+        
+        // Show crontab form for adding/editing
+        showCrontabForm: function(crontabId = null) {
+            // Form implementation would go here
+        },
+        
+        // Edit an existing crontab
+        editCrontab: function(crontabId) {
+            // Edit implementation would go here
+        },
+        
+        // Delete a crontab
+        deleteCrontab: function(crontabId) {
+            if (!confirm('Are you sure you want to delete this scheduled task?')) return;
+            
+            fetch('/api/delete-schedule', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    id: crontabId
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    NotificationManager.success('Scheduled task deleted successfully');
+                    this.loadCrontabs();
+                } else {
+                    NotificationManager.error(`Failed to delete scheduled task: ${data.message}`);
+                }
+            })
+            .catch(error => {
+                NotificationManager.error(`Error deleting scheduled task: ${error.message}`);
+            });
+        }
+    };
+    
+    /**
+     * Container Import
+     */
+    const ContainerImportManager = {
+        // Initialize container import
+        initialize: function() {
+            this.setupEventHandlers();
+        },
+        
+        // Setup event handlers for container import
+        setupEventHandlers: function() {
+            const importForm = document.getElementById('import-form');
+            if (importForm) {
+                importForm.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.importContainer();
+                });
+            }
+            
+            const convertBtn = document.getElementById('convert-docker-run');
+            if (convertBtn) {
+                convertBtn.addEventListener('click', () => {
+                    this.convertDockerRun();
+                });
+            }
+        },
+        
+        // Import a container
+        importContainer: function() {
+            const composeContent = document.getElementById('compose-content').value;
+            const containerName = document.getElementById('container-name').value;
+            
+            if (!composeContent || !containerName) {
+                NotificationManager.error('Please enter both container name and docker-compose content');
+                return;
+            }
+            
+            fetch('/api/import-compose', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    name: containerName,
+                    content: composeContent
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    NotificationManager.success('Container imported successfully');
+                    // Clear form
+                    document.getElementById('compose-content').value = '';
+                    document.getElementById('container-name').value = '';
+                } else {
+                    NotificationManager.error(`Failed to import container: ${data.message}`);
+                }
+            })
+            .catch(error => {
+                NotificationManager.error(`Error importing container: ${error.message}`);
+            });
+        },
+        
+        // Convert docker run command to docker-compose
+        convertDockerRun: function() {
+            const dockerRunCommand = document.getElementById('docker-run-command').value;
+            
+            if (!dockerRunCommand) {
+                NotificationManager.error('Please enter a docker run command');
+                return;
+            }
+            
+            fetch('/api/convert-docker-run', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    command: dockerRunCommand
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    document.getElementById('compose-content').value = data.compose;
+                } else {
+                    NotificationManager.error(`Failed to convert command: ${data.message}`);
+                }
+            })
+            .catch(error => {
+                NotificationManager.error(`Error converting command: ${error.message}`);
+            });
+        }
+    };
+    
+    /**
+     * Settings Management
+     * Handles the settings page functionality
+     */
     const SettingsManager = {
         // Initialize settings page
         initialize: function() {
@@ -2041,34 +2322,48 @@
         
         // Load Docker settings
         _loadDockerSettings: function() {
+            console.log('Loading Docker settings...');
             // Load data location
             fetch('/api/settings/data-location')
                 .then(response => response.json())
                 .then(data => {
-                    if (data.location) {
-                        document.getElementById('data-location').value = data.location;
+                    const dataLocationField = document.getElementById('data-location');
+                    if (dataLocationField && data.location) {
+                        dataLocationField.value = data.location;
                     }
                 })
                 .catch(error => {
                     console.error('Error loading data location:', error);
+                    NotificationManager.error('Fehler beim Laden der Datenverzeichnis-Einstellung');
                 });
             
             // Load Docker info (version, compose version, default network)
             fetch('/api/docker/info')
                 .then(response => response.json())
                 .then(data => {
-                    if (data.version) {
-                        document.getElementById('docker-version').value = data.version;
+                    // Docker Version
+                    const dockerVersionField = document.getElementById('docker-version');
+                    if (dockerVersionField) {
+                        dockerVersionField.value = data.version || 'Nicht verfügbar';
                     }
-                    if (data.composeVersion) {
-                        document.getElementById('docker-compose-version').value = data.composeVersion;
+                    
+                    // Docker Compose Version
+                    const composeVersionField = document.getElementById('docker-compose-version');
+                    if (composeVersionField) {
+                        composeVersionField.value = data.composeVersion || 'Nicht verfügbar';
                     }
-                    if (data.defaultNetwork) {
-                        document.getElementById('docker-network').value = data.defaultNetwork;
+                    
+                    // Default Network
+                    const networkField = document.getElementById('docker-network');
+                    if (networkField) {
+                        networkField.value = data.defaultNetwork || 'bridge';
                     }
+                    
+                    console.log('Docker settings loaded:', data);
                 })
                 .catch(error => {
                     console.error('Error loading Docker info:', error);
+                    NotificationManager.error('Fehler beim Laden der Docker-Informationen');
                 });
         },
         
@@ -2113,6 +2408,25 @@
         App.initialize();
         SettingsManager.initialize();
         
+        // Initialize special functions managers
+        if (document.getElementById('special')) {
+            CronJobManager.initialize();
+            ContainerImportManager.initialize();
+            // Terminal is initialized when connecting
+        }
+        
+        // Status Page: Update System Status (CPU, Memory, Disk)
+        updateSystemStatus();
+        setInterval(updateSystemStatus, 60000); // Update every minute
+        
+        // Status Page: Update Container Health
+        updateContainerHealth();
+        setInterval(updateContainerHealth, 60000); // Update every minute
+        
+        // Status Page: Update System Logs
+        updateSystemLogs();
+        setInterval(updateSystemLogs, 10000); // Update every 10 seconds
+        
         // Special Functions - Toggle Section
         window.toggleSection = function(header) {
             const content = header.nextElementSibling;
@@ -2124,6 +2438,616 @@
                 header.querySelector('.fa-chevron-up').classList.replace('fa-chevron-up', 'fa-chevron-down');
             }
         };
+        
+        // Global function to connect to server (called from HTML)
+        window.connectToServer = function() {
+            const host = document.getElementById('host').value;
+            const port = document.getElementById('port').value;
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            
+            if (!host || !username || !password) {
+                NotificationManager.error('Please fill in all connection fields');
+                return;
+            }
+            
+            // Show loading state
+            const connectBtn = document.querySelector('.connect-btn');
+            if (connectBtn) {
+                connectBtn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Connecting...';
+                connectBtn.disabled = true;
+            }
+            
+            fetch('/api/connect', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    host: host,
+                    port: port,
+                    username: username,
+                    password: password
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    // Hide connection form and show terminal
+                    document.querySelector('.connection-form').style.display = 'none';
+                    document.querySelector('.terminal-container').style.display = 'block';
+                    
+                    // Initialize terminal
+                    TerminalManager.currentSession = data.connection;
+                    TerminalManager.initializeTerminal();
+                    TerminalManager.updateConnectionInfo(host, username);
+                    
+                    NotificationManager.success('Connected successfully');
+                } else {
+                    NotificationManager.error(`Connection failed: ${data.message}`);
+                    
+                    // Reset button state
+                    if (connectBtn) {
+                        connectBtn.innerHTML = '<i class="fa fa-plug"></i> Connect';
+                        connectBtn.disabled = false;
+                    }
+                }
+            })
+            .catch(error => {
+                NotificationManager.error(`Connection error: ${error.message}`);
+                
+                // Reset button state
+                if (connectBtn) {
+                    connectBtn.innerHTML = '<i class="fa fa-plug"></i> Connect';
+                    connectBtn.disabled = false;
+                }
+            });
+        };
+        
+        // Global function to disconnect from server (called from HTML)
+        window.disconnectFromServer = function() {
+            if (!TerminalManager.currentSession) return;
+            
+            fetch('/api/disconnect', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    connection: TerminalManager.currentSession
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    // Reset terminal session
+                    TerminalManager.currentSession = null;
+                    
+                    // Show connection form and hide terminal
+                    document.querySelector('.connection-form').style.display = 'block';
+                    document.querySelector('.terminal-container').style.display = 'none';
+                    
+                    // Reset form fields
+                    document.getElementById('password').value = '';
+                    
+                    NotificationManager.success('Disconnected successfully');
+                } else {
+                    NotificationManager.error(`Disconnection failed: ${data.message}`);
+                }
+            })
+            .catch(error => {
+                NotificationManager.error(`Disconnection error: ${error.message}`);
+            });
+        };
+    });
+    
+    // System Status Functions
+    
+    // Update System Status (CPU, Memory, Disk)
+    function updateSystemStatus() {
+        fetch('/api/system/status')
+            .then(response => response.json())
+            .then(data => {
+                // CPU Usage
+                const cpuGauge = document.querySelector('#cpu-gauge');
+                if (cpuGauge) {
+                    cpuGauge.style.setProperty('--percentage', `${data.cpu}%`);
+                    document.querySelector('#cpu-value').textContent = `${data.cpu}%`;
+                }
+
+                // Memory Usage
+                const memGauge = document.querySelector('#memory-gauge');
+                if (memGauge) {
+                    memGauge.style.setProperty('--percentage', `${data.memory}%`);
+                    document.querySelector('#memory-value').textContent = `${data.memory}%`;
+                }
+
+                // Disk Usage
+                const diskGauge = document.querySelector('#disk-gauge');
+                if (diskGauge) {
+                    diskGauge.style.setProperty('--percentage', `${data.disk}%`);
+                    document.querySelector('#disk-value').textContent = `${data.disk}%`;
+                }
+            })
+            .catch(error => {
+                console.error('Error updating system status:', error);
+                NotificationManager.error(`Error updating system status: ${error.message}`);
+            });
+    }
+
+    // Container Health Updates
+    function updateContainerHealth() {
+        fetch('/api/containers/health')
+            .then(response => response.json())
+            .then(data => {
+                const healthGrid = document.getElementById('container-health');
+                if (!healthGrid) return;
+                
+                healthGrid.innerHTML = '';
+                
+                if (!data || data.length === 0) {
+                    healthGrid.innerHTML = '<div class="no-data-message">No container health data available</div>';
+                    return;
+                }
+                
+                data.forEach(container => {
+                    healthGrid.innerHTML += `
+                        <div class="health-card">
+                            <h3>${container.name}</h3>
+                            <div class="health-status ${container.status}">
+                                <i class="fa fa-${container.status === 'healthy' ? 'check' : 'warning'}"></i>
+                                ${container.status}
+                            </div>
+                            <div class="health-details">
+                                <p>Uptime: ${container.uptime || 'N/A'}</p>
+                                <p>Memory: ${container.memory || 'N/A'}</p>
+                                <p>CPU: ${container.cpu || 'N/A'}</p>
+                            </div>
+                        </div>
+                    `;
+                });
+            })
+            .catch(error => {
+                console.error('Error updating container health:', error);
+                const healthGrid = document.getElementById('container-health');
+                if (healthGrid) {
+                    healthGrid.innerHTML = '<div class="error-message">Failed to load container health data</div>';
+                }
+            });
+    }
+
+    // Format date for logs
+    function formatLogDate(timestamp) {
+        if (!timestamp) return 'N/A';
+        
+        try {
+            // Check if timestamp is a Unix timestamp (number)
+            if (typeof timestamp === 'number') {
+                return new Date(timestamp * 1000).toLocaleString();
+            }
+            
+            // Try to parse the date
+            const date = new Date(timestamp);
+            if (isNaN(date.getTime())) {
+                return 'Invalid Date';
+            }
+            
+            // Format the date
+            return date.toLocaleString('de-DE', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        } catch (e) {
+            console.error('Error formatting date:', e);
+            return 'Invalid Date';
+        }
+    }
+
+    // System Logs Updates
+    function updateSystemLogs(filterLevel = null, filterSource = null, searchTerm = null) {
+        fetch('/api/system/logs')
+            .then(response => response.json())
+            .then(data => {
+                const logsContainer = document.getElementById('system-logs');
+                if (!logsContainer) return;
+                
+                // Create filter controls if they don't exist yet
+                const logsSection = logsContainer.closest('.section-content');
+                if (!document.getElementById('log-filter-controls') && logsSection) {
+                    const filterControls = document.createElement('div');
+                    filterControls.id = 'log-filter-controls';
+                    filterControls.className = 'log-filter-controls';
+                    filterControls.innerHTML = `
+                        <div class="filter-row">
+                            <div class="filter-group">
+                                <span>Level:</span>
+                                <button class="log-filter-btn active" data-filter="level" data-value="all">All</button>
+                                <button class="log-filter-btn" data-filter="level" data-value="info">Info</button>
+                                <button class="log-filter-btn" data-filter="level" data-value="warning">Warning</button>
+                                <button class="log-filter-btn" data-filter="level" data-value="error">Error</button>
+                            </div>
+                            <div class="filter-group">
+                                <span>Source:</span>
+                                <button class="log-filter-btn active" data-filter="source" data-value="all">All</button>
+                                <button class="log-filter-btn" data-filter="source" data-value="webdock-ui">WebDock</button>
+                                <button class="log-filter-btn" data-filter="source" data-value="docker">Docker</button>
+                                <button class="log-filter-btn" data-filter="source" data-value="system">System</button>
+                            </div>
+                        </div>
+                        <div class="filter-row">
+                            <div class="search-group">
+                                <input type="text" id="log-search" placeholder="Search logs..." class="form-control">
+                                <button id="log-search-btn"><i class="fa fa-search"></i></button>
+                            </div>
+                            <div class="actions-group">
+                                <button id="log-refresh-btn" title="Refresh logs"><i class="fa fa-refresh"></i></button>
+                                <button id="log-clear-filters-btn" title="Clear all filters"><i class="fa fa-times"></i></button>
+                                <button id="log-export-btn" title="Export logs"><i class="fa fa-download"></i></button>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // Insert before the logs container
+                    logsSection.insertBefore(filterControls, logsContainer);
+                    
+                    // Event listeners for filter buttons
+                    document.querySelectorAll('.log-filter-btn').forEach(btn => {
+                        btn.addEventListener('click', () => {
+                            // Deactivate other buttons in same group
+                            const filterType = btn.dataset.filter;
+                            document.querySelectorAll(`.log-filter-btn[data-filter="${filterType}"]`).forEach(b => {
+                                b.classList.remove('active');
+                            });
+                            btn.classList.add('active');
+                            
+                            // Get current filters
+                            const currentLevelFilter = document.querySelector('.log-filter-btn[data-filter="level"].active').dataset.value;
+                            const currentSourceFilter = document.querySelector('.log-filter-btn[data-filter="source"].active').dataset.value;
+                            const currentSearchTerm = document.getElementById('log-search').value;
+                            
+                            // Update logs with new filters
+                            updateSystemLogs(
+                                currentLevelFilter !== 'all' ? currentLevelFilter : null,
+                                currentSourceFilter !== 'all' ? currentSourceFilter : null,
+                                currentSearchTerm || null
+                            );
+                        });
+                    });
+                    
+                    // Event listener for search
+                    document.getElementById('log-search-btn').addEventListener('click', () => {
+                        const searchTerm = document.getElementById('log-search').value;
+                        const currentLevelFilter = document.querySelector('.log-filter-btn[data-filter="level"].active').dataset.value;
+                        const currentSourceFilter = document.querySelector('.log-filter-btn[data-filter="source"].active').dataset.value;
+                        
+                        updateSystemLogs(
+                            currentLevelFilter !== 'all' ? currentLevelFilter : null,
+                            currentSourceFilter !== 'all' ? currentSourceFilter : null,
+                            searchTerm || null
+                        );
+                    });
+                    
+                    // Event listener for Enter key in search field
+                    document.getElementById('log-search').addEventListener('keyup', (e) => {
+                        if (e.key === 'Enter') {
+                            document.getElementById('log-search-btn').click();
+                        }
+                    });
+                    
+                    // Event listener for refresh button
+                    document.getElementById('log-refresh-btn').addEventListener('click', () => {
+                        const currentLevelFilter = document.querySelector('.log-filter-btn[data-filter="level"].active').dataset.value;
+                        const currentSourceFilter = document.querySelector('.log-filter-btn[data-filter="source"].active').dataset.value;
+                        const currentSearchTerm = document.getElementById('log-search').value;
+                        
+                        updateSystemLogs(
+                            currentLevelFilter !== 'all' ? currentLevelFilter : null,
+                            currentSourceFilter !== 'all' ? currentSourceFilter : null,
+                            currentSearchTerm || null
+                        );
+                    });
+                    
+                    // Event listener for clear filters button
+                    document.getElementById('log-clear-filters-btn').addEventListener('click', () => {
+                        // Reset all filters
+                        document.querySelectorAll('.log-filter-btn[data-value="all"]').forEach(btn => {
+                            const filterType = btn.dataset.filter;
+                            document.querySelectorAll(`.log-filter-btn[data-filter="${filterType}"]`).forEach(b => {
+                                b.classList.remove('active');
+                            });
+                            btn.classList.add('active');
+                        });
+                        document.getElementById('log-search').value = '';
+                        
+                        // Update logs without filters
+                        updateSystemLogs();
+                    });
+                    
+                    // Event listener for export button
+                    document.getElementById('log-export-btn').addEventListener('click', () => {
+                        const logs = data.logs || [];
+                        
+                        // Create CSV from current logs
+                        const csvContent = 'data:text/csv;charset=utf-8,'
+                            + 'Timestamp,Level,Source,Message\n'
+                            + logs.map(log => {
+                                return `"${log.timestamp}","${log.level}","${log.source}","${log.message.replace(/"/g, '""')}"`;
+                            }).join('\n');
+                        
+                        const encodedUri = encodeURI(csvContent);
+                        const link = document.createElement('a');
+                        link.setAttribute('href', encodedUri);
+                        link.setAttribute('download', `webdock-logs-${new Date().toISOString().split('T')[0]}.csv`);
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                    });
+                    
+                    // Add CSS for the new elements
+                    if (!document.getElementById('log-styles')) {
+                        const style = document.createElement('style');
+                        style.id = 'log-styles';
+                        style.textContent = `
+                            .log-filter-controls {
+                                margin-bottom: 15px;
+                                padding: 15px;
+                                background: var(--color-background-dark);
+                                border-radius: 8px;
+                                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                            }
+                            .filter-row {
+                                display: flex;
+                                justify-content: space-between;
+                                margin-bottom: 10px;
+                            }
+                            .filter-row:last-child {
+                                margin-bottom: 0;
+                            }
+                            .filter-group, .search-group, .actions-group {
+                                display: flex;
+                                align-items: center;
+                                gap: 10px;
+                            }
+                            .log-filter-btn {
+                                padding: 6px 12px;
+                                border: none;
+                                border-radius: 4px;
+                                background: var(--color-background);
+                                color: var(--color-text);
+                                cursor: pointer;
+                                transition: all 0.2s;
+                            }
+                            .log-filter-btn:hover {
+                                background: var(--color-background-light);
+                            }
+                            .log-filter-btn.active {
+                                background: var(--color-primary);
+                                color: white;
+                            }
+                            #log-search {
+                                width: 250px;
+                                border-radius: 4px;
+                                border: 1px solid var(--color-border);
+                                padding: 6px 12px;
+                            }
+                            #log-search-btn, #log-refresh-btn, #log-clear-filters-btn, #log-export-btn {
+                                padding: 6px 12px;
+                                border: none;
+                                border-radius: 4px;
+                                background: var(--color-primary);
+                                color: white;
+                                cursor: pointer;
+                                transition: all 0.2s;
+                            }
+                            #log-search-btn:hover, #log-refresh-btn:hover, #log-clear-filters-btn:hover, #log-export-btn:hover {
+                                background: var(--color-primary-dark);
+                            }
+                            #system-logs {
+                                max-height: 600px;
+                                overflow-y: auto;
+                                border-radius: 8px;
+                                border: 1px solid var(--color-border);
+                                background: var(--color-background);
+                                padding: 10px;
+                                font-family: monospace;
+                            }
+                            .log-entry {
+                                display: grid;
+                                grid-template-columns: 100px 80px 80px 1fr;
+                                gap: 10px;
+                                padding: 8px;
+                                border-bottom: 1px solid var(--color-border);
+                                align-items: center;
+                            }
+                            .log-time {
+                                color: var(--color-text-muted);
+                                font-size: 0.9em;
+                                white-space: nowrap;
+                            }
+                            .log-source {
+                                color: var(--color-text);
+                                font-size: 0.9em;
+                                white-space: nowrap;
+                            }
+                            .log-level {
+                                display: inline-flex;
+                                align-items: center;
+                                gap: 5px;
+                                font-size: 0.9em;
+                                white-space: nowrap;
+                            }
+                            .log-message {
+                                color: var(--color-text);
+                                line-height: 1.4;
+                                word-break: break-word;
+                            }
+                            .log-entry.info .log-level { color: #17a2b8; }
+                            .log-entry.warning .log-level { color: #ffc107; }
+                            .log-entry.error .log-level { color: #dc3545; }
+                            .log-entry.error .log-message {
+                                color: #dc3545;
+                            }
+                            .log-entry i {
+                                font-size: 12px;
+                                width: 14px;
+                                text-align: center;
+                            }
+                        `;
+                        document.head.appendChild(style);
+                    }
+                }
+                
+                // Get logs from response
+                const allLogs = data.logs || [];
+                
+                // Filter logs based on filters
+                const filteredLogs = allLogs.filter(log => {
+                    // Filter by level
+                    if (filterLevel && log.level.toLowerCase() !== filterLevel.toLowerCase()) {
+                        return false;
+                    }
+                    
+                    // Filter by source
+                    if (filterSource && log.source.toLowerCase() !== filterSource.toLowerCase()) {
+                        return false;
+                    }
+                    
+                    // Filter by search term
+                    if (searchTerm && !log.message.toLowerCase().includes(searchTerm.toLowerCase())) {
+                        return false;
+                    }
+                    
+                    return true;
+                });
+                
+                // Update filtered logs display
+                logsContainer.innerHTML = filteredLogs.map(log => {
+                    const levelClass = log.level.toLowerCase();
+                    const sourceIcon = {
+                        'webdock-ui': 'fa-desktop',
+                        'docker': 'fa-docker',
+                        'system': 'fa-cog'
+                    }[log.source] || 'fa-info-circle';
+                    
+                    return `
+                        <div class="log-entry ${levelClass}">
+                            <span class="log-time">${log.timestamp || formatLogDate(log.time) || 'N/A'}</span>
+                            <span class="log-source">${log.source || 'system'}</span>
+                            <span class="log-level">${log.level}</span>
+                            <span class="log-message">${log.message}</span>
+                        </div>
+                    `;
+                }).join('');
+                
+                // Show message if no logs found
+                if (filteredLogs.length === 0) {
+                    logsContainer.innerHTML = `
+                        <div class="no-logs-message">
+                            <i class="fa fa-info-circle"></i>
+                            <p>No logs found matching current filters.</p>
+                        </div>
+                    `;
+                }
+                
+                // Scroll to latest log
+                logsContainer.scrollTop = logsContainer.scrollHeight;
+            })
+            .catch(error => {
+                console.error('Error loading logs:', error);
+                const logsContainer = document.getElementById('system-logs');
+                if (logsContainer) {
+                    logsContainer.innerHTML = `
+                        <div class="error-message">
+                            <i class="fa fa-exclamation-circle"></i>
+                            <p>Failed to load system logs: ${error.message}</p>
+                        </div>
+                    `;
+                }
+            });
+    }
+    
+    // Status Monitor Class
+    class StatusMonitor {
+        constructor() {
+            this.updateIntervals = {
+                system: 10000,   // 10 seconds
+                containers: 30000, // 30 seconds
+                logs: 60000       // 60 seconds
+            };
+            this.intervalIds = {
+                system: null,
+                containers: null,
+                logs: null
+            };
+            this.isActive = false;
+        }
+        
+        start() {
+            if (this.isActive) return;
+            
+            this.isActive = true;
+            
+            // Initial updates
+            updateSystemStatus();
+            updateContainerHealth();
+            updateSystemLogs();
+            
+            // Set up intervals
+            this.intervalIds.system = setInterval(updateSystemStatus, this.updateIntervals.system);
+            this.intervalIds.containers = setInterval(updateContainerHealth, this.updateIntervals.containers);
+            this.intervalIds.logs = setInterval(() => updateSystemLogs(), this.updateIntervals.logs);
+            
+            console.log('Status monitoring started');
+        }
+        
+        stop() {
+            if (!this.isActive) return;
+            
+            // Clear all intervals
+            Object.values(this.intervalIds).forEach(interval => {
+                if (interval) clearInterval(interval);
+            });
+            
+            this.intervalIds = {
+                system: null,
+                containers: null,
+                logs: null
+            };
+            
+            this.isActive = false;
+            console.log('Status monitoring stopped');
+        }
+    }
+    
+    // Initialize status monitor
+    const statusMonitor = new StatusMonitor();
+    
+    // Auto-start monitoring when the status page is visible
+    function checkStatusPageVisibility() {
+        const statusPage = document.getElementById('status-page');
+        
+        if (statusPage && window.getComputedStyle(statusPage).display !== 'none') {
+            statusMonitor.start();
+        } else {
+            statusMonitor.stop();
+        }
+    }
+    
+    // Check status page visibility on tab changes
+    document.querySelectorAll('.nav-link').forEach(navLink => {
+        navLink.addEventListener('click', () => {
+            // Wait a moment for the UI to update
+            setTimeout(checkStatusPageVisibility, 100);
+        });
+    });
+    
+    // Check on page load
+    document.addEventListener('DOMContentLoaded', () => {
+        checkStatusPageVisibility();
     });
     
     // Globale Funktionen exportieren

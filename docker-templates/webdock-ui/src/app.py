@@ -2230,8 +2230,12 @@ def handle_data_location():
             try:
                 with open(config_file, 'r') as f:
                     config = json.load(f)
+                    local_path = config.get('data_location', COMPOSE_DATA_DIR)
+                    # Make sure we're not returning the internal Docker path
+                    if local_path == '/app/webdock-data':
+                        local_path = COMPOSE_DATA_DIR
                     return jsonify({
-                        'location': config.get('data_location', COMPOSE_DATA_DIR)
+                        'location': local_path
                     })
             except FileNotFoundError:
                 return jsonify({
@@ -5469,6 +5473,354 @@ def detect_system_architecture():
 
 # Systemarchitektur beim Start erkennen
 SYSTEM_INFO = detect_system_architecture()
+
+@app.route('/api/system/status', methods=['GET'])
+def get_system_status_api():
+    """API endpoint to retrieve system status information (CPU, memory, disk usage)"""
+    try:
+        # Get CPU usage
+        cpu_usage = int(psutil.cpu_percent(interval=1))
+        
+        # Get memory usage
+        memory = psutil.virtual_memory()
+        memory_usage = int(memory.percent)
+        
+        # Get disk usage for root filesystem
+        disk = psutil.disk_usage('/')
+        disk_usage = int(disk.percent)
+        
+        return jsonify({
+            'cpu': cpu_usage,
+            'memory': memory_usage,
+            'disk': disk_usage
+        })
+    except Exception as e:
+        logger.error(f"Error getting system status: {str(e)}")
+        return jsonify({
+            'error': str(e),
+            'cpu': 0,
+            'memory': 0,
+            'disk': 0
+        }), 500
+
+@app.route('/api/containers/health', methods=['GET'])
+def get_containers_health_api():
+    """API endpoint to retrieve health status of all containers"""
+    try:
+        # Get running containers
+        client = docker.from_env()
+        containers_data = []
+
+        for container in client.containers.list(all=True):
+            # Determine health status
+            status = container.status
+            health_status = 'healthy'
+            
+            if status != 'running':
+                health_status = 'stopped'
+            elif hasattr(container, 'attrs') and 'State' in container.attrs:
+                if 'Health' in container.attrs['State']:
+                    health_status = container.attrs['State']['Health']['Status']
+            
+            # Get container stats
+            try:
+                stats = container.stats(stream=False)
+                cpu_stats = stats.get('cpu_stats', {})
+                precpu_stats = stats.get('precpu_stats', {})
+                memory_stats = stats.get('memory_stats', {})
+                
+                # Calculate CPU percentage
+                cpu_delta = cpu_stats.get('cpu_usage', {}).get('total_usage', 0) - \
+                            precpu_stats.get('cpu_usage', {}).get('total_usage', 0)
+                system_delta = cpu_stats.get('system_cpu_usage', 0) - \
+                            precpu_stats.get('system_cpu_usage', 0)
+                
+                cpu_percent = 0
+                if system_delta > 0 and cpu_delta > 0:
+                    cpu_percent = (cpu_delta / system_delta) * cpu_stats.get('online_cpus', 1) * 100
+                
+                # Calculate memory usage
+                memory_usage = memory_stats.get('usage', 0)
+                memory_limit = memory_stats.get('limit', 1)
+                memory_percent = (memory_usage / memory_limit) * 100
+                memory_usage_mb = memory_usage / (1024 * 1024)
+                
+                # Format CPU and memory for display
+                cpu_formatted = f"{cpu_percent:.1f}%"
+                memory_formatted = f"{memory_usage_mb:.1f} MB ({memory_percent:.1f}%)"
+            except Exception as e:
+                logger.warning(f"Could not get stats for container {container.name}: {e}")
+                cpu_formatted = "N/A"
+                memory_formatted = "N/A"
+            
+            # Format uptime
+            uptime = "N/A"
+            if status == 'running' and hasattr(container, 'attrs') and 'State' in container.attrs:
+                started_at = container.attrs['State'].get('StartedAt')
+                if started_at:
+                    try:
+                        start_time = datetime.fromisoformat(started_at.replace('Z', '+00:00'))
+                        now = datetime.now(timezone.utc)
+                        uptime_delta = now - start_time
+                        days = uptime_delta.days
+                        hours, remainder = divmod(uptime_delta.seconds, 3600)
+                        minutes, seconds = divmod(remainder, 60)
+                        
+                        if days > 0:
+                            uptime = f"{days}d {hours}h {minutes}m"
+                        else:
+                            uptime = f"{hours}h {minutes}m {seconds}s"
+                    except Exception as e:
+                        logger.warning(f"Error calculating uptime for {container.name}: {e}")
+            
+            containers_data.append({
+                'name': container.name,
+                'status': health_status,
+                'uptime': uptime,
+                'cpu': cpu_formatted,
+                'memory': memory_formatted,
+                'image': container.image.tags[0] if container.image.tags else 'Unknown'
+            })
+        
+        return jsonify(containers_data)
+    except Exception as e:
+        logger.error(f"Error getting container health: {str(e)}")
+        return jsonify([]), 500
+
+@app.route('/api/system/logs', methods=['GET'])
+def get_system_logs_api():
+    """API endpoint to retrieve system, Docker, and application logs"""
+    try:
+        # Create logs list
+        logs = []
+        
+        # Get system logs (journalctl)
+        try:
+            system_logs_raw = subprocess.check_output(
+                ['journalctl', '-n', '50', '-o', 'json'],
+                universal_newlines=True, stderr=subprocess.PIPE
+            ).strip()
+            
+            for line in system_logs_raw.split('\n'):
+                if not line:
+                    continue
+                    
+                try:
+                    log_entry = json.loads(line)
+                    message = log_entry.get('MESSAGE', '')
+                    
+                    # Skip empty messages
+                    if not message:
+                        continue
+                        
+                    # Determine level based on priority
+                    priority = int(log_entry.get('PRIORITY', 6))
+                    if priority <= 3:  # emerg, alert, crit, err
+                        level = 'error'
+                    elif priority <= 4:  # warning
+                        level = 'warning'
+                    else:  # notice, info, debug
+                        level = 'info'
+                    
+                    # Convert timestamp
+                    timestamp = log_entry.get('__REALTIME_TIMESTAMP')
+                    if timestamp:
+                        timestamp = datetime.fromtimestamp(
+                            int(timestamp) / 1000000
+                        ).strftime('%Y-%m-%d %H:%M:%S')
+                    else:
+                        timestamp = 'N/A'
+                    
+                    logs.append({
+                        'timestamp': timestamp,
+                        'level': level,
+                        'source': 'system',
+                        'message': message
+                    })
+                except json.JSONDecodeError:
+                    # Skip entries that can't be parsed
+                    continue
+        except Exception as e:
+            logger.warning(f"Could not get system logs: {str(e)}")
+            # Fallback to dmesg if journalctl fails
+            try:
+                dmesg_logs = subprocess.check_output(
+                    ['dmesg', '--time-format=iso', '-l', 'notice,warning,err,crit,alert,emerg', '-n', '50'],
+                    universal_newlines=True, stderr=subprocess.PIPE
+                ).strip()
+                
+                for line in dmesg_logs.split('\n'):
+                    if not line:
+                        continue
+                    
+                    # Parse dmesg format
+                    match = re.match(r'\[([^\]]+)\]\s+(.*)', line)
+                    if match:
+                        timestamp = match.group(1)
+                        message = match.group(2)
+                        
+                        # Determine level based on content
+                        level = 'info'
+                        if re.search(r'(error|fail|crit)', message.lower()):
+                            level = 'error'
+                        elif re.search(r'(warn|cannot)', message.lower()):
+                            level = 'warning'
+                        
+                        logs.append({
+                            'timestamp': timestamp,
+                            'level': level,
+                            'source': 'system',
+                            'message': message
+                        })
+            except Exception as e:
+                logger.warning(f"Could not get dmesg logs: {str(e)}")
+        
+        # Get Docker logs
+        try:
+            client = docker.from_env()
+            # Get the recent containers
+            containers = client.containers.list(all=True, limit=10)
+            
+            for container in containers:
+                try:
+                    # Get logs for each container (limited to prevent overwhelming response)
+                    container_logs = container.logs(
+                        tail=10,
+                        timestamps=True
+                    ).decode('utf-8', errors='replace')
+                    
+                    for line in container_logs.split('\n'):
+                        if not line:
+                            continue
+                        
+                        # Parse Docker log format with timestamp
+                        match = re.match(r'(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)\s+(.*)', line)
+                        if match:
+                            timestamp = match.group(1)
+                            message = match.group(2)
+                        else:
+                            timestamp = 'N/A'
+                            message = line
+                        
+                        # Determine level based on content
+                        level = 'info'
+                        if re.search(r'(error|exception|fail|crit)', message.lower()):
+                            level = 'error'
+                        elif re.search(r'(warn|deprecat)', message.lower()):
+                            level = 'warning'
+                        
+                        logs.append({
+                            'timestamp': timestamp,
+                            'level': level,
+                            'source': 'docker',
+                            'message': f"[{container.name}] {message}"
+                        })
+                except Exception as e:
+                    logger.warning(f"Could not get logs for container {container.name}: {str(e)}")
+        except Exception as e:
+            logger.warning(f"Could not get Docker container logs: {str(e)}")
+            
+            # Fallback to docker logs command if API fails
+            try:
+                docker_events = subprocess.check_output(
+                    ['docker', 'events', '--since=1h', '--until=now', '--format', '{{.Time}} {{.Type}} {{.Action}} {{.Actor.Attributes.name}}'],
+                    universal_newlines=True, stderr=subprocess.PIPE
+                ).strip()
+                
+                for line in docker_events.split('\n'):
+                    if not line:
+                        continue
+                    
+                    parts = line.split(' ')
+                    if len(parts) < 4:
+                        continue
+                        
+                    timestamp = datetime.fromtimestamp(int(parts[0])).strftime("%Y-%m-%d %H:%M:%S")
+                    event_type = parts[1]
+                    action = parts[2]
+                    container = parts[3] if len(parts) > 3 else 'unknown'
+                    
+                    # Determine level based on action
+                    level = 'info'
+                    if action in ['kill', 'die', 'stop', 'destroy', 'remove']:
+                        level = 'warning'
+                    
+                    message = f"{event_type} {action} for {container}"
+                    
+                    logs.append({
+                        'timestamp': timestamp,
+                        'level': level,
+                        'source': 'docker',
+                        'message': message
+                    })
+            except Exception as inner_e:
+                logger.warning(f"Could not get Docker events: {str(inner_e)}")
+        
+        # Get application logs
+        app_log_path = os.path.join(os.path.dirname(__file__), 'webdock.log')
+        if os.path.exists(app_log_path):
+            try:
+                with open(app_log_path, 'r') as log_file:
+                    # Get the last 100 lines
+                    app_logs = log_file.readlines()[-100:]
+                    
+                    for line in app_logs:
+                        if not line.strip():
+                            continue
+                            
+                        # Parse log line format
+                        log_match = re.match(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) - ([A-Za-z.]+) - ([A-Z]+) - (.*)', line)
+                        
+                        if log_match:
+                            timestamp = log_match.group(1)
+                            component = log_match.group(2)
+                            level_str = log_match.group(3).lower()
+                            message = log_match.group(4)
+                            
+                            # Map log level
+                            if level_str in ('error', 'critical', 'exception'):
+                                level = 'error'
+                            elif level_str == 'warning':
+                                level = 'warning'
+                            else:
+                                level = 'info'
+                                
+                            logs.append({
+                                'timestamp': timestamp,
+                                'level': level,
+                                'source': 'webdock-ui',
+                                'message': message
+                            })
+                        else:
+                            # Fallback if the log line doesn't match expected format
+                            logs.append({
+                                'timestamp': 'N/A',
+                                'level': 'info',
+                                'source': 'webdock-ui',
+                                'message': line.strip()
+                            })
+            except Exception as e:
+                logger.warning(f"Could not read application log file: {str(e)}")
+        
+        # Sort logs by timestamp (newest first)
+        # We need to handle various timestamp formats or missing timestamps
+        def get_timestamp_sort_key(log_entry):
+            timestamp = log_entry.get('timestamp', '')
+            if not timestamp or timestamp == 'N/A':
+                return '0000-00-00 00:00:00'  # Default for sorting
+            return timestamp
+            
+        logs.sort(key=get_timestamp_sort_key, reverse=True)
+        
+        return jsonify({
+            'logs': logs[:100]  # Return only the latest 100 logs
+        })
+    except Exception as e:
+        logger.error(f"Error getting system logs: {str(e)}")
+        return jsonify({
+            'error': str(e),
+            'logs': []
+        }), 500
 
 @app.route('/api/system/info')
 def get_system_info():
