@@ -9488,6 +9488,2157 @@ password_file /mosquitto/config/passwd
 # Authentication
 allow_anonymous true
 """)
+         
+        # Erstelle Passwort-Datei nur wenn Authentifizierung aktiviert ist
+        if auth_enabled:
+            passwd_path = os.path.join(config_dir, "passwd")
+            with open(passwd_path, "w") as f:
+                f.write(f"{username}:{password}\n")
+            logger.info(f"Created password file at {passwd_path}")
+            
+        return True
+    except Exception as e:
+        logger.error(f"Mosquitto setup failed: {str(e)}")
+        return False
+
+def get_default_network_interface():
+    """Ermittelt das Standard-Netzwerkinterface"""
+    try:
+        # Prüfe, ob der 'ip' Befehl verfügbar ist
+        result = subprocess.run(['ip', '-V'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if result.returncode != 0:
+            logger.error("'ip' command not found. Please install 'iproute2' package.")
+            return None
+        
+        # Hole alle Netzwerkinterfaces
+        result = subprocess.run(['ip', 'link', 'show'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if result.returncode != 0:
+            logger.error(f"Error getting network interfaces: {result.stderr}")
+            return None
+        
+        # Extrahiere Interface-Namen
+        interfaces = [line.split(':')[1].strip() for line in result.stdout.split('\n') if line]
+        
+        # Prüfe auf bekannte Interfaces
+        for interface in ['eth0', 'enp0s3', 'ens18', 'enx00e04c680101']:
+            if interface in interfaces:
+                return interface
+        
+        # Wenn keines der bekannten Interfaces gefunden wurde, verwende das erste
+        return interfaces[0] if interfaces else None
+    except Exception as e:
+        logger.error(f"Error getting default network interface: {str(e)}")
+        return None
+
+def get_ip_address(interface):
+    """Ermittelt die IP-Adresse eines Netzwerkinterfaces"""
+    try:
+        # Prüfe, ob der 'ip' Befehl verfügbar ist
+        result = subprocess.run(['ip', '-V'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if result.returncode != 0:
+            logger.error("'ip' command not found. Please install 'iproute2' package.")
+            return None
+        
+        # Hole IP-Adresse des Interfaces
+        result = subprocess.run(['ip', 'addr', 'show', interface], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if result.returncode != 0:
+            logger.error(f"Error getting IP address for interface {interface}: {result.stderr}")
+            return None
+        
+        # Extrahiere IPv4-Adresse
+        for line in result.stdout.split('\n'):
+            if 'inet ' in line and 'scope global' in line:
+                ip = line.split()[1].split('/')[0]
+                return ip
+        
+        return None
+    except Exception as e:
+        logger.error(f"Error getting IP address for interface {interface}: {str(e)}")
+        return None
+
+def setup_prometheus(container_name, install_path, config_data=None):
+    """Setup für Prometheus"""
+    try:
+        # Debug-Logging
+        logger.info("=== Setup Prometheus Debug ===")
+        logger.info(f"Config data: {config_data}")
+        logger.info(f"COMPOSE_FILES_DIR: {COMPOSE_FILES_DIR}")
+        logger.info(f"Container name: {container_name}")
+        logger.info(f"Install path: {install_path}")
+        
+        # Get config_files spec first - we'll need this throughout the function
+        config_files = {}
+        if config_data and 'config_files' in config_data:
+            config_files = config_data.get('config_files', {})
+        
+        # Get user/group from config
+        user_config = config_data.get('user', '65534:65534') if config_data else '65534:65534'
+        try:
+            user, group = user_config.split(':') if ':' in user_config else (user_config, user_config)
+        except Exception as e:
+            logger.warning(f"Error parsing user:group from '{user_config}', using defaults: {e}")
+            user, group = '65534', '65534'
+        
+        # Create directories with full permissions (like Grafana)
+        config_dir = os.path.join(install_path, "config")
+        data_dir = os.path.join(install_path, "data")
+        
+        # Create directories with full permissions
+        for dir_path in [config_dir, data_dir]:
+            os.makedirs(dir_path, exist_ok=True, mode=0o777)
+            logger.info(f"Created directory with full permissions: {dir_path}")
+
+        # Create Prometheus configuration files
+        prometheus_dir = os.path.join(config_dir, "prometheus")
+        os.makedirs(prometheus_dir, exist_ok=True)
+        
+        # Create prometheus.yml
+        prometheus_yml_path = os.path.join(prometheus_dir, "prometheus.yml")
+        with open(prometheus_yml_path, "w") as f:
+            f.write("""# my global config
+global:
+  scrape_interval:     15s # Set the scrape interval to every 15 seconds. Default is every 1 minute.
+  evaluation_interval: 15s # Evaluate rules every 15 seconds. The default is every 1 minute.
+  # scrape_timeout is set to the global default (10s).
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+  - static_configs:
+    - targets:
+      # - alertmanager:9093
+
+# Load rules once and periodically evaluate them according to the global 'evaluation_interval'.
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+# A scrape configuration containing exactly one endpoint to scrape:
+# Here it's Prometheus itself.
+scrape_configs:
+  # The job name is added as a label `job=<job_name>` to any timeseries scraped from this config.
+  - job_name: 'prometheus'
+    # metrics_path defaults to '/metrics'
+    # scheme defaults to 'http'.
+    static_configs:
+    - targets: ['localhost:9090']
+""")
+        logger.info(f"Created Prometheus configuration files in {prometheus_dir}")
+        
+        return True
+    except Exception as e:
+        logger.error(f"Prometheus setup failed: {str(e)}")
+        return False
+
+def setup_grafana(container_name, install_path, config_data=None):
+    """Setup für Grafana"""
+    try:
+        # Debug-Logging
+        logger.info("=== Setup Grafana Debug ===")
+        logger.info(f"Config data: {config_data}")
+        logger.info(f"COMPOSE_FILES_DIR: {COMPOSE_FILES_DIR}")
+        logger.info(f"Container name: {container_name}")
+        logger.info(f"Install path: {install_path}")
+        
+        # Get config_files spec first - we'll need this throughout the function
+        config_files = {}
+        if config_data and 'config_files' in config_data:
+            config_files = config_data.get('config_files', {})
+        
+        # Get user/group from config
+        user_config = config_data.get('user', '472:472') if config_data else '472:472'
+        try:
+            user, group = user_config.split(':') if ':' in user_config else (user_config, user_config)
+        except Exception as e:
+            logger.warning(f"Error parsing user:group from '{user_config}', using defaults: {e}")
+            user, group = '472', '472'
+        
+        # Create directories with full permissions (like Grafana)
+        config_dir = os.path.join(install_path, "config")
+        data_dir = os.path.join(install_path, "data")
+        log_dir = os.path.join(install_path, "log")
+        
+        # Create directories with full permissions
+        for dir_path in [config_dir, data_dir, log_dir]:
+            os.makedirs(dir_path, exist_ok=True, mode=0o777)
+            logger.info(f"Created directory with full permissions: {dir_path}")
+
+        # Create Grafana configuration files
+        grafana_dir = os.path.join(config_dir, "grafana")
+        os.makedirs(grafana_dir, exist_ok=True)
+        
+        # Create grafana.ini
+        grafana_ini_path = os.path.join(grafana_dir, "grafana.ini")
+        with open(grafana_ini_path, "w") as f:
+            f.write("""[paths]
+data = /var/lib/grafana
+logs = /var/log/grafana
+plugins = /var/lib/grafana/plugins
+
+[server]
+protocol = http
+http_addr = 0.0.0.0
+http_port = 3000
+
+[database]
+type = sqlite3
+host = 127.0.0.1:3306
+name = grafana
+user = root
+password =
+url =
+path = /var/lib/grafana/grafana.db
+
+[security]
+admin_user = admin
+admin_password = admin
+
+[users]
+allow_sign_up = true
+
+[auth]
+disable_login_form = false
+
+[auth.anonymous]
+enabled = true
+
+[auth.github]
+enabled = false
+allow_sign_up = false
+client_id = some_id
+client_secret = some_secret
+scopes = user:email,read:org
+auth_url = https://github.com/login/oauth/authorize
+token_url = https://github.com/login/oauth/access_token
+api_url = https://api.github.com/user
+team_ids =
+allowed_organizations =
+
+[auth.google]
+enabled = false
+allow_sign_up = false
+client_id = some_client_id
+client_secret = some_client_secret
+scopes = https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email
+auth_url = https://accounts.google.com/o/oauth2/auth
+token_url = https://accounts.google.com/o/oauth2/token
+api_url = https://www.googleapis.com/oauth2/v1/userinfo
+allowed_domains =
+hosted_domain =
+
+[auth.generic_oauth]
+enabled = false
+name = OAuth
+allow_sign_up = false
+client_id = some_id
+client_secret = some_secret
+scopes = user:email,read:org
+email_attribute_name = email:primary
+email_attribute_path =
+auth_url = https://foo.bar/login/oauth/authorize
+token_url = https://foo.bar/login/oauth/access_token
+api_url = https://foo.bar/user
+team_ids =
+allowed_organizations =
+tls_skip_verify_insecure = false
+tls_client_cert =
+tls_client_key =
+tls_client_ca =
+
+[auth.grafana_com]
+enabled = false
+allow_sign_up = false
+
+[auth.proxy]
+enabled = false
+header_name = X-WEBAUTH-USER
+header_property = username
+auto_sign_up = true
+ldap_sync_ttl = 60
+whitelist =
+headers = Email:X-WEBAUTH-EMAIL
+
+[auth.basic]
+enabled = true
+
+[smtp]
+enabled = false
+host = localhost:25
+user =
+password =
+cert_file =
+key_file =
+skip_verify = false
+from_address = admin@grafana.localhost
+from_name = Grafana
+ehlo_identity = dashboard.grafana.localhost
+
+[emails]
+welcome_email_on_sign_up = false
+
+[log]
+mode = file
+level = info
+
+[log.console]
+level =
+
+[event_publisher]
+enabled = false
+rabbitmq_url = amqp://localhost/
+exchange = grafana_events
+
+[dashboards.json]
+enabled = true
+path = /var/lib/grafana/dashboards
+
+[metrics]
+enabled           = true
+interval_seconds  = 10
+
+[metrics.graphite]
+address = localhost:2003
+prefix = prod.grafana.%(instance_name)s.
+
+[grafana_net]
+url = https://grafana.net
+
+[snapshot]
+external_enabled = true
+external_snapshot_url = https://snapshots-origin.raintank.io
+external_snapshot_name = Publish to snapshot.raintank.io
+
+[plugins]
+enable_alpha = false
+
+[alerting]
+enabled = true
+execute_alerts = true
+
+[explore]
+enabled = true
+
+[panels]
+enable_alpha = false
+
+[security]
+disable_initial_admin_creation = false
+
+[session]
+provider = file
+provider_config = sessions
+cookie_name = grafana_sess
+cookie_secure = false
+session_life_time = 86400
+
+[analytics]
+reporting_enabled = true
+check_for_updates = true
+google_analytics_ua_id =
+
+[grafana_com]
+url = https://grafana.com
+
+[auth.ldap]
+enabled = false
+config_file = /etc/grafana/ldap.toml
+allow_sign_up = true
+
+[aws]
+profile = ""
+region = ""
+
+[aws.default]
+profile = ""
+region = ""
+
+[aws.profile1]
+profile = ""
+region = ""
+
+[aws.profile2]
+profile = ""
+region = ""
+
+[aws.profile3]
+profile = ""
+region = ""
+
+[aws.profile4]
+profile = ""
+region = ""
+
+[aws.profile5]
+profile = ""
+region = ""
+
+[azure]
+cloud = AzurePublic
+tenant_id =
+client_id =
+client_secret =
+resource =
+user_assigned_id =
+use_msi = false
+use_managed_identity = false
+managed_identity_client_id =
+
+[azure.auth_proxy]
+enabled = false
+client_id =
+client_secret =
+scopes =
+
+[azure.auth_proxy.resource_server]
+enabled = false
+allowed_audiences =
+
+[azure.auth_proxy.resource_server.jwt]
+allowed_algorithms =
+
+[azure.auth_proxy.resource_server.jwt.custom_headers]
+
+[azure.auth_proxy.resource_server.jwt.claims]
+
+[azure.auth_proxy.resource_server.jwt.claims.groups]
+enabled = false
+allow_any = false
+
+[azure.auth_proxy.resource_server.jwt.claims.roles]
+enabled = false
+allow_any = false
+
+[azure.auth_proxy.resource_server.jwt.claims.scopes]
+enabled = false
+allow_any = false
+
+[azure.auth_proxy.resource_server.jwt.claims.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups]
+
+[azure.auth_proxy.resource_server.jwt.roles]
+
+[azure.auth_proxy.resource_server.jwt.scopes]
+
+[azure.auth_proxy.resource_server.jwt.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+[azure.auth_proxy.resource_server.jwt.scopes.extra]
+
+[azure.auth_proxy.resource_server.jwt.headers.extra]
+
+[azure.auth_proxy.resource_server.jwt.defaults.extra]
+
+[azure.auth_proxy.resource_server.jwt.groups.extra]
+
+[azure.auth_proxy.resource_server.jwt.roles.extra]
+
+def init_app():
+    """Initialisiert die Anwendung"""
+    try:
+        # Erstelle notwendige Verzeichnisse
+        os.makedirs('/app/config', exist_ok=True)
+        os.makedirs('/app/data', exist_ok=True)
+        
+        # Überprüfe, ob wir lokale Dateien verwenden
+        # Wir prüfen einfach, ob das Verzeichnis existiert und Dateien enthält
+        if os.path.exists(COMPOSE_FILES_DIR) and os.listdir(COMPOSE_FILES_DIR):
+            # Wenn wir lokale Dateien verwenden, nicht herunterladen
+            logger.info("Found 0 directories: []")
+            logger.info(f"Using local compose files from {COMPOSE_FILES_DIR}")
+        else:
+            # Ansonsten lade die docker-compose Files beim Start
+            logger.info("Downloading compose files on startup...")
+            download_compose_files()
+        
+        # Lade oder erstelle Kategorien
+        categories = load_categories()
+        logger.info(f"Loaded categories: {categories}")
+        
+        return True
+    except Exception as e:
+        logger.error(f"Error initializing app: {e}")
+        return False
+
+def get_container_config_internal(container_name):
+    """Liest die Konfiguration eines Containers aus seiner docker-compose.yml (interne Funktion)"""
+    try:
+        compose_path = os.path.join(COMPOSE_FILES_DIR, container_name, 'docker-compose.yml')
+        if not os.path.exists(compose_path):
+            return None
+             
+        with open(compose_path, 'r') as f:
+            compose_data = yaml.safe_load(f)
+             
+        if not compose_data or 'services' not in compose_data:
+            return None
+             
+        service_data = compose_data['services'].get(container_name, {})
+         
+        # Extrahiere relevante Konfiguration
+        config = {
+            'ports': [],
+            'env': {}
+        }
+         
+        # Extrahiere Ports
+        if 'ports' in service_data:
+            for port in service_data['ports']:
+                if isinstance(port, str) and ':' in port:
+                    host_port = port.split(':')[0]
+                    config['ports'].append(int(host_port))
+         
+        # Extrahiere Umgebungsvariablen
+        if 'environment' in service_data:
+            env_vars = service_data['environment']
+            if isinstance(env_vars, list):
+                for env in env_vars:
+                    if '=' in env:
+                        key, value = env.split('=', 1)
+                        config['env'][key] = value
+            elif isinstance(env_vars, dict):
+                config['env'] = env_vars
+         
+        return config
+    except Exception as e:
+        logger.error(f"Error reading config for {container_name}: {str(e)}")
+        return None
+
+@app.route('/api/container/<container_name>/config')
+def get_container_config(container_name):
+    """Gibt die Konfiguration eines Containers zurück"""
+    try:
+        # Prüfe, ob Template-Konfiguration angefordert wurde
+        template = request.args.get('template', 'false').lower() == 'true'
+        
+        # Debug-Ausgabe hinzufügen
+        logger.info(f"COMPOSE_FILES_DIR: {COMPOSE_FILES_DIR}")
+        logger.info(f"COMPOSE_DATA_DIR: {COMPOSE_DATA_DIR}")
+
+        # Bestimme den Pfad zur docker-compose.yml
+        if template:
+            # Verwende die Template-Datei aus dem docker-templates Verzeichnis
+            # Stelle sicher, dass wir den Container-Pfad verwenden
+            compose_file = os.path.join(COMPOSE_FILES_DIR, container_name, 'docker-compose.yml')
+            logger.info(f"Suche Template-Datei unter: {compose_file}")
+        else:
+            # Verwende die installierte Datei aus dem docker-compose-data Verzeichnis
+            compose_file = os.path.join(COMPOSE_DATA_DIR, container_name, 'docker-compose.yml')
+            logger.info(f"Suche installierte Datei unter: {compose_file}")
+        
+        # Prüfe, ob die Datei existiert
+        if not os.path.exists(compose_file):
+            logger.error(f"Compose file not found: {compose_file}")
+            return jsonify({'error': 'Compose file not found'}), 404
+        
+        # Lese die docker-compose.yml
+        with open(compose_file, 'r') as f:
+            yaml_content = f.read()
+        
+        # Parse YAML für die Antwort
+        try:
+            yaml_data = yaml.safe_load(yaml_content)
+            
+            # Extrahiere das erste Service aus der Compose-Datei
+            service_data = None
+            if yaml_data and 'services' in yaml_data:
+                service_name = list(yaml_data['services'].keys())[0]
+                service_data = yaml_data['services'][service_name]
+            
+            return jsonify({
+                'yaml': yaml_content,
+                'parsed': yaml_data,
+                'service': service_data
+            })
+        except Exception as e:
+            logger.error(f"Error parsing YAML: {str(e)}")
+            return jsonify({
+                'yaml': yaml_content,
+                'error': f"Error parsing YAML: {str(e)}"
+            })
+        
+    except Exception as e:
+        logger.exception(f"Error getting container config: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': str(e)}), 500
+
+
+
+def update_port_mapping(compose_content, new_port):
+    """Aktualisiert Port-Mappings in der docker-compose.yml"""
+    try:
+        compose_data = yaml.safe_load(compose_content)
+        
+        # Finde den Service-Namen (normalerweise der erste Service)
+        service_name = list(compose_data['services'].keys())[0]
+        service = compose_data['services'][service_name]
+        
+        if 'ports' in service:
+            # Hole den Container-Port (der Teil nach dem :)
+            original_mapping = str(service['ports'][0])
+            if ':' in original_mapping:
+                container_port = original_mapping.split(':')[1]
+            else:
+                container_port = original_mapping
+            
+            # Erstelle neues Port-Mapping
+            service['ports'][0] = f"{new_port}:{container_port}"
+        
+        # Konvertiere zurück zu YAML
+        return yaml.dump(compose_data, default_flow_style=False)
+    except Exception as e:
+        logger.error(f"Error updating port mapping: {str(e)}")
+        raise
+
+@app.route('/api/container/<container_name>/info')
+def container_info(container_name):
+    """Gibt Informationen über einen Container zurück"""
+    try:
+        # Spezialfall für webdock-ui, da dieser Container die Anwendung selbst ist
+        if container_name == 'webdock-ui':
+            # Verwende den Pfad des aktuellen Containers
+            container_path = os.path.dirname(os.path.abspath(__file__))
+            # Überprüfe, ob die docker-compose.yml im Elternverzeichnis existiert
+            parent_dir = os.path.dirname(container_path)
+            if os.path.exists(os.path.join(parent_dir, 'docker-compose.yml')):
+                container_path = parent_dir
+            else:
+                # Fallback: Suche in den Standard-Verzeichnissen
+                container_path = WEBDOCK_BASE_PATH
+        else:
+            # Standard-Pfadprüfung für andere Container
+            install_path = os.path.join(COMPOSE_DATA_DIR, container_name)
+            compose_files_path = os.path.join(WEBDOCK_BASE_PATH, 'docker-templates', container_name)
+            
+            # Prüfe beide mögliche Pfade
+            if os.path.exists(install_path):
+                container_path = install_path
+            elif os.path.exists(compose_files_path):
+                container_path = compose_files_path
+            else:
+                return jsonify({'error': 'Container not installed'}), 404
+        
+        # Hole Container-Status
+        status = "stopped"
+        running_containers = get_running_containers()
+        if container_name in running_containers:
+            status = "running"
+        
+        # Hole Container-Informationen mit Docker
+        container_info = None
+        compose_data = None
+        
+        # Hole Compose-Datei
+        compose_file = os.path.join(container_path, 'docker-compose.yml')
+        compose_content = None
+        if os.path.exists(compose_file):
+            with open(compose_file, 'r') as f:
+                compose_content = f.read()
+                try:
+                    compose_data = yaml.safe_load(compose_content)
+                except Exception as e:
+                    logger.error(f"Error parsing compose file: {str(e)}")
+        
+        # Extrahiere Port-Informationen aus der Compose-Datei
+        ports = {}
+        volumes = []
+        network_mode = 'default'
+        
+        if compose_data and 'services' in compose_data:
+            service_name = list(compose_data['services'].keys())[0]
+            service = compose_data['services'][service_name]
+            
+            # Extract ports
+            if 'ports' in service:
+                for port_mapping in service['ports']:
+                    if isinstance(port_mapping, str) and ':' in port_mapping:
+                        host_port, container_port = port_mapping.split(':')
+                        ports[container_port] = host_port
+            
+            # Extract volumes
+            if 'volumes' in service:
+                for volume in service['volumes']:
+                    if isinstance(volume, str) and ':' in volume:
+                        parts = volume.split(':')
+                        if len(parts) >= 2:
+                            volumes.append({
+                                'source': parts[0],
+                                'destination': parts[1],
+                                'type': 'bind'
+                            })
+            
+            # Extract network mode
+            if 'network_mode' in service:
+                network_mode = service['network_mode']
+        
+        # Spezielle Behandlung für bestimmte Container
+        if container_name == 'scrypted' and not ports:
+            # Scrypted verwendet Port 10443, auch wenn er nicht in der Compose-Datei definiert ist
+            ports['10443/tcp'] = '10443'
+            logger.info("Added default port 10443 for Scrypted")
+        
+        if container_name == 'node-exporter' and network_mode == 'host':
+            # Node Exporter verwendet Port 9100 im Host-Netzwerk-Modus
+            ports['9100/tcp'] = '9100'
+            logger.info("Added default port 9100 for Node Exporter in host network mode")
+        
+        # Default container info from compose file
+        default_container_info = {
+            'name': container_name,
+            'image': compose_data['services'][service_name].get('image', 'unknown') if compose_data and 'services' in compose_data else 'unknown',
+            'status': status,
+            'ports': ports,
+            'volumes': volumes,
+            'network': network_mode
+        }
+        
+        # Try to get more detailed info if container is running
+        if status == "running":
+            try:
+                # Suche nach möglichen Container-Namen
+                possible_names = [
+                    container_name,
+                    f"{container_name}-1",
+                    f"{container_name}_1"
+                ]
+                
+                if 'install_path' in locals():
+                    possible_names.append(f"{os.path.basename(install_path)}_{container_name}_1")
+                
+                # Hole alle laufenden Container
+                result = subprocess.run(
+                    ['docker', 'ps', '--format', '{{.ID}}\t{{.Names}}'],
+                    capture_output=True, text=True, check=True
+                )
+                
+                container_id = None
+                for line in result.stdout.strip().split('\n'):
+                    if not line:
+                        continue
+                    parts = line.split('\t')
+                    if len(parts) < 2:
+                        continue
+                    
+                    id, name = parts
+                    # Prüfe, ob der Name mit einem der möglichen Namen übereinstimmt
+                    if any(possible_name in name for possible_name in possible_names if possible_name):
+                        container_id = id
+                        break
+                
+                if not container_id:
+                    # Versuche es mit einem allgemeineren Filter
+                    result = subprocess.run(
+                        ['docker', 'ps', '--filter', f"name={container_name}", '--format', '{{.ID}}'],
+                        capture_output=True, text=True, check=True
+                    )
+                    if result.stdout.strip():
+                        container_id = result.stdout.strip().split('\n')[0]
+                
+                if container_id:
+                    # Hole Container-Details
+                    result = subprocess.run(
+                        ['docker', 'inspect', container_id],
+                        capture_output=True, text=True, check=True
+                    )
+                    inspect_data = json.loads(result.stdout)
+                    
+                    if inspect_data and len(inspect_data) > 0:
+                        container_data = inspect_data[0]
+                        
+                        # Extrahiere Port-Mappings
+                        port_mappings = {}
+                        docker_ports = container_data.get('NetworkSettings', {}).get('Ports', {})
+                        for container_port, bindings in docker_ports.items():
+                            if bindings:
+                                port_mappings[container_port] = bindings[0]['HostPort']
+                        
+                        # Wenn keine Ports aus Docker gefunden wurden, verwende die aus der Compose-Datei
+                        if not port_mappings and ports:
+                            port_mappings = {f"{port}/tcp": host_port for port, host_port in ports.items() if not port.endswith('/tcp')}
+                        
+                        # Spezielle Behandlung für bestimmte Container
+                        if container_name == 'scrypted' and not port_mappings:
+                            # Scrypted verwendet Port 10443, auch wenn er nicht in den Port-Mappings gefunden wurde
+                            port_mappings['10443/tcp'] = '10443'
+                            logger.info("Added default port 10443 for Scrypted")
+                        
+                        # Extrahiere Volumes
+                        docker_volumes = []
+                        for mount in container_data.get('Mounts', []):
+                            docker_volumes.append({
+                                'source': mount.get('Source', ''),
+                                'destination': mount.get('Destination', ''),
+                                'type': mount.get('Type', '')
+                            })
+                        
+                        # Extrahiere Netzwerkinformationen
+                        network_mode = container_data.get('HostConfig', {}).get('NetworkMode', '')
+                        network_name = None
+                        
+                        if network_mode == 'host':
+                            network_name = 'host'
+                        else:
+                            networks = container_data.get('NetworkSettings', {}).get('Networks', {})
+                            if networks:
+                                network_name = list(networks.keys())[0]
+                        
+                        container_info = {
+                            'id': container_data.get('Id', '')[:12],
+                            'name': container_data.get('Name', '').lstrip('/'),
+                            'image': container_data.get('Config', {}).get('Image', ''),
+                            'created': container_data.get('Created', ''),
+                            'status': container_data.get('State', {}).get('Status', ''),
+                            'ports': port_mappings if port_mappings else ports,
+                            'volumes': docker_volumes if docker_volumes else volumes,
+                            'network': network_name if network_name else network_mode
+                        }
+            except Exception as e:
+                logger.error(f"Error getting container details: {str(e)}")
+                # Use default info if we couldn't get detailed info
+                container_info = default_container_info
+        
+        # If container_info is still None, use the default info
+        if container_info is None:
+            container_info = default_container_info
+        
+        return jsonify({
+            'name': container_name,
+            'status': status,
+            'info': container_info,
+            'compose': compose_content
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error getting container info: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/debug/compose-files')
+def debug_compose_files():
+    """Debug-Endpunkt zum Überprüfen der heruntergeladenen Dateien"""
+    compose_dir = os.path.join(WEBDOCK_BASE_PATH, 'docker-templates')
+    result = {
+        'directory_exists': os.path.exists(compose_dir),
+        'directory_contents': {},
+        'github_test': None
+    }
+    
+    if result['directory_exists']:
+        for root, dirs, files in os.walk(compose_dir):
+            rel_path = os.path.relpath(root, compose_dir)
+            result['directory_contents'][rel_path] = {
+                'directories': dirs,
+                'files': files
+            }
+    
+    # Teste GitHub-API
+    try:
+        response = requests.get(GITHUB_API_URL)
+        result['github_test'] = {
+            'status_code': response.status_code,
+            'response': response.json() if response.status_code == 200 else None
+        }
+    except Exception as e:
+        result['github_test'] = {'error': str(e)}
+    
+    return jsonify(result)
+
+@app.route('/api/containers/status')
+def get_containers_status(return_json_response=True):
+    """Optimierter Endpunkt für Container-Statusabfragen.
+    Gibt ein Array von Containern mit Namen und Status zurück,
+    formatiert für schnelle Status-Updates im Frontend.
+    
+    Args:
+        return_json_response (bool): Wenn True, gibt ein Flask Response-Objekt zurück.
+                                    Wenn False, gibt direkt eine Python-Liste zurück (für WebSockets).
+    """
+    try:
+        # Get running status
+        cmd = ["docker", "ps", "-a", "--format", "{{.Names}}\t{{.State}}"]
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        
+        # Get installed containers
+        installed_containers = get_installed_containers()
+        
+        # Erstelle ein Array für das Frontend (einfacher zu verarbeiten als verschachtelte Objekte)
+        status_list = []
+        for line in result.stdout.strip().split('\n'):
+            if line:
+                try:
+                    name, state = line.split('\t')
+                    # Normalisiere den Status für das Frontend
+                    status = 'running' if state.lower() == 'running' else 'stopped'
+                    
+                    # Füge nur Container hinzu, die wir verfolgen
+                    if name in installed_containers:
+                        status_list.append({
+                            'name': name,
+                            'status': status
+                        })
+                except ValueError:
+                    logger.warning(f"Konnte Zeile nicht verarbeiten: {line}")
+                    continue
+        
+        # Wenn wir eine direkte Liste für WebSockets zurückgeben sollen
+        if not return_json_response:
+            return status_list
+        
+        # Ansonsten für HTTP-Anfragen ein Response-Objekt zurückgeben
+        response = jsonify(status_list)
+        response.headers['Cache-Control'] = 'private, max-age=10'
+        
+        return response
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Docker command failed: {e.stderr}")
+        if return_json_response:
+            return jsonify({'error': 'Docker command failed'}), 500
+        return []
+    except Exception as e:
+        logger.exception("Error getting container status")
+        if return_json_response:
+            return jsonify({'error': str(e)}), 500
+        return []
+
+@app.route('/debug/icons')
+def debug_icons():
+    img_dir = os.path.join(app.static_folder, 'img', 'icons')
+    return jsonify({
+        'img_dir': img_dir,
+        'exists': os.path.exists(img_dir),
+        'files': os.listdir(img_dir) if os.path.exists(img_dir) else [],
+        'static_folder': app.static_folder,
+        'full_path': os.path.abspath(img_dir)
+    })
+
+def set_file_permissions(path, user=None, group=None, mode=None):
+    """Set file permissions and ownership for a file or directory
+    
+    Args:
+        path (str): Path to file or directory
+        user (str, optional): User ID or name
+        group (str, optional): Group ID or name 
+        mode (int, optional): File mode (e.g. 0o644)
+    """
+    try:
+        if mode is not None:
+            # Make sure mode is an integer
+            if isinstance(mode, str):
+                try:
+                    # Parse as octal if it starts with 0, otherwise as decimal
+                    mode = int(mode, 8) if mode.startswith('0') else int(mode)
+                except ValueError:
+                    logger.warning(f"Invalid mode format: {mode}, using 0o644 instead")
+                    mode = 0o644
+            
+            os.chmod(path, mode)
+            logger.debug(f"Set mode {oct(mode)} for {path}")
+            
+        if user is not None or group is not None:
+            # Convert user/group names to IDs if needed
+            uid = -1
+            gid = -1
+            
+            if user is not None:
+                try:
+                    # Try to convert to int first
+                    uid = int(user)
+                except ValueError:
+                    try:
+                        # If not an int, try to look up the username
+                        import pwd
+                        uid = pwd.getpwnam(user).pw_uid
+                    except KeyError:
+                        # If username not found, try splitting user:group format
+                        if ':' in str(user):
+                            user_part = str(user).split(':')[0]
+                            try:
+                                uid = int(user_part)
+                            except ValueError:
+                                logger.warning(f"Could not convert user '{user}' to UID, using -1")
+                    
+            if group is not None:
+                try:
+                    # Try to convert to int first
+                    gid = int(group)
+                except ValueError:
+                    try:
+                        # If not an int, try to look up the group name
+                        import grp
+                        gid = grp.getgrnam(group).gr_gid
+                    except KeyError:
+                        # If group not found, try splitting user:group format
+                        if ':' in str(group):
+                            group_part = str(group).split(':')[1]
+                            try:
+                                gid = int(group_part)
+                            except ValueError:
+                                logger.warning(f"Could not convert group '{group}' to GID, using -1")
+                    
+            os.chown(path, uid, gid)
+            logger.debug(f"Set ownership {uid}:{gid} for {path}")
+            
+    except Exception as e:
+        logger.error(f"Error setting permissions for {path}: {e}")
+        raise
+
+def setup_mosquitto(container_name, install_path, config_data=None):
+    """Setup für Mosquitto Broker"""
+    try:
+        # Debug-Logging
+        logger.info("=== Setup Mosquitto Debug ===")
+        logger.info(f"Config data: {config_data}")
+        logger.info(f"COMPOSE_FILES_DIR: {COMPOSE_FILES_DIR}")
+        logger.info(f"Container name: {container_name}")
+        logger.info(f"Install path: {install_path}")
+        
+        # Get config_files spec first - we'll need this throughout the function
+        config_files = {}
+        if config_data and 'config_files' in config_data:
+            config_files = config_data.get('config_files', {})
+        
+        # Get user/group from config
+        user_config = config_data.get('user', '1883:1883') if config_data else '1883:1883'
+        try:
+            user, group = user_config.split(':') if ':' in user_config else (user_config, user_config)
+        except Exception as e:
+            logger.warning(f"Error parsing user:group from '{user_config}', using defaults: {e}")
+            user, group = '1883', '1883'
+        
+        # Create directories with full permissions (like Grafana)
+        config_dir = os.path.join(install_path, "config")
+        data_dir = os.path.join(install_path, "data")
+        log_dir = os.path.join(install_path, "log")
+        
+        # Create directories with full permissions
+        for dir_path in [config_dir, data_dir, log_dir]:
+            os.makedirs(dir_path, exist_ok=True, mode=0o777)
+            logger.info(f"Created directory with full permissions: {dir_path}")
+
+        # Default Werte
+        auth_enabled = False
+        username = 'test'
+        password = 'test'
+        
+        # Prüfe ob Authentifizierung aktiviert ist
+        if config_data and 'mosquitto' in config_data:
+            mosquitto_config = config_data['mosquitto']
+            auth_enabled = mosquitto_config.get('auth_enabled', False)
+            username = mosquitto_config.get('username', username)
+            password = mosquitto_config.get('password', password)
+            
+            logger.info("=== Mosquitto Auth Config ===")
+            logger.info(f"Auth enabled: {auth_enabled}")
+            logger.info(f"Username: {username}")
+            logger.info(f"Password: {'*' * len(password)}")
+        
+        # Erstelle Konfigurationsdatei
+        config_path = os.path.join(config_dir, "mosquitto.conf")
+        
+        # Prüfe, ob eine Template-Konfigurationsdatei existiert
+        template_config_path = os.path.join(COMPOSE_FILES_DIR, container_name, "mosquitto.conf")
+        
+        logger.info(f"Checking for template mosquitto.conf at: {template_config_path}")
+        if os.path.exists(template_config_path):
+            # Kopiere die Template-Konfigurationsdatei
+            logger.info(f"Using template mosquitto.conf from {template_config_path}")
+            shutil.copy2(template_config_path, config_path)
+            
+            # Wenn Authentifizierung aktiviert ist, passe die Konfigurationsdatei an
+            if auth_enabled:
+                with open(config_path, "r") as f:
+                    config_content = f.read()
+                
+                # Ersetze allow_anonymous true mit allow_anonymous false
+                config_content = config_content.replace("allow_anonymous true", "allow_anonymous false")
+                
+                # Füge password_file hinzu, wenn nicht vorhanden
+                if "password_file" not in config_content:
+                    config_content += "\npassword_file /mosquitto/config/passwd\n"
+                
+                with open(config_path, "w") as f:
+                    f.write(config_content)
+        else:
+            # Versuche, die Konfigurationsdatei aus dem docker-templates Verzeichnis zu kopieren
+            template_dir = "/home/webDock/docker-templates"
+            alt_template_path = os.path.join(template_dir, container_name, "mosquitto.conf")
+            
+            logger.info(f"Template not found at {template_config_path}, checking alternative path: {alt_template_path}")
+            
+            if os.path.exists(alt_template_path):
+                logger.info(f"Using alternative template mosquitto.conf from {alt_template_path}")
+                shutil.copy2(alt_template_path, config_path)
+                
+                # Wenn Authentifizierung aktiviert ist, passe die Konfigurationsdatei an
+                if auth_enabled:
+                    with open(config_path, "r") as f:
+                        config_content = f.read()
+                    
+                    # Ersetze allow_anonymous true mit allow_anonymous false
+                    config_content = config_content.replace("allow_anonymous true", "allow_anonymous false")
+                    
+                    # Füge password_file hinzu, wenn nicht vorhanden
+                    if "password_file" not in config_content:
+                        config_content += "\npassword_file /mosquitto/config/passwd\n"
+                    
+                    with open(config_path, "w") as f:
+                        f.write(config_content)
+            else:
+                # Erstelle eine neue Konfigurationsdatei
+                logger.info("No template found, creating new mosquitto.conf file")
+                with open(config_path, "w") as f:
+                    f.write("""# Default listener
+listener 1883
+
+# WebSockets listener
+listener 9001
+protocol websockets
+
+# Persistence
+persistence true
+persistence_location /mosquitto/data/
+
+# Logging
+log_dest file /mosquitto/log/mosquitto.log
+log_dest stdout
+""")
+                    
+                    # Füge Authentifizierungskonfiguration hinzu, wenn aktiviert
+                    if auth_enabled:
+                        f.write("""
+# Authentication
+allow_anonymous false
+password_file /mosquitto/config/passwd
+""")
+                    else:
+                        f.write("""
+# Authentication
+allow_anonymous true
+""")
         
         # Erstelle Passwort-Datei nur wenn Authentifizierung aktiviert ist
         if auth_enabled:
