@@ -1,7 +1,7 @@
 
 services:
   paperless:
-    image: paperless-ngx/paperless-ngx:latest
+    image: ghcr.io/paperless-ngx/paperless-ngx:latest
     networks:
       - webdock-network
     depends_on:
