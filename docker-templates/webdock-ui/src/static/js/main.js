@@ -1883,26 +1883,54 @@
                     // Status-Indikator aktualisieren
             const statusIndicator = card.querySelector('.status-indicator');
             if (statusIndicator) {
-                        const oldStatus = statusIndicator.classList.contains('running') ? 'running' : 
-                                         statusIndicator.classList.contains('stopped') ? 'stopped' : 'error';
+                        // Get current status classes
+                        const statusClasses = ['running', 'stopped', 'error', 'starting', 'restarting'];
+                        const oldStatus = statusClasses.find(cls => statusIndicator.classList.contains(cls)) || 'unknown';
                         
-                        // Nur aktualisieren, wenn sich der Status geändert hat
-                        if (oldStatus !== container.status) {
-                            // Alle Status-Klassen entfernen
-                statusIndicator.classList.remove('running', 'stopped', 'error');
+                        // Map container status to display status
+                        let displayStatus = container.status;
+                        if (container.is_restarting || container.status === 'restarting') {
+                            displayStatus = 'restarting';
+                        } else if (container.status === 'created' || container.status === 'starting') {
+                            displayStatus = 'starting';
+                        } else if (container.status === 'exited' || container.status === 'error' || (container.exit_code && container.exit_code !== 0)) {
+                            displayStatus = 'error';
+                        }
+                        
+                        // Only update if status changed
+                        if (oldStatus !== displayStatus) {
+                            // Remove all status classes
+                            statusIndicator.classList.remove(...statusClasses);
                             
-                            // Neuen Status hinzufügen
-                statusIndicator.classList.add(container.status);
+                            // Add new status
+                            statusIndicator.classList.add(displayStatus);
                             
-                            // Tooltip aktualisieren
-                statusIndicator.setAttribute('title', `Status: ${container.status}`);
-                
-                            // Status-Button aktualisieren
+                            // Update tooltip with detailed status
+                            let tooltipText = `Status: ${displayStatus}`;
+                            if (container.error) {
+                                tooltipText += `\nError: ${container.error}`;
+                            }
+                            if (container.exit_code && container.exit_code !== 0) {
+                                tooltipText += `\nExit Code: ${container.exit_code}`;
+                            }
+                            statusIndicator.setAttribute('title', tooltipText);
+                            
+                            // Update status button
                             const statusBtn = card.querySelector('.status-btn');
                             if (statusBtn) {
-                                statusBtn.classList.remove('running', 'stopped', 'error');
-                                statusBtn.classList.add(container.status);
-                                statusBtn.textContent = container.status === 'running' ? 'Stop' : 'Start';
+                                statusBtn.classList.remove(...statusClasses);
+                                statusBtn.classList.add(displayStatus);
+                                
+                                // Update button text based on status
+                                if (displayStatus === 'running') {
+                                    statusBtn.textContent = 'Stop';
+                                } else if (displayStatus === 'restarting' || displayStatus === 'starting') {
+                                    statusBtn.textContent = 'Starting...';
+                                    statusBtn.disabled = true;
+                                } else {
+                                    statusBtn.textContent = 'Start';
+                                    statusBtn.disabled = false;
+                                }
                             }
                             
                             // Kurze Animation für bessere Sichtbarkeit

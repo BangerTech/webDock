@@ -2954,20 +2954,42 @@ def set_file_permissions(path, user=None, group=None, mode=None):
             
             if user is not None:
                 try:
+                    # Try to convert to int first
                     uid = int(user)
                 except ValueError:
-                    import pwd
-                    uid = pwd.getpwnam(user).pw_uid
+                    try:
+                        # If not an int, try to look up the username
+                        import pwd
+                        uid = pwd.getpwnam(user).pw_uid
+                    except KeyError:
+                        # If username not found, try splitting user:group format
+                        if ':' in user:
+                            user_part = user.split(':')[0]
+                            try:
+                                uid = int(user_part)
+                            except ValueError:
+                                logger.warning(f"Could not convert user '{user}' to UID, using -1")
                     
             if group is not None:
                 try:
+                    # Try to convert to int first
                     gid = int(group)
                 except ValueError:
-                    import grp
-                    gid = grp.getgrnam(group).gr_gid
+                    try:
+                        # If not an int, try to look up the group name
+                        import grp
+                        gid = grp.getgrnam(group).gr_gid
+                    except KeyError:
+                        # If group not found, try splitting user:group format
+                        if ':' in str(group):
+                            group_part = str(group).split(':')[1]
+                            try:
+                                gid = int(group_part)
+                            except ValueError:
+                                logger.warning(f"Could not convert group '{group}' to GID, using -1")
                     
             os.chown(path, uid, gid)
-            logger.debug(f"Set ownership {user}:{group} for {path}")
+            logger.debug(f"Set ownership {uid}:{gid} for {path}")
             
     except Exception as e:
         logger.error(f"Error setting permissions for {path}: {e}")
@@ -2984,8 +3006,12 @@ def setup_mosquitto(container_name, install_path, config_data=None):
         logger.info(f"Install path: {install_path}")
         
         # Get user/group from config
-        user = config_data.get('user', '1883:1883').split(':')[0] if config_data else '1883'
-        group = config_data.get('user', '1883:1883').split(':')[1] if config_data else '1883'
+        user_config = config_data.get('user', '1883:1883') if config_data else '1883:1883'
+        try:
+            user, group = user_config.split(':') if ':' in user_config else (user_config, user_config)
+        except Exception as e:
+            logger.warning(f"Error parsing user:group from '{user_config}', using defaults: {e}")
+            user, group = '1883', '1883'
         
         # Create directories
         config_dir = os.path.join(install_path, "config")
@@ -5967,9 +5993,16 @@ def get_network_info():
 def setup_nodered(container_name, install_path, config_data=None):
     """Setup for Node-RED"""
     try:
+        logger.info(f"Setting up Node-RED in {install_path}")
+        
         # Create directories
         data_dir = os.path.join(install_path, 'data')
-        os.makedirs(data_dir, exist_ok=True, mode=0o777)  # Set permissions to 777 to avoid permission issues
+        config_dir = os.path.join(install_path, 'config')
+        
+        for directory in [data_dir, config_dir]:
+            os.makedirs(directory, exist_ok=True)
+            # Set permissions that allow Node-RED to write
+            os.chmod(directory, 0o777)
         
         # Get port configuration
         port = "1880"  # Default port for Node-RED
@@ -5979,8 +6012,23 @@ def setup_nodered(container_name, install_path, config_data=None):
             if ports and '1880' in ports:
                 port = ports['1880']
         
+        # Create settings.js if it doesn't exist
+        settings_file = os.path.join(data_dir, 'settings.js')
+        if not os.path.exists(settings_file):
+            with open(settings_file, 'w') as f:
+                f.write('''
+module.exports = {
+    flowFile: 'flows.json',
+    credentialSecret: false,
+    flowFilePretty: true,
+    userDir: '/data',
+    nodesDir: '/data/nodes',
+}
+''')
+            os.chmod(settings_file, 0o666)
+        
         # Check for template docker-compose.yml file
-        template_compose_path = os.path.join(CONFIG_DIR, 'templates', 'node-red', 'docker-compose.yml')
+        template_compose_path = os.path.join(COMPOSE_FILES_DIR, container_name, 'docker-compose.yml')
         compose_file = os.path.join(install_path, 'docker-compose.yml')
         
         if os.path.exists(template_compose_path):

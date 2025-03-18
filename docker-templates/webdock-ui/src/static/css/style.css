@@ -176,32 +176,84 @@ nav a:hover, nav a.active {
 }
 
 .status-indicator {
-    width: 8px;
-    height: 8px;
+    width: 10px;
+    height: 10px;
     border-radius: 50%;
-    background-color: #999;
+    background-color: var(--color-error);
     position: absolute;
     top: 10px;
     right: 10px;
+    transition: all 0.3s ease;
 }
 
 .status-indicator.running {
-    background-color: #4CAF50;
+    background-color: var(--color-success);
+    box-shadow: 0 0 8px var(--color-success);
 }
 
 .status-indicator.stopped {
-    background-color: #f44336;
+    background-color: var(--color-error);
+    box-shadow: 0 0 8px var(--color-error);
 }
 
+.status-indicator.error {
+    background-color: var(--color-error);
+    box-shadow: 0 0 8px var(--color-error);
+    animation: pulse-error 1s infinite;
+}
+
+.status-indicator.starting,
 .status-indicator.restarting {
-    background-color: #FFCC00;
-    animation: pulse 1s infinite;
+    background-color: var(--color-warning);
+    box-shadow: 0 0 8px var(--color-warning);
+    animation: pulse-starting 1s infinite;
 }
 
-@keyframes pulse {
-    0% { opacity: 0.6; }
-    50% { opacity: 1; }
-    100% { opacity: 0.6; }
+@keyframes pulse-starting {
+    0% {
+        transform: scale(1);
+        opacity: 1;
+    }
+    50% {
+        transform: scale(1.2);
+        opacity: 0.7;
+    }
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+@keyframes pulse-error {
+    0% {
+        transform: scale(1);
+        opacity: 1;
+    }
+    50% {
+        transform: scale(1.2);
+        opacity: 0.7;
+    }
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+/* Status button styles */
+.status-btn {
+    transition: all 0.3s ease;
+}
+
+.status-btn:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+.status-btn.starting,
+.status-btn.restarting {
+    background-color: var(--color-warning);
+    border-color: var(--color-warning);
+    color: var(--color-main-text);
 }
 
 /* Drag & Drop Styles */
