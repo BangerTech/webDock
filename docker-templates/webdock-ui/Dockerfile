@@ -22,8 +22,7 @@ RUN mkdir -p /app/static/css \
 # Kopiere die Anwendung
 COPY src/app.py /app/
 COPY src/templates/ /app/templates/
-COPY src/static/css/ /app/static/css/
-COPY src/static/js/ /app/static/js/
+COPY src/static/ /app/static/
 COPY src/config/ /app/config/
 
 # Kopiere die Template-Datei

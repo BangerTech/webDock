@@ -3172,16 +3172,15 @@ def setup_mosquitto(container_name, install_path, config_data=None):
             logger.warning(f"Error parsing user:group from '{user_config}', using defaults: {e}")
             user, group = '1883', '1883'
         
-        # Create directories
+        # Create directories with full permissions (like Grafana)
         config_dir = os.path.join(install_path, "config")
         data_dir = os.path.join(install_path, "data")
         log_dir = os.path.join(install_path, "log")
         
-        # Create directories with proper permissions
+        # Create directories with full permissions
         for dir_path in [config_dir, data_dir, log_dir]:
-            os.makedirs(dir_path, exist_ok=True)
-            # Use octal integer for mode
-            set_file_permissions(dir_path, user=user, group=group, mode=0o755)
+            os.makedirs(dir_path, exist_ok=True, mode=0o777)
+            logger.info(f"Created directory with full permissions: {dir_path}")
 
         # Default Werte
         auth_enabled = False
@@ -3289,6 +3288,10 @@ allow_anonymous true
             passwd_file = os.path.join(config_dir, "passwd")
             
             try:
+                # Ensure config directory exists and has correct permissions
+                os.makedirs(config_dir, exist_ok=True)
+                set_file_permissions(config_dir, user=user, group=group, mode=0o755)
+                
                 # Erstelle leere Passwort-Datei
                 with open(passwd_file, 'w') as f:
                     pass
@@ -3315,6 +3318,9 @@ allow_anonymous true
                     group=passwd_perms['group'],
                     mode=passwd_mode
                 )
+                
+                # Create the config directory inside the container if it doesn't exist
+                os.makedirs(os.path.join(config_dir), exist_ok=True)
                 
                 # Erstelle die Passwort-Datei im Container
                 result = subprocess.run([
@@ -3402,6 +3408,15 @@ allow_anonymous true
             compose_content = re.sub(r'"\d+:1883"', f'"{mqtt_port}:1883"', compose_content)
             compose_content = re.sub(r'"\d+:9001"', f'"{websocket_port}:9001"', compose_content)
             
+            # Ensure root user is set (like Grafana)
+            if 'user:' not in compose_content:
+                # Add user: "0:0" after image line
+                compose_content = re.sub(
+                    r'(\s+image:\s+[^\n]+\n)',
+                    r'\1    user: "0:0"  # Run as root to avoid permission issues (like Grafana)\n',
+                    compose_content
+                )
+            
             with open(compose_file, 'w') as f:
                 f.write(compose_content)
         else:
@@ -3434,6 +3449,15 @@ allow_anonymous true
                 compose_content = re.sub(r'"\d+:1883"', f'"{mqtt_port}:1883"', compose_content)
                 compose_content = re.sub(r'"\d+:9001"', f'"{websocket_port}:9001"', compose_content)
                 
+                # Ensure root user is set (like Grafana)
+                if 'user:' not in compose_content:
+                    # Add user: "0:0" after image line
+                    compose_content = re.sub(
+                        r'(\s+image:\s+[^\n]+\n)',
+                        r'\1    user: "0:0"  # Run as root to avoid permission issues (like Grafana)\n',
+                        compose_content
+                    )
+                
                 with open(compose_file, 'w') as f:
                     f.write(compose_content)
             else:
@@ -3458,6 +3482,7 @@ services:
   mosquitto:
     container_name: mosquitto-broker
     image: eclipse-mosquitto:latest
+    user: "0:0"  # Run as root to avoid permission issues (like Grafana)
     networks:
       - webdock-network
     restart: unless-stopped
@@ -3569,12 +3594,13 @@ networks:
 def setup_influxdb(container_name, install_path, config_data=None):
     """Setup für InfluxDB"""
     try:
-        # Erstelle Verzeichnisse
+        # Erstelle Verzeichnisse mit vollen Berechtigungen (wie bei Grafana)
         data_dir = os.path.join(install_path, 'data')
         config_dir = os.path.join(install_path, 'config')
         
         for dir_path in [data_dir, config_dir]:
-            os.makedirs(dir_path, exist_ok=True, mode=0o755)
+            os.makedirs(dir_path, exist_ok=True, mode=0o777)
+            logger.info(f"Created directory with full permissions: {dir_path}")
         
         # Prüfe, ob eine Datenbank erstellt werden soll
         create_database = False
@@ -6208,22 +6234,18 @@ def setup_nodered(container_name, install_path, config_data=None):
             except Exception as e:
                 logger.warning(f"Error parsing user:group from '{user_config}', using defaults: {e}")
         
-        # Create directories
+        # Create directories with full permissions (similar to Grafana setup)
         data_dir = os.path.join(install_path, 'data')
         config_dir = os.path.join(install_path, 'config')
         
         for directory in [data_dir, config_dir]:
-            os.makedirs(directory, exist_ok=True)
-            # Set permissions that allow Node-RED to write
-            try:
-                # Use set_file_permissions to handle user/group setting if provided
-                if user or group:
-                    set_file_permissions(directory, user=user, group=group, mode=0o777)
-                else:
-                    os.chmod(directory, 0o777)
-                logger.info(f"Set permissions for directory {directory}")
-            except Exception as e:
-                logger.warning(f"Could not set permissions for {directory}: {e}")
+            os.makedirs(directory, exist_ok=True, mode=0o777)  # Set permissions to 777 directly
+            logger.info(f"Created directory with full permissions: {directory}")
+            
+        # Create additional directories that Node-RED might need
+        nodes_dir = os.path.join(data_dir, 'nodes')
+        os.makedirs(nodes_dir, exist_ok=True, mode=0o777)
+        logger.info(f"Created directory with full permissions: {nodes_dir}")
         
         # Get port configuration
         port = "1880"  # Default port for Node-RED
@@ -6233,28 +6255,25 @@ def setup_nodered(container_name, install_path, config_data=None):
             if ports and '1880' in ports:
                 port = ports['1880']
         
-        # Create settings.js if it doesn't exist
+        # For Node-RED, it's better to let the container create its own settings.js file
+        # We'll just ensure the data directory is writable by the container
         settings_file = os.path.join(data_dir, 'settings.js')
-        if not os.path.exists(settings_file):
-            with open(settings_file, 'w') as f:
-                f.write('''
-module.exports = {
-    flowFile: 'flows.json',
-    credentialSecret: false,
-    flowFilePretty: true,
-    userDir: '/data',
-    nodesDir: '/data/nodes',
-}
-''')
+        if os.path.exists(settings_file):
+            # If the file exists but has permission issues, fix them
             try:
-                # Set permissive file permissions
-                if user or group:
-                    set_file_permissions(settings_file, user=user, group=group, mode=0o666)
-                else:
-                    os.chmod(settings_file, 0o666)
-                logger.info(f"Set permissions for settings.js in {settings_file}")
+                # Make sure the settings file is owned by the Node-RED user and is writable
+                subprocess.run(['chown', '1000:1000', settings_file], check=True)
+                subprocess.run(['chmod', '666', settings_file], check=True)
+                logger.info(f"Fixed permissions for existing settings.js in {settings_file}")
             except Exception as e:
                 logger.warning(f"Could not set permissions for {settings_file}: {e}")
+                
+                # If we can't fix permissions, try removing the file so Node-RED can create a new one
+                try:
+                    os.remove(settings_file)
+                    logger.info(f"Removed problematic settings.js file so Node-RED can create a new one")
+                except Exception as e2:
+                    logger.warning(f"Could not remove settings.js file: {e2}")
         
         # Check for template docker-compose.yml file
         template_compose_path = os.path.join(COMPOSE_FILES_DIR, container_name, 'docker-compose.yml')
@@ -6281,6 +6300,7 @@ module.exports = {
   node-red:
     image: nodered/node-red:latest
     container_name: node-red
+    user: "0:0"  # Run as root to avoid permission issues
     environment:
       - TZ=Europe/Berlin
     ports:
