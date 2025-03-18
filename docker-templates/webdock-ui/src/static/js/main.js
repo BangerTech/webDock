@@ -698,14 +698,19 @@
             modal.className = 'modal';
             modal.id = 'infoModal';
             
+            // Extract the actual container info from the API response
+            // The API returns {name, status, info: {...}, compose}
+            const containerData = containerInfo.info || containerInfo;
+            
             // Formatiere Ports
             let portsHtml = '';
-            if (containerInfo.ports && containerInfo.ports.length > 0) {
+            if (containerData.ports && Object.keys(containerData.ports).length > 0) {
                 portsHtml = `
                     <div class="info-section">
                         <h3><i class="fa fa-plug"></i> Ports</h3>
                         <div class="info-grid">
-                            ${containerInfo.ports.map(port => `<div class="info-item">${port}</div>`).join('')}
+                            ${Object.entries(containerData.ports).map(([containerPort, hostPort]) => 
+                                `<div class="info-item">${hostPort}:${containerPort}</div>`).join('')}
                         </div>
                     </div>
                 `;
@@ -713,12 +718,13 @@
             
             // Formatiere Volumes
             let volumesHtml = '';
-            if (containerInfo.volumes && containerInfo.volumes.length > 0) {
+            if (containerData.volumes && containerData.volumes.length > 0) {
                 volumesHtml = `
                     <div class="info-section">
                         <h3><i class="fa fa-hdd"></i> Volumes</h3>
                         <div class="info-grid">
-                            ${containerInfo.volumes.map(volume => `<div class="info-item">${volume}</div>`).join('')}
+                            ${containerData.volumes.map(volume => 
+                                `<div class="info-item">${volume.source} → ${volume.destination}</div>`).join('')}
                         </div>
                     </div>
                 `;
@@ -726,12 +732,12 @@
             
             // Formatiere Env Vars
             let envVarsHtml = '';
-            if (containerInfo.environment && Object.keys(containerInfo.environment).length > 0) {
+            if (containerData.environment && Object.keys(containerData.environment).length > 0) {
                 envVarsHtml = `
                     <div class="info-section">
                         <h3><i class="fa fa-cog"></i> Umgebungsvariablen</h3>
                         <div class="env-vars-grid">
-                            ${Object.entries(containerInfo.environment).map(([key, value]) => `
+                            ${Object.entries(containerData.environment).map(([key, value]) => `
                                 <div class="env-var-item">
                                     <div class="env-var-key">${key}</div>
                                     <div class="env-var-value">${value}</div>
@@ -744,68 +750,91 @@
             
             // Formatiere Netzwerke
             let networksHtml = '';
-            if (containerInfo.networks && containerInfo.networks.length > 0) {
+            if (containerData.network) {
                 networksHtml = `
                     <div class="info-section">
                         <h3><i class="fa fa-network-wired"></i> Netzwerke</h3>
                         <div class="info-grid">
-                            ${containerInfo.networks.map(network => `<div class="info-item">${network}</div>`).join('')}
+                            <div class="info-item">${containerData.network}</div>
                         </div>
                     </div>
                 `;
             }
             
             // Formatiere Status
+            // Use the status directly from the top-level response if available
+            const status = containerInfo.status || containerData.status || 'stopped';
+            // Format created date if available
+            let uptimeText = 'unbekannt';
+            if (containerData.created) {
+                const createdDate = new Date(containerData.created);
+                uptimeText = createdDate.toLocaleString();
+            }
+            
             const statusHtml = `
                 <div class="info-section status-section">
-                    <div class="status-block ${containerInfo.status}">
+                    <div class="status-block ${status}">
                         <div class="status-icon">
-                            <i class="fa fa-${containerInfo.status === 'running' ? 'play-circle' : 'stop-circle'}"></i>
+                            <i class="fa fa-${status === 'running' ? 'play-circle' : 'stop-circle'}"></i>
                         </div>
                         <div class="status-info">
                             <h3>Status</h3>
-                            <p>${containerInfo.status === 'running' ? 'Läuft seit ' + (containerInfo.uptime || 'unbekannt') : 'Gestoppt'}</p>
+                            <p>${status === 'running' ? 'Läuft seit ' + uptimeText : 'Gestoppt'}</p>
                         </div>
                     </div>
                 </div>
             `;
             
             // Formatiere Image
-            const imageHtml = containerInfo.image ? `
+            const imageHtml = containerData.image ? `
                 <div class="info-section">
                     <h3><i class="fa fa-cube"></i> Image</h3>
                     <div class="image-info">
-                        <p>${containerInfo.image}</p>
-                        ${containerInfo.platform ? `<p class="platform-info"><i class="fa fa-microchip"></i> ${containerInfo.platform}</p>` : ''}
+                        <p>${containerData.image}</p>
+                        ${containerData.platform ? `<p class="platform-info"><i class="fa fa-microchip"></i> ${containerData.platform}</p>` : ''}
                     </div>
                 </div>
             ` : '';
             
             // Formatiere ID 
-            const idHtml = containerInfo.id ? `
+            const idHtml = containerData.id ? `
                 <div class="info-section">
                     <h3><i class="fa fa-fingerprint"></i> Container ID</h3>
-                    <p class="monospace">${containerInfo.id}</p>
+                    <p class="monospace">${containerData.id}</p>
                 </div>
             ` : '';
             
             // Formatiere Health Check
-            const healthHtml = containerInfo.health ? `
+            const healthHtml = containerData.health ? `
                 <div class="info-section">
                     <h3><i class="fa fa-heartbeat"></i> Health Check</h3>
-                    <div class="health-status ${containerInfo.health.toLowerCase()}">
+                    <div class="health-status ${containerData.health.toLowerCase()}">
                         <span class="health-indicator"></span>
-                        ${containerInfo.health}
+                        ${containerData.health}
                     </div>
                 </div>
             ` : '';
             
-            // Lade Konfigurationsdateien
+            // Get compose file from the API response if available
+            let composeContent = containerInfo.compose || '';
+            
+            // Create a config file object for the docker-compose.yml if it exists
             let configFiles = [];
+            if (composeContent) {
+                configFiles.push({
+                    name: 'docker-compose.yml',
+                    path: `/home/webDock/docker-compose-data/${containerName}/docker-compose.yml`,
+                    content: composeContent
+                });
+            }
+            
+            // Also load additional configuration files
             try {
                 const response = await fetch(`/api/container/${containerName}/config-files`);
                 const data = await response.json();
-                configFiles = data.config_files || [];
+                if (data.config_files && data.config_files.length > 0) {
+                    configFiles = [...configFiles, ...data.config_files];
+                }
             } catch (error) {
                 console.error('Error loading config files:', error);
             }
@@ -869,10 +898,10 @@
                     </div>
                     <div class="modal-footer">
                         <div class="button-group">
-                            <button class="action-btn ${containerInfo.status === 'running' ? 'stop-btn' : 'start-btn'}" 
-                                    onclick="window.WebDock.${containerInfo.status === 'running' ? 'stopContainer' : 'startContainer'}('${containerName}'); closeModal();">
-                                <i class="fa fa-${containerInfo.status === 'running' ? 'stop' : 'play'}"></i> 
-                                ${containerInfo.status === 'running' ? 'Stoppen' : 'Starten'}
+                            <button class="action-btn ${status === 'running' ? 'stop-btn' : 'start-btn'}" 
+                                    onclick="window.WebDock.${status === 'running' ? 'stopContainer' : 'startContainer'}('${containerName}'); closeModal();">
+                                <i class="fa fa-${status === 'running' ? 'stop' : 'play'}"></i> 
+                                ${status === 'running' ? 'Stoppen' : 'Starten'}
                             </button>
                             <button class="action-btn restart-btn" onclick="window.WebDock.restartContainer('${containerName}'); closeModal();">
                                 <i class="fa fa-sync"></i> Neustart
@@ -2084,7 +2113,6 @@
                                  onerror="this.src='/static/img/icons/bangertech.png'">
                             Install ${containerName}
                         </h2>
-                        <button class="close-modal" style="background: transparent; border: none; color: white; font-size: 22px;">&times;</button>
                     </div>
                     <div class="modal-body" style="padding: 20px;">
                         ${showPortConfig && ports.length > 0 ? `

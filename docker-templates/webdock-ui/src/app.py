@@ -2944,6 +2944,15 @@ def set_file_permissions(path, user=None, group=None, mode=None):
     """
     try:
         if mode is not None:
+            # Make sure mode is an integer
+            if isinstance(mode, str):
+                try:
+                    # Parse as octal if it starts with 0, otherwise as decimal
+                    mode = int(mode, 8) if mode.startswith('0') else int(mode)
+                except ValueError:
+                    logger.warning(f"Invalid mode format: {mode}, using 0o644 instead")
+                    mode = 0o644
+            
             os.chmod(path, mode)
             logger.debug(f"Set mode {oct(mode)} for {path}")
             
@@ -2963,8 +2972,8 @@ def set_file_permissions(path, user=None, group=None, mode=None):
                         uid = pwd.getpwnam(user).pw_uid
                     except KeyError:
                         # If username not found, try splitting user:group format
-                        if ':' in user:
-                            user_part = user.split(':')[0]
+                        if ':' in str(user):
+                            user_part = str(user).split(':')[0]
                             try:
                                 uid = int(user_part)
                             except ValueError:
@@ -3005,6 +3014,11 @@ def setup_mosquitto(container_name, install_path, config_data=None):
         logger.info(f"Container name: {container_name}")
         logger.info(f"Install path: {install_path}")
         
+        # Get config_files spec first - we'll need this throughout the function
+        config_files = {}
+        if config_data and 'config_files' in config_data:
+            config_files = config_data.get('config_files', {})
+        
         # Get user/group from config
         user_config = config_data.get('user', '1883:1883') if config_data else '1883:1883'
         try:
@@ -3021,6 +3035,7 @@ def setup_mosquitto(container_name, install_path, config_data=None):
         # Create directories with proper permissions
         for dir_path in [config_dir, data_dir, log_dir]:
             os.makedirs(dir_path, exist_ok=True)
+            # Use octal integer for mode
             set_file_permissions(dir_path, user=user, group=group, mode=0o755)
 
         # Default Werte
@@ -3132,17 +3147,28 @@ allow_anonymous true
                 # Erstelle leere Passwort-Datei
                 with open(passwd_file, 'w') as f:
                     pass
+                    
                 # Set permissions for passwd file
                 passwd_perms = config_files.get('passwd', {
                     'user': user,
                     'group': group,
-                    'mode': 0o600
+                    'mode': 0o600  # Use octal integer directly
                 })
+                
+                # Ensure mode is an integer
+                passwd_mode = passwd_perms.get('mode')
+                if isinstance(passwd_mode, str):
+                    try:
+                        passwd_mode = int(passwd_mode, 8) if passwd_mode.startswith('0') else int(passwd_mode)
+                    except ValueError:
+                        passwd_mode = 0o600  # Default if conversion fails
+                        logger.warning(f"Could not convert mode {passwd_perms['mode']} to int, using default 0o600")
+                        
                 set_file_permissions(
                     passwd_file,
                     user=passwd_perms['user'],
                     group=passwd_perms['group'],
-                    mode=passwd_perms['mode']
+                    mode=passwd_mode
                 )
                 
                 # Erstelle die Passwort-Datei im Container
@@ -3181,13 +3207,23 @@ allow_anonymous true
         mosquitto_conf_perms = config_files.get('mosquitto.conf', {
             'user': user,
             'group': group,
-            'mode': 0o644
+            'mode': 0o644  # Use octal integer directly
         })
+        
+        # Ensure mode is an integer
+        conf_mode = mosquitto_conf_perms.get('mode')
+        if isinstance(conf_mode, str):
+            try:
+                conf_mode = int(conf_mode, 8) if conf_mode.startswith('0') else int(conf_mode)
+            except ValueError:
+                conf_mode = 0o644  # Default if conversion fails
+                logger.warning(f"Could not convert mode {mosquitto_conf_perms['mode']} to int, using default 0o644")
+                
         set_file_permissions(
             config_path,
             user=mosquitto_conf_perms['user'],
             group=mosquitto_conf_perms['group'],
-            mode=mosquitto_conf_perms['mode']
+            mode=conf_mode
         )
         
         # Prüfe, ob eine Template docker-compose.yml existiert
@@ -5424,13 +5460,24 @@ def get_container_config_files(container_name):
         logger.info(f"Container name: {container_name}")
         
         # Prüfe, ob der Container installiert ist
-        # Verwende den Container-Pfad direkt
-        install_path = os.path.join('/app/webdock/webdock-data', container_name)
+        # Verwende die konfigurierte Variable für den Installationspfad
+        install_path = os.path.join(COMPOSE_DATA_DIR, container_name)
         logger.info(f"Suche nach Konfigurationsdateien in: {install_path}")
         
+        # Wenn der Pfad nicht existiert, versuche es mit alternativen Pfaden
         if not os.path.exists(install_path):
-            logger.warning(f"Pfad existiert nicht: {install_path}")
-            return jsonify({'error': 'Container not installed'}), 404
+            # Versuche mit dem Template-Pfad
+            install_path = os.path.join(COMPOSE_FILES_DIR, container_name)
+            logger.info(f"Versuche alternativen Pfad: {install_path}")
+            
+            if not os.path.exists(install_path):
+                # Versuche mit dem symbolischen Link webdock-data
+                install_path = os.path.join(WEBDOCK_BASE_PATH, 'webdock-data', container_name)
+                logger.info(f"Versuche alternativen Pfad: {install_path}")
+                
+                if not os.path.exists(install_path):
+                    logger.warning(f"Keine Konfigurationsdateien gefunden für {container_name} an allen geprüften Pfaden")
+                    return jsonify({'config_files': []})
         
         config_files = []
         
@@ -5502,9 +5549,16 @@ def save_container_config(container_name):
         file_path = data['path']
         content = data['content']
         
-        # Sicherheitscheck: Stelle sicher, dass die Datei im richtigen Verzeichnis liegt
-        install_path = os.path.join(COMPOSE_DATA_DIR, container_name)
-        if not file_path.startswith(install_path):
+        # Sicherheitscheck: Stelle sicher, dass die Datei in einem erlaubten Verzeichnis liegt
+        valid_paths = [
+            os.path.join(COMPOSE_DATA_DIR, container_name),
+            os.path.join(COMPOSE_FILES_DIR, container_name),
+            os.path.join(WEBDOCK_BASE_PATH, 'webdock-data', container_name)
+        ]
+        
+        # Prüfe, ob der Dateipfad in einem der erlaubten Verzeichnisse liegt
+        if not any(file_path.startswith(path) for path in valid_paths):
+            logger.warning(f"Ungültiger Dateipfad: {file_path} nicht in {valid_paths}")
             return jsonify({'error': 'Invalid file path'}), 400
         
         # Speichere die Datei
@@ -5995,6 +6049,20 @@ def setup_nodered(container_name, install_path, config_data=None):
     try:
         logger.info(f"Setting up Node-RED in {install_path}")
         
+        # Get user/group config if available
+        user = None
+        group = None
+        if config_data and 'user' in config_data:
+            user_config = config_data.get('user')
+            try:
+                if isinstance(user_config, str) and ':' in user_config:
+                    user, group = user_config.split(':') 
+                else:
+                    user = group = user_config
+                logger.info(f"Using user:group {user}:{group} for Node-RED")
+            except Exception as e:
+                logger.warning(f"Error parsing user:group from '{user_config}', using defaults: {e}")
+        
         # Create directories
         data_dir = os.path.join(install_path, 'data')
         config_dir = os.path.join(install_path, 'config')
@@ -6002,7 +6070,15 @@ def setup_nodered(container_name, install_path, config_data=None):
         for directory in [data_dir, config_dir]:
             os.makedirs(directory, exist_ok=True)
             # Set permissions that allow Node-RED to write
-            os.chmod(directory, 0o777)
+            try:
+                # Use set_file_permissions to handle user/group setting if provided
+                if user or group:
+                    set_file_permissions(directory, user=user, group=group, mode=0o777)
+                else:
+                    os.chmod(directory, 0o777)
+                logger.info(f"Set permissions for directory {directory}")
+            except Exception as e:
+                logger.warning(f"Could not set permissions for {directory}: {e}")
         
         # Get port configuration
         port = "1880"  # Default port for Node-RED
@@ -6025,7 +6101,15 @@ module.exports = {
     nodesDir: '/data/nodes',
 }
 ''')
-            os.chmod(settings_file, 0o666)
+            try:
+                # Set permissive file permissions
+                if user or group:
+                    set_file_permissions(settings_file, user=user, group=group, mode=0o666)
+                else:
+                    os.chmod(settings_file, 0o666)
+                logger.info(f"Set permissions for settings.js in {settings_file}")
+            except Exception as e:
+                logger.warning(f"Could not set permissions for {settings_file}: {e}")
         
         # Check for template docker-compose.yml file
         template_compose_path = os.path.join(COMPOSE_FILES_DIR, container_name, 'docker-compose.yml')
