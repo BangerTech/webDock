@@ -112,7 +112,7 @@ WebDock fully supports both ARM (Raspberry Pi) and x86/x64 architectures. The sy
    ./setup_webDock.sh
    ```
 
-5. The script will automatically create a `webDock` directory in your current location and set up everything needed
+5. The script will automatically create a `webDock` directory in your current location and set up everything needed.
 
 6. Once installed, launch the webDock UI and start installing containers through the interface.
 
