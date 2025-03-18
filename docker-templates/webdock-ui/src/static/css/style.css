@@ -701,7 +701,13 @@ button:disabled {
 }
 
 .settings-section {
-    margin-bottom: 2rem;
+    margin-bottom: 1.5rem;
+}
+
+.docker-settings {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.6rem;
 }
 
 .settings-grid {
@@ -713,8 +719,9 @@ button:disabled {
 
 .setting-card {
     background: var(--color-background-dark);
-    padding: 1.5rem;
+    padding: 0.8rem 1rem;
     border-radius: 10px;
+    margin-bottom: 0.8rem;
 }
 
 /* Switch Toggle */
@@ -779,6 +786,7 @@ section h2 {
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    margin-bottom: 0.8rem;
 }
 
 section h2 i {
@@ -815,9 +823,10 @@ section h2 i {
 
 .hint {
     display: block;
-    margin-top: 0.5rem;
+    margin-top: 0.2rem;
     color: var(--color-main-text);
     opacity: 0.7;
+    font-size: 0.75rem;
 }
 
 /* Modal Styles */

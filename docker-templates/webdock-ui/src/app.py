@@ -1559,11 +1559,9 @@ def install_container():
         }), 500
 
 def get_docker_compose_cmd():
-    """Gibt den korrekten docker-compose Befehl zurück"""
-    docker_compose_cmd = '/usr/libexec/docker/cli-plugins/docker-compose'
-    if not os.path.exists(docker_compose_cmd):
-        docker_compose_cmd = 'docker compose'  # Fallback auf neuen Docker Compose Befehl
-    return docker_compose_cmd
+    """Gibt den korrekten Docker Compose Befehl zurück"""
+    # Verwende immer den neueren 'docker compose' Befehl (ohne Bindestrich)
+    return 'docker compose'
 
 @app.route('/api/toggle/<container_name>', methods=['POST'])
 def toggle_container(container_name):
@@ -2156,13 +2154,17 @@ def get_docker_info_endpoint():
         
         # Get Docker Compose version
         try:
-            compose_version = subprocess.check_output(['docker-compose', '--version'], universal_newlines=True).strip()
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            # Try with docker compose command (newer Docker versions)
             try:
-                compose_version = subprocess.check_output(['docker', 'compose', '--version'], universal_newlines=True).strip()
-            except subprocess.CalledProcessError:
-                compose_version = "Not available"
+                # Use the preferred 'docker compose' command
+                compose_version = subprocess.check_output(['docker', 'compose', 'version', '--short'], universal_newlines=True).strip()
+                if not compose_version:
+                    # Try alternative format if --short doesn't work
+                    compose_output = subprocess.check_output(['docker', 'compose', 'version'], universal_newlines=True).strip()
+                    version_match = re.search(r'v?(\d+\.\d+\.\d+)', compose_output)
+                    compose_version = version_match.group(1) if version_match else compose_output
+        except Exception as e:
+            logger.error(f"Error getting Docker Compose version: {str(e)}")
+            compose_version = "Not available"
         
         # Get default network
         default_network = "webdock-network"
@@ -2201,6 +2203,13 @@ def handle_data_location():
                     'message': 'No location provided'
                 }), 400
  
+            # Never allow internal docker paths
+            if new_location.startswith('/app/'):
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Cannot use internal Docker paths'
+                }), 400
+
             # Validiere und erstelle das Verzeichnis
             try:
                 os.makedirs(new_location, exist_ok=True)
@@ -2219,7 +2228,12 @@ def handle_data_location():
             config = {'data_location': new_location}
             with open(config_file, 'w') as f:
                 json.dump(config, f)
- 
+             
+            # Set the global COMPOSE_DATA_DIR to the new location
+            global COMPOSE_DATA_DIR
+            COMPOSE_DATA_DIR = new_location
+            logger.info(f"Updated COMPOSE_DATA_DIR to {COMPOSE_DATA_DIR}")
+
             return jsonify({
                 'status': 'success',
                 'message': 'Data location updated',
@@ -2231,8 +2245,8 @@ def handle_data_location():
                 with open(config_file, 'r') as f:
                     config = json.load(f)
                     local_path = config.get('data_location', COMPOSE_DATA_DIR)
-                    # Make sure we're not returning the internal Docker path
-                    if local_path == '/app/webdock-data':
+                    # Always make sure we're not returning the internal Docker path
+                    if local_path.startswith('/app/'):
                         local_path = COMPOSE_DATA_DIR
                     return jsonify({
                         'location': local_path
@@ -5121,7 +5135,10 @@ def get_crontabs():
                         })
         
         ssh.close()
-        return jsonify({'jobs': active_jobs})
+        return jsonify({
+            'status': 'success',
+            'crontabs': active_jobs
+        })
         
     except Exception as e:
         logger.exception("Error getting crontabs")
