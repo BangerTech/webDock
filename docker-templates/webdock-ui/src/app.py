@@ -2154,14 +2154,13 @@ def get_docker_info_endpoint():
         
         # Get Docker Compose version
         try:
-            try:
-                # Use the preferred 'docker compose' command
-                compose_version = subprocess.check_output(['docker', 'compose', 'version', '--short'], universal_newlines=True).strip()
-                if not compose_version:
-                    # Try alternative format if --short doesn't work
-                    compose_output = subprocess.check_output(['docker', 'compose', 'version'], universal_newlines=True).strip()
-                    version_match = re.search(r'v?(\d+\.\d+\.\d+)', compose_output)
-                    compose_version = version_match.group(1) if version_match else compose_output
+            # Use the preferred 'docker compose' command
+            compose_version = subprocess.check_output(['docker', 'compose', 'version', '--short'], universal_newlines=True).strip()
+            if not compose_version:
+                # Try alternative format if --short doesn't work
+                compose_output = subprocess.check_output(['docker', 'compose', 'version'], universal_newlines=True).strip()
+                version_match = re.search(r'v?(\d+\.\d+\.\d+)', compose_output)
+                compose_version = version_match.group(1) if version_match else compose_output
         except Exception as e:
             logger.error(f"Error getting Docker Compose version: {str(e)}")
             compose_version = "Not available"
