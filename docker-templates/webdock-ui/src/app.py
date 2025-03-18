@@ -1813,6 +1813,85 @@ def restart_container(container_name):
             'message': str(e)
         }), 500
 
+@app.route('/api/container/<container_name>/status', methods=['GET'])
+def get_container_status(container_name):
+    try:
+        # Check if the Docker Compose file exists
+        compose_file_path = os.path.join(COMPOSE_DATA_DIR, container_name, 'docker-compose.yml')
+        logger.info(f"Checking status of container {container_name} with compose file: {compose_file_path}")
+        
+        if not os.path.isfile(compose_file_path):
+            # Try alternative locations
+            alt_paths = [
+                os.path.join(WEBDOCK_BASE_PATH, 'webdock-data', container_name, 'docker-compose.yml'),
+                os.path.join(WEBDOCK_BASE_PATH, 'docker-compose-data', container_name, 'docker-compose.yml')
+            ]
+            
+            for path in alt_paths:
+                if os.path.isfile(path):
+                    compose_file_path = path
+                    logger.info(f"Found alternative compose file at: {compose_file_path}")
+                    break
+            else:
+                logger.error(f"Docker Compose file not found for container {container_name}")
+                return jsonify({
+                    'status': 'error',
+                    'message': f"Docker Compose file not found for {container_name}"
+                }), 404
+        
+        # Get container status
+        docker_compose_cmd = get_docker_compose_cmd()
+        result = subprocess.run(
+            f'{docker_compose_cmd} -f {compose_file_path} ps --format json',
+            shell=True,
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode != 0:
+            logger.error(f"Failed to get status for container {container_name}: {result.stderr}")
+            return jsonify({
+                'status': 'error',
+                'message': f"Failed to get status for container {container_name}: {result.stderr}"
+            }), 500
+        
+        # Parse the output
+        try:
+            containers_status = json.loads(result.stdout)
+            # Return the status data
+            return jsonify({
+                'status': 'success',
+                'container_status': containers_status
+            })
+        except json.JSONDecodeError:
+            # Fallback for older docker-compose versions that don't support JSON output
+            # Check if the container is running
+            result = subprocess.run(
+                f'{docker_compose_cmd} -f {compose_file_path} ps',
+                shell=True,
+                capture_output=True,
+                text=True
+            )
+            
+            status = "stopped"
+            if container_name in result.stdout and "Up" in result.stdout:
+                status = "running"
+                
+            return jsonify({
+                'status': 'success',
+                'container_status': {
+                    'State': status,
+                    'Name': container_name
+                }
+            })
+            
+    except Exception as e:
+        logger.exception(f"Error getting status for container {container_name}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
 @app.route('/static/img/<path:filename>')
 def serve_image(filename):
     """Dient Bilder mit optimierten Cache-Einstellungen aus.
@@ -5875,6 +5954,34 @@ def get_system_info():
             logger.error(f"Error getting network interfaces: {e}")
         
         system_info['network_interfaces'] = network_interfaces
+        
+        # Füge Docker-Netzwerke hinzu
+        docker_networks = []
+        try:
+            result = subprocess.run(['docker', 'network', 'ls', '--format', '{{.Name}}'], 
+                                  capture_output=True, text=True, check=True)
+            docker_networks = [network.strip() for network in result.stdout.split('\n') if network.strip()]
+            logger.info(f"Found Docker networks: {docker_networks}")
+        except Exception as e:
+            logger.error(f"Error getting Docker networks: {e}")
+        
+        system_info['docker_networks'] = docker_networks
+        
+        # Füge Docker-Compose-Version hinzu
+        try:
+            result = subprocess.run(['docker', 'compose', 'version'], 
+                                  capture_output=True, text=True, check=True)
+            docker_compose_version = result.stdout.strip()
+            system_info['docker_compose_version'] = docker_compose_version
+            logger.info(f"Docker Compose version: {docker_compose_version}")
+        except Exception as e:
+            logger.error(f"Error getting Docker Compose version: {e}")
+            system_info['docker_compose_version'] = "Unknown"
+            
+        # Füge Verzeichnispfade hinzu
+        system_info['webdock_base_path'] = WEBDOCK_BASE_PATH
+        system_info['compose_files_dir'] = COMPOSE_FILES_DIR
+        system_info['compose_data_dir'] = COMPOSE_DATA_DIR
         
         return jsonify(system_info)
     except Exception as e:
