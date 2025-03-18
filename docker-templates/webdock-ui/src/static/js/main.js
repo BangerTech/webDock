@@ -1900,6 +1900,18 @@
                     // Speichere den aktiven Tab im localStorage
                     localStorage.setItem('activeTab', tabId);
                     
+                    // Lazy-Loading von Komponenten basierend auf dem Tab
+                    if (tabId === 'settings') {
+                        // Initialisiere Settings-Manager nur, wenn der Settings-Tab angezeigt wird
+                        SettingsManager.initialize();
+                    } else if (tabId === 'special') {
+                        // Stelle sicher, dass die special functions initialisiert sind
+                        if (document.getElementById('special')) {
+                            CronJobManager.initialize();
+                            ContainerImportManager.initialize();
+                        }
+                    }
+                    
                     WebDockLogger.info(`Tab gewechselt zu: ${tabId}`);
                 });
             });
@@ -2336,10 +2348,17 @@
      * Handles the settings page functionality
      */
     const SettingsManager = {
-        // Initialize settings page
+        initialized: false,
+        
+        // Initialize settings manager
         initialize: function() {
+            // Lazy loading - erst bei Bedarf initialisieren
+            if (this.initialized) return;
+            
+            console.log('Initialisiere Settings Manager...');
             this._loadDockerSettings();
             this._setupEventHandlers();
+            this.initialized = true;
         },
         
         // Load Docker settings
@@ -2428,10 +2447,11 @@
     // Anwendung initialisieren, wenn das Dokument geladen ist
     document.addEventListener('DOMContentLoaded', () => {
         App.initialize();
-        SettingsManager.initialize();
+        // SettingsManager wird jetzt nur noch beim Wechsel zum Settings-Tab initialisiert
         
-        // Initialize special functions managers
-        if (document.getElementById('special')) {
+        // Initialize special functions managers nur wenn der special Tab aktiv ist
+        const activeTab = localStorage.getItem('activeTab');
+        if (activeTab === 'special' && document.getElementById('special')) {
             CronJobManager.initialize();
             ContainerImportManager.initialize();
             // Terminal is initialized when connecting
