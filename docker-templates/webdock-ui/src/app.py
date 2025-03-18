@@ -5681,13 +5681,30 @@ def get_container_config_files(container_name):
                             'path': file_path,
                             'content': content
                         })
+        elif container_name == 'grafana':
+            # Grafana hat eine Umgebungsdatei im data-Verzeichnis
+            data_dir = os.path.join(install_path, 'data')
+            if os.path.exists(data_dir):
+                env_file_path = os.path.join(data_dir, 'env.grafana')
+                if os.path.exists(env_file_path):
+                    try:
+                        with open(env_file_path, 'r') as f:
+                            content = f.read()
+                        config_files.append({
+                            'name': 'env.grafana',
+                            'path': env_file_path,
+                            'content': content
+                        })
+                        logger.info(f"Found Grafana environment file: {env_file_path}")
+                    except Exception as e:
+                        logger.error(f"Error reading Grafana env file {env_file_path}: {str(e)}")
         
         # Allgemeine Suche nach Konfigurationsdateien in typischen Verzeichnissen
-        for config_dir in ['config', 'conf', 'etc']:
+        for config_dir in ['config', 'conf', 'etc', 'data']:
             dir_path = os.path.join(install_path, config_dir)
             if os.path.exists(dir_path) and os.path.isdir(dir_path):
                 for filename in os.listdir(dir_path):
-                    if filename.endswith(('.yml', '.yaml', '.conf', '.config', '.json', '.ini')):
+                    if filename.endswith(('.yml', '.yaml', '.conf', '.config', '.json', '.ini', '.env')) or 'env.' in filename:
                         file_path = os.path.join(dir_path, filename)
                         if os.path.isfile(file_path):
                             try:
