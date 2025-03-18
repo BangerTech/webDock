@@ -2152,14 +2152,12 @@
             // Event-Listener für Buttons
             const installButton = modal.querySelector('.install-btn');
             const cancelButton = modal.querySelector('.cancel-btn');
-            const closeButton = modal.querySelector('.close-modal');
 
             // Install-Button Event-Listener
             installButton.addEventListener('click', () => executeInstall(containerName));
 
             // Schließen-Funktionalität
             cancelButton.addEventListener('click', () => closeModal());
-            closeButton.addEventListener('click', () => closeModal());
             
             // Event-Listener für spezielle Container-Felder
             setupSpecialContainerFields(containerName, modal);
