@@ -2145,6 +2145,49 @@ def get_docker_info():
         logger.exception("Error getting Docker info")
         return {'error': str(e)}, 500
 
+@app.route('/api/docker/info', methods=['GET'])
+def get_docker_info_endpoint():
+    """
+    Returns information about the Docker environment, including versions and network
+    """
+    try:
+        # Get Docker version
+        docker_version = subprocess.check_output(['docker', '--version'], universal_newlines=True).strip()
+        
+        # Get Docker Compose version
+        try:
+            compose_version = subprocess.check_output(['docker-compose', '--version'], universal_newlines=True).strip()
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            # Try with docker compose command (newer Docker versions)
+            try:
+                compose_version = subprocess.check_output(['docker', 'compose', '--version'], universal_newlines=True).strip()
+            except subprocess.CalledProcessError:
+                compose_version = "Not available"
+        
+        # Get default network
+        default_network = "webdock-network"
+        try:
+            # Check if the default network exists
+            networks = subprocess.check_output(['docker', 'network', 'ls', '--format', '{{.Name}}'], universal_newlines=True).strip().split('\n')
+            if default_network not in networks:
+                default_network = "bridge"  # Use Docker's default if webdock-network doesn't exist
+        except subprocess.CalledProcessError:
+            default_network = "bridge"  # Fallback to default Docker bridge network
+        
+        return jsonify({
+            'version': docker_version,
+            'composeVersion': compose_version,
+            'defaultNetwork': default_network
+        })
+    except Exception as e:
+        logger.exception("Error getting Docker info")
+        return jsonify({
+            'error': str(e),
+            'version': 'Not available',
+            'composeVersion': 'Not available',
+            'defaultNetwork': 'Not available'
+        }), 500
+
 @app.route('/api/settings/data-location', methods=['GET', 'POST'])
 def handle_data_location():
     # Verwende eine Konfigurationsdatei im WebDock-Konfigurationsverzeichnis

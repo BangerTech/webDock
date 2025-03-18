@@ -150,26 +150,12 @@
                 <section class="settings-section">
                     <h2><i class="fa fa-docker"></i> Docker Settings</h2>
                     <div class="docker-settings">
-                        <!-- Category Management -->
-                        <div class="setting-card">
-                            <h3>Container Categories</h3>
-                            <div class="category-manager">
-                                <div class="category-list">
-                                    <!-- Kategorien werden hier dynamisch eingefügt -->
-                                </div>
-                                <div class="category-actions">
-                                    <button id="add-category" class="primary-btn">
-                                        <i class="fa fa-plus"></i> Add Category
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
                         <div class="setting-card">
                             <h3>Container Data Location</h3>
                             <div class="path-input">
                                 <input type="text" id="data-location" 
-                                    placeholder="/home/The-BangerTECH-Utility-main/docker-compose-data"
-                                    value="/home/The-BangerTECH-Utility-main/docker-compose-data">
+                                    placeholder="/home/webDock/webdock-data"
+                                    value="">
                                 <button id="browse-location" class="browse-btn">
                                     <i class="fa fa-folder-open"></i>
                                 </button>
@@ -181,11 +167,18 @@
                         </div>
                         <div class="setting-card">
                             <h3>Default Network</h3>
-                            <input type="text" id="docker-network" value="bridge" readonly>
+                            <input type="text" id="docker-network" value="" readonly>
+                            <small class="hint">Default network used by containers</small>
                         </div>
                         <div class="setting-card">
                             <h3>Docker Version</h3>
-                            <input type="text" id="docker-version" readonly>
+                            <input type="text" id="docker-version" value="" readonly>
+                            <small class="hint">Installed Docker version</small>
+                        </div>
+                        <div class="setting-card">
+                            <h3>Docker Compose Version</h3>
+                            <input type="text" id="docker-compose-version" value="" readonly>
+                            <small class="hint">Installed Docker Compose version</small>
                         </div>
                     </div>
                 </section>

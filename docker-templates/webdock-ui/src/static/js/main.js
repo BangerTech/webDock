@@ -2028,9 +2028,102 @@
 }
     };
     
+    /**
+     * Settings Management
+     * Handles the settings page functionality
+     */
+    const SettingsManager = {
+        // Initialize settings page
+        initialize: function() {
+            this._loadDockerSettings();
+            this._setupEventHandlers();
+        },
+        
+        // Load Docker settings
+        _loadDockerSettings: function() {
+            // Load data location
+            fetch('/api/settings/data-location')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.location) {
+                        document.getElementById('data-location').value = data.location;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading data location:', error);
+                });
+            
+            // Load Docker info (version, compose version, default network)
+            fetch('/api/docker/info')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.version) {
+                        document.getElementById('docker-version').value = data.version;
+                    }
+                    if (data.composeVersion) {
+                        document.getElementById('docker-compose-version').value = data.composeVersion;
+                    }
+                    if (data.defaultNetwork) {
+                        document.getElementById('docker-network').value = data.defaultNetwork;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading Docker info:', error);
+                });
+        },
+        
+        // Setup event handlers for settings page
+        _setupEventHandlers: function() {
+            // Save data location
+            const saveLocationBtn = document.getElementById('save-location');
+            if (saveLocationBtn) {
+                saveLocationBtn.addEventListener('click', () => {
+                    const location = document.getElementById('data-location').value;
+                    
+                    if (!location) {
+                        NotificationManager.error('Please enter a valid data location');
+                        return;
+                    }
+                    
+                    fetch('/api/settings/data-location', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ location })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            NotificationManager.success('Data location updated successfully');
+                        } else {
+                            NotificationManager.error(`Failed to update data location: ${data.message}`);
+                        }
+                    })
+                    .catch(error => {
+                        NotificationManager.error(`Error updating data location: ${error.message}`);
+                    });
+                });
+            }
+        }
+    };
+    
     // Anwendung initialisieren, wenn das Dokument geladen ist
     document.addEventListener('DOMContentLoaded', () => {
         App.initialize();
+        SettingsManager.initialize();
+        
+        // Special Functions - Toggle Section
+        window.toggleSection = function(header) {
+            const content = header.nextElementSibling;
+            if (content.style.display === 'none' || content.style.display === '') {
+                content.style.display = 'block';
+                header.querySelector('.fa-chevron-down').classList.replace('fa-chevron-down', 'fa-chevron-up');
+            } else {
+                content.style.display = 'none';
+                header.querySelector('.fa-chevron-up').classList.replace('fa-chevron-up', 'fa-chevron-down');
+            }
+        };
     });
     
     // Globale Funktionen exportieren

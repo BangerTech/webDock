@@ -227,6 +227,7 @@ download_from_github() {
         "docker-templates/webdock-ui/src/app.py:$SRC_DIR/app.py"
         "docker-templates/webdock-ui/src/templates/index.html:$SRC_DIR/templates/index.html"
         "docker-templates/webdock-ui/src/static/css/style.css:$SRC_DIR/static/css/style.css"
+        "docker-templates/webdock-ui/src/static/css/container-info-modal.css:$SRC_DIR/static/css/container-info-modal.css"
         "docker-templates/webdock-ui/src/static/js/main.js:$SRC_DIR/static/js/main.js"
         "docker-templates/webdock-ui/src/static/img/logo1.png:$SRC_DIR/static/img/logo1.png"
         "docker-templates/webdock-ui/src/config/categories.yaml:$SRC_DIR/config/categories.yaml"
