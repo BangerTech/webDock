@@ -1,11 +1,18 @@
 /* Container Info Modal Styles */
 .tab-header {
     display: flex;
-    overflow-x: hidden;
+    overflow-x: auto; /* Changed from hidden to auto */
     border-bottom: 1px solid rgba(0, 0, 0, 0.1);
     background: var(--color-background-dark);
-    flex-wrap: wrap;
+    flex-wrap: nowrap; /* Changed from wrap to nowrap */
     padding: 0 10px;
+    scrollbar-width: none; /* Hide scrollbar for Firefox */
+    -ms-overflow-style: none; /* Hide scrollbar for IE and Edge */
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.tab-header::-webkit-scrollbar {
+    display: none;
 }
 
 .tab-btn {

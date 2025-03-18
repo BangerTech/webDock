@@ -916,6 +916,7 @@ section h2 i {
 
 .info-modal .modal-body {
     padding: 0;
+    overflow-x: hidden; /* Hide horizontal scrollbar */
 }
 
 .info-modal .tab-content {
