@@ -1919,7 +1919,7 @@
             const showPortConfig = !(containerName === 'watchyourlan' || containerName === 'watchyourlanarm');
             
             // Bestimme ein passendes Icon für den Container
-            const containerIcon = getContainerLogo(containerName);
+            const containerIcon = ContainerRenderer._getContainerLogo(containerName);
             
             // Modal-Inhalt erstellen - mit modernem Styling
             modal.innerHTML = `
@@ -1983,7 +1983,7 @@
             setupSpecialContainerFields(containerName, modal);
         } catch (error) {
             console.error('Error:', error);
-            showNotification('error', `Error preparing installation for ${containerName}: ${error.message}`);
+            NotificationManager.show('error', `Error preparing installation for ${containerName}: ${error.message}`);
         }
     };
     
@@ -2270,7 +2270,7 @@ ${authEnabled ? 'password_file /mosquitto/config/passwd' : ''}
             console.log('Installation result:', result);
             
             // Success notification
-            showNotification('success', `Container ${containerName} installed successfully`);
+            NotificationManager.show('success', `Container ${containerName} installed successfully`);
             
             // Close modal
             closeModal();
@@ -2284,7 +2284,7 @@ ${authEnabled ? 'password_file /mosquitto/config/passwd' : ''}
             return result;
         } catch (error) {
             console.error('Installation error:', error);
-            showNotification('error', `Installation error: ${error.message}`);
+            NotificationManager.show('error', `Installation error: ${error.message}`);
             
             // Hide loading overlay
             const loadingOverlay = document.getElementById('loading-overlay');
