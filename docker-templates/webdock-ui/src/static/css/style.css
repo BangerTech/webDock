@@ -176,23 +176,32 @@ nav a:hover, nav a.active {
 }
 
 .status-indicator {
-    position: absolute;
-    top: 1rem;
-    right: 1rem;
-    width: 12px;
-    height: 12px;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
+    background-color: #999;
+    position: absolute;
+    top: 10px;
+    right: 10px;
 }
 
 .status-indicator.running {
-    background-color: var(--color-success);
-    box-shadow: 0 0 8px var(--color-success);
-    animation: pulse 2s infinite;
+    background-color: #4CAF50;
 }
 
 .status-indicator.stopped {
-    background-color: var(--color-error);
-    box-shadow: 0 0 8px var(--color-error);
+    background-color: #f44336;
+}
+
+.status-indicator.restarting {
+    background-color: #FFCC00;
+    animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 0.6; }
+    50% { opacity: 1; }
+    100% { opacity: 0.6; }
 }
 
 /* Drag & Drop Styles */
@@ -279,6 +288,11 @@ nav a:hover, nav a.active {
 .status-btn:hover {
     background: var(--color-primary);
     color: white;
+}
+
+.status-btn.warning {
+    background-color: #FFCC00;
+    color: #333;
 }
 
 .update-btn {
