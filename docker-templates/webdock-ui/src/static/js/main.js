@@ -2106,8 +2106,30 @@
     const CronJobManager = {
         // Initialize cron job editor
         initialize: function() {
-            this.loadCrontabs();
-            this.setupEventHandlers();
+            // Prüfe zuerst, ob bereits eine Host-Konfiguration existiert
+            fetch('/api/host-config')
+                .then(response => response.json())
+                .then(data => {
+                    if (data && !data.error && data.ip && data.username && data.password) {
+                        // Nur Crontabs laden, wenn Host-Konfiguration existiert
+                        this.loadCrontabs();
+                    } else {
+                        console.log('Keine Host-Konfiguration gefunden, überspringe Laden der Crontabs');
+                        
+                        // Stelle sicher, dass die Crontabs-Liste leer angezeigt wird
+                        const crontabsList = document.getElementById('crontabs-list');
+                        if (crontabsList) {
+                            crontabsList.innerHTML = '<div class="no-crontabs">Bitte konfigurieren Sie zuerst die Host-Verbindung</div>';
+                        }
+                    }
+                    // Event-Handler immer einrichten, unabhängig von der Host-Konfiguration
+                    this.setupEventHandlers();
+                })
+                .catch(error => {
+                    console.error('Fehler beim Prüfen der Host-Konfiguration:', error);
+                    // Event-Handler trotzdem einrichten
+                    this.setupEventHandlers();
+                });
         },
         
         // Load crontabs from server
