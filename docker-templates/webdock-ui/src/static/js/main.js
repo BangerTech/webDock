@@ -2200,6 +2200,9 @@
                     `./log:/mosquitto/log`
                 ];
                 
+                // Add user and group configuration
+                installData.user = "1883:1883";
+                
                 // Add a config template to ensure the config file exists
                 installData.config_template = `
 # Default listener
@@ -2278,7 +2281,7 @@ ${authEnabled ? 'password_file /mosquitto/config/passwd' : ''}
             // Refresh container status
             setTimeout(() => {
                 // Update container list
-                updateContainerStatus(true);
+                App.refreshContainers();
             }, 1000);
             
             return result;
@@ -2306,5 +2309,15 @@ ${authEnabled ? 'password_file /mosquitto/config/passwd' : ''}
                 }
             }, 300);
         });
+    };
+    
+    // Füge globale Wrapper-Funktion hinzu für getContainerLogo
+    window.getContainerLogo = function(containerName) {
+        return ContainerRenderer._getContainerLogo(containerName);
+    };
+    
+    // Füge globale Wrapper-Funktion hinzu für updateContainerStatus
+    window.updateContainerStatus = function(showLoading = false) {
+        return App.refreshContainers();
     };
 })();
