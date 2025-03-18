@@ -531,19 +531,11 @@
             try {
                 NotificationManager.info(`Updating container ${containerName}...`);
                 
-                // Zeige Ladezustand im UI
-                const updateBtn = document.querySelector(`.container-card[data-name="${containerName}"] .update-btn`);
-                if (updateBtn) {
-                    updateBtn.innerHTML = '<i class="fa fa-spinner fa-spin"></i>';
-                    updateBtn.disabled = true;
-                }
-                
-                // API-URL "update" statt "container/{containerName}/update" verwenden
-                const response = await fetch(`/api/update/${containerName}`, {
+                const response = await fetch(`/api/container/${containerName}/update`, {
                     method: 'POST'
-                });
-                
-                if (!response.ok) {
+            });
+            
+            if (!response.ok) {
                     throw new Error(`HTTP Error ${response.status}`);
                 }
                 
@@ -554,21 +546,12 @@
                 // Update the UI after a short delay
                 setTimeout(() => {
                     this.getStatus();
-                    ContainerRenderer.render();
                 }, 1000);
                 
                 return result;
-            } catch (error) {
+        } catch (error) {
                 WebDockLogger.error(`Error updating ${containerName}:`, error);
                 NotificationManager.error(`Update error: ${error.message}`);
-                
-                // Reset button state
-                const updateBtn = document.querySelector(`.container-card[data-name="${containerName}"] .update-btn`);
-                if (updateBtn) {
-                    updateBtn.innerHTML = '<i class="fa fa-refresh"></i>';
-                    updateBtn.disabled = false;
-                }
-                
                 return { error: error.message };
             }
         },
@@ -621,56 +604,21 @@
         // Status eines Containers wechseln (toggle)
         toggle: async function(containerName) {
             try {
-                // Zeige Ladezustand im UI
-                const statusBtn = document.querySelector(`.container-card[data-name="${containerName}"] .status-btn`);
-                if (statusBtn) {
-                    const originalText = statusBtn.textContent.trim();
-                    statusBtn.innerHTML = '<i class="fa fa-spinner fa-spin"></i>';
-                    statusBtn.disabled = true;
+                // Hole den aktuellen Status des Containers
+                const statusResponse = await fetch(`/api/container/${containerName}/status`);
+                
+                if (!statusResponse.ok) {
+                    throw new Error(`HTTP-Fehler ${statusResponse.status}`);
                 }
                 
-                // API-URL "/api/toggle/{containerName}" statt container/{containerName}/status verwenden
-                const response = await fetch(`/api/toggle/${containerName}`, {
-                    method: 'POST'
-                });
+                const statusData = await statusResponse.json();
+                const isRunning = statusData.status === 'running';
                 
-                if (!response.ok) {
-                    throw new Error(`HTTP-Fehler ${response.status}`);
-                }
-                
-                const result = await response.json();
-                
-                if (result.status === 'success') {
-                    NotificationManager.success(result.message);
-                } else {
-                    NotificationManager.warning(result.message);
-                }
-                
-                // Update the UI after a short delay
-                setTimeout(() => {
-                    ContainerRenderer.render();
-                }, 1000);
-                
-                return result;
+                // Starte oder stoppe den Container je nach aktuellem Status
+                return isRunning ? this.stop(containerName) : this.start(containerName);
             } catch (error) {
                 WebDockLogger.error(`Error toggling ${containerName}:`, error);
                 NotificationManager.error(`Error: ${error.message}`);
-                
-                // Reset button state
-                const statusBtn = document.querySelector(`.container-card[data-name="${containerName}"] .status-btn`);
-                if (statusBtn) {
-                    // Set back to its original state based on current container status
-                    this.getStatus().then(statusData => {
-                        const containerStatus = statusData.find(c => c.name === containerName)?.status || 'stopped';
-                        statusBtn.textContent = containerStatus === 'running' ? 'Stop' : 'Start';
-                        statusBtn.disabled = false;
-                    }).catch(() => {
-                        // Fallback if getStatus fails
-                        statusBtn.textContent = 'Start';
-                        statusBtn.disabled = false;
-                    });
-                }
-                
                 return { error: error.message };
             }
         },
@@ -2037,7 +1985,7 @@
                         // Map container status to display status
                         let displayStatus = container.status;
                         if (container.is_restarting || container.status === 'restarting') {
-                            displayStatus = 'error';  // Ändere von 'restarting' zu 'error' für bessere Sichtbarkeit
+                            displayStatus = 'restarting';
                         } else if (container.status === 'created' || container.status === 'starting') {
                             displayStatus = 'starting';
                         } else if (container.status === 'exited' || container.status === 'error' || (container.exit_code && container.exit_code !== 0)) {
@@ -3222,12 +3170,10 @@
                         if (networkData) {
                             if (networkData.interface) {
                                 networkInterface = networkData.interface;
-                                console.log("Using network interface from network_info.json:", networkInterface);
                             }
                             
                             if (networkData.ip_range) {
                                 ipRange = networkData.ip_range;
-                                console.log("Using IP range from network_info.json:", ipRange);
                             } else if (networkData.client_ip && networkData.client_ip !== "127.0.0.1") {
                                 // Verwende die Client-IP vom Server
                                 const ipParts = networkData.client_ip.split('.');
@@ -3245,21 +3191,13 @@
             const results = await Promise.all(requests);
             const config = results[0];
             
-            // Für WatchYourLAN, setze die Netzwerkinformation im Formular
-            let networkInfo = null;
-            if (containerName === 'watchyourlan' || containerName === 'watchyourlanarm') {
-                if (results.length > 1) {
-                    networkInfo = results[1];
-                }
-            }
-            
             // Entferne das Lade-Modal
             document.body.removeChild(loadingModal);
             
             if (!config.yaml) {
                 throw new Error('No YAML configuration received');
             }
-            
+
             // Parse YAML für Environment-Variablen und Ports
             const yamlConfig = config.service || {};
             
@@ -3420,33 +3358,64 @@
     
     // Hilfsfunktion für spezielle Container-Felder
     function getSpecialContainerFields(containerName) {
-        // Special container config fields
-        let specialFields = '';
-        
-        // ... existing code ...
-        
-        if (containerName.toLowerCase() === 'filestash') {
-            specialFields = `
-            <div class="alert alert-info my-3">
-                <h5>Installation in 2 steps</h5>
-                <p>Filestash requires a special 2-step installation:</p>
-                <ol>
-                    <li>After installation, visit <b>http://serverip:8334</b> to create an admin user and configure authentication.</li>
-                    <li>After completing the setup, connect to your server and run the <code>complete_setup.sh</code> script in the Filestash installation directory to finalize installation with OnlyOffice:</li>
-                </ol>
-                <pre class="bg-dark text-light p-2"><code>cd /path/to/webdock-data/filestash
-bash complete_setup.sh</code></pre>
-                <p>This will stop the temporary container, save your configuration, and start the final setup with OnlyOffice integration.</p>
-            </div>`;
+        switch (containerName) {
+            case 'watchyourlan':
+            case 'watchyourlanarm':
+                return `
+                    <div class="watchyourlan-section" style="margin-bottom: 20px; padding: 20px; background: var(--color-background-dark); border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
+                        <h3 style="margin-bottom: 15px; color: var(--color-primary); font-size: 18px;">
+                            <i class="fa fa-network-wired"></i> WatchYourLAN Settings
+                        </h3>
+                        <div class="form-group" style="margin-bottom: 15px;">
+                            <label for="network-interface" style="display: block; margin-bottom: 5px; font-weight: bold;">Network Interface</label>
+                            <input type="text" id="network-interface" name="network-interface" value="eth0" placeholder="Enter network interface" class="form-control" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
+                            <small class="hint" style="display: block; margin-top: 5px; color: #666; font-size: 0.9em;">The network interface to monitor (e.g. eth0, ens18)</small>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 15px;">
+                            <label for="ip-range" style="display: block; margin-bottom: 5px; font-weight: bold;">IP Range</label>
+                            <input type="text" id="ip-range" name="ip-range" value="192.168.1.0/24" placeholder="Enter IP range" class="form-control" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
+                            <small class="hint" style="display: block; margin-top: 5px; color: #666; font-size: 0.9em;">The IP range to scan (e.g. 192.168.1.0/24)</small>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 15px;">
+                            <label for="wyl-port" style="display: block; margin-bottom: 5px; font-weight: bold;">WatchYourLAN GUI Port</label>
+                            <input type="text" id="wyl-port" name="wyl-port" value="8840" placeholder="Enter port" class="form-control" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
+                            <small class="hint" style="display: block; margin-top: 5px; color: #666; font-size: 0.9em;">The port for WatchYourLAN web interface (default: 8840)</small>
+                        </div>
+                        <div class="alert alert-info" style="padding: 12px 15px; background-color: rgba(0, 130, 201, 0.1); color: var(--color-primary); border-radius: 4px; margin-top: 15px; border-left: 4px solid var(--color-primary);">
+                            <p style="margin-bottom: 8px;"><strong>Note:</strong> The network interface and IP range are automatically detected. Please verify they are correct for your network.</p>
+                            <p><strong>Important:</strong> WatchYourLAN requires host network mode to properly scan your network. The main interface will be available at the GUI port specified above.</p>
+                        </div>
+                    </div>
+                `;
+            case 'mosquitto':
+            case 'mosquitto-broker':
+                return `
+                    <div class="mosquitto-section" style="margin-bottom: 20px; padding: 20px; background: var(--color-background-dark); border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
+                        <h3 style="margin-bottom: 15px; color: var(--color-primary); font-size: 18px;">
+                            <i class="fa fa-exchange"></i> Mosquitto Settings
+                        </h3>
+                        <div class="form-group" style="margin-bottom: 15px; display: flex; align-items: center;">
+                            <input type="checkbox" id="mqtt-auth" name="mqtt-auth" style="margin-right: 10px;">
+                            <label for="mqtt-auth" style="font-weight: bold; cursor: pointer;">Enable Authentication</label>
+                        </div>
+                        <div class="auth-credentials" style="display: none; padding: 15px; background: rgba(0,0,0,0.03); border-radius: 4px; margin-top: 5px; border-left: 3px solid var(--color-primary);">
+                            <div class="form-group" style="margin-bottom: 15px;">
+                                <label for="mqtt-username" style="display: block; margin-bottom: 5px; font-weight: bold;">Username</label>
+                                <input type="text" id="mqtt-username" name="mqtt-username" value="admin" class="form-control" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
+                            </div>
+                            <div class="form-group" style="margin-bottom: 10px;">
+                                <label for="mqtt-password" style="display: block; margin-bottom: 5px; font-weight: bold;">Password</label>
+                                <input type="password" id="mqtt-password" name="mqtt-password" value="password" class="form-control" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
+                            </div>
+                        </div>
+                        <div class="alert alert-info" style="padding: 12px 15px; background-color: rgba(0, 130, 201, 0.1); color: var(--color-primary); border-radius: 4px; margin-top: 15px; border-left: 4px solid var(--color-primary);">
+                            <p><strong>Note:</strong> Mosquitto MQTT broker will be available on ports 1883 (MQTT) and 9001 (WebSockets). The default configuration allows anonymous access unless authentication is enabled above.</p>
+                        </div>
+                    </div>
+                `;
+            default:
+                return '';
         }
-        
-        if (containerName.toLowerCase() === 'hoarder') {
-            // ... existing code ...
-        }
-        
-        // ... existing code ...
-        
-        return specialFields;
     }
     
     // Event-Listener für spezielle Container-Felder einrichten
@@ -3564,27 +3533,8 @@ ${authEnabled ? 'password_file /mosquitto/config/passwd' : ''}
 `;
             } 
             else if (containerName === 'watchyourlan' || containerName === 'watchyourlanarm') {
-                // Verwende die aus der API abgerufenen Netzwerkinformationen, falls vorhanden
-                let networkInterface, ipRange;
-                
-                if (networkInfo) {
-                    // Setze die Werte aus network_info.json in die Formularfelder
-                    if (document.getElementById('network-interface')) {
-                        document.getElementById('network-interface').value = networkInfo.networkInterface;
-                    }
-                    if (document.getElementById('ip-range')) {
-                        document.getElementById('ip-range').value = networkInfo.ipRange;
-                    }
-                    
-                    // Verwende die Werte aus network_info.json direkt
-                    networkInterface = networkInfo.networkInterface;
-                    ipRange = networkInfo.ipRange;
-                } else {
-                    // Fallback auf Formularwerte
-                    networkInterface = document.getElementById('network-interface')?.value || 'eth0';
-                    ipRange = document.getElementById('ip-range')?.value || '192.168.1.0/24';
-                }
-                
+                const networkInterface = document.getElementById('network-interface')?.value || 'eth0';
+                const ipRange = document.getElementById('ip-range')?.value || '192.168.1.0/24';
                 const guiPort = document.getElementById('wyl-port')?.value || '8840';
                 
                 installData.env = {
@@ -3602,28 +3552,6 @@ ${authEnabled ? 'password_file /mosquitto/config/passwd' : ''}
                     `./config:/config`,
                     `./data:/data`
                 ];
-            }
-            else if (containerName === 'codeserver' || containerName === 'code-server') {
-                // Stelle sicher, dass die richtigen Passwörter gesetzt werden
-                const password = document.getElementById('password')?.value || 'admin';
-                const sudoPassword = document.getElementById('sudo-password')?.value || 'admin';
-                
-                installData.env = {
-                    ...installData.env,
-                    'PASSWORD': password,
-                    'SUDO_PASSWORD': sudoPassword,
-                    'PUID': '1000',
-                    'PGID': '1000',
-                    'TZ': 'Europe/Berlin'
-                };
-                
-                // Setze die Standard-Volumes
-                installData.volumes = [
-                    `./config:/config`
-                ];
-                
-                // Stelle sicher, dass das richtige Netzwerk verwendet wird
-                installData.network = 'webdock-network';
             }
             else {
                 // Default volumes for other containers
