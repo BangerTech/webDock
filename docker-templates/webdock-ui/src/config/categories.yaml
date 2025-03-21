@@ -90,6 +90,8 @@ categories:
         description: "Open-source alternative for HomeMatic central units, compatible with Raspberry Pi."
       - name: "zigbee2mqtt"
         description: "Bridge for connecting Zigbee devices to MQTT networks."
+      - name: "n8n"
+        description: "Fair-code workflow automation platform with native AI capabilities."
 
   - id: "system"
     name: "System"
