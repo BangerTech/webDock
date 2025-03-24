@@ -612,7 +612,8 @@
                 }
                 
                 const statusData = await statusResponse.json();
-                const isRunning = statusData.status === 'running';
+                // Korrigiert: Der Status befindet sich in container_status.State
+                const isRunning = statusData.container_status && statusData.container_status.State === 'running';
                 
                 // Starte oder stoppe den Container je nach aktuellem Status
                 return isRunning ? this.stop(containerName) : this.start(containerName);
