@@ -2365,12 +2365,14 @@
         // Load Docker settings
         _loadDockerSettings: function() {
             console.log('Loading Docker settings...');
-            // Load data location
+            
+            // 1. Lade aktuelle Container Data Location - dynamisch aus der API
             fetch('/api/settings/data-location')
                 .then(response => response.json())
                 .then(data => {
                     const dataLocationField = document.getElementById('data-location');
                     if (dataLocationField && data.location) {
+                        console.log(`Container Data Location: ${data.location}`);
                         dataLocationField.value = data.location;
                     }
                 })
@@ -2379,33 +2381,57 @@
                     NotificationManager.error('Fehler beim Laden der Datenverzeichnis-Einstellung');
                 });
             
-            // Load Docker info (version, compose version, default network)
+            // 2. Lade Docker-Informationen (Version, Compose-Version, Default-Netzwerk)
             fetch('/api/docker/info')
                 .then(response => response.json())
                 .then(data => {
-                    // Docker Version
+                    console.log('Received Docker info from server:', data);
+                    
+                    // Docker Version anzeigen
                     const dockerVersionField = document.getElementById('docker-version');
                     if (dockerVersionField) {
                         dockerVersionField.value = data.version || 'Nicht verfügbar';
                     }
                     
-                    // Docker Compose Version
+                    // Docker Compose Version - Ohne Bindestrich
                     const composeVersionField = document.getElementById('docker-compose-version');
                     if (composeVersionField) {
-                        composeVersionField.value = data.composeVersion || 'Nicht verfügbar';
+                        // Prüfe, ob wir eine gültige Version erhalten haben
+                        if (data.composeVersion && data.composeVersion !== 'Not available') {
+                            console.log(`Docker Compose Version: ${data.composeVersion}`);
+                            composeVersionField.value = data.composeVersion;
+                        } else {
+                            // Fallback auf einen Standardwert, wenn keine Version verfügbar ist
+                            console.warn('Docker Compose Version nicht vom Server verfügbar. Verwende Fallback.');
+                            composeVersionField.value = 'Nicht verfügbar';
+                        }
                     }
                     
                     // Default Network
                     const networkField = document.getElementById('docker-network');
                     if (networkField) {
-                        networkField.value = data.defaultNetwork || 'bridge';
+                        if (data.defaultNetwork) {
+                            console.log(`Default Docker Network: ${data.defaultNetwork}`);
+                            networkField.value = data.defaultNetwork;
+                        } else {
+                            // Wenn kein Netzwerk zurückgegeben wurde, prüfe, ob wir webdock-network verwenden
+                            console.warn('Default Network nicht vom Server verfügbar. Verwende Fallback "webdock-network".');
+                            networkField.value = 'webdock-network';
+                        }
                     }
                     
-                    console.log('Docker settings loaded:', data);
+                    console.log('Docker settings successfully loaded from system');
                 })
                 .catch(error => {
                     console.error('Error loading Docker info:', error);
                     NotificationManager.error('Fehler beim Laden der Docker-Informationen');
+                    
+                    // Bei Fehlern beim Abrufen der Docker-Info, setze Default-Werte für die Felder
+                    const composeVersionField = document.getElementById('docker-compose-version');
+                    const networkField = document.getElementById('docker-network');
+                    
+                    if (composeVersionField) composeVersionField.value = 'Nicht verfügbar (API-Fehler)';
+                    if (networkField) networkField.value = 'webdock-network';
                 });
         },
         
@@ -2449,6 +2475,45 @@
     document.addEventListener('DOMContentLoaded', () => {
         App.initialize();
         // SettingsManager wird jetzt nur noch beim Wechsel zum Settings-Tab initialisiert
+        
+        // Theme Toggle Button Funktionalität
+        const themeToggleBtn = document.getElementById('theme-toggle');
+        if (themeToggleBtn) {
+            // Initialen Theme-Status setzen
+            const savedTheme = localStorage.getItem('theme') || 'light';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            
+            // Event-Listener für den Theme-Toggle-Button
+            themeToggleBtn.addEventListener('click', () => {
+                const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+                const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+                
+                // Theme setzen
+                document.documentElement.setAttribute('data-theme', newTheme);
+                localStorage.setItem('theme', newTheme);
+                
+                // Icon ändern
+                const themeIcon = themeToggleBtn.querySelector('i');
+                if (themeIcon) {
+                    if (newTheme === 'dark') {
+                        themeIcon.classList.remove('fa-adjust');
+                        themeIcon.classList.add('fa-sun-o');
+                    } else {
+                        themeIcon.classList.remove('fa-sun-o');
+                        themeIcon.classList.add('fa-adjust');
+                    }
+                }
+                
+                console.log(`Theme geändert zu: ${newTheme}`);
+            });
+            
+            // Initialen Icon-Status setzen
+            const themeIcon = themeToggleBtn.querySelector('i');
+            if (themeIcon && savedTheme === 'dark') {
+                themeIcon.classList.remove('fa-adjust');
+                themeIcon.classList.add('fa-sun-o');
+            }
+        }
         
         // Initialize special functions managers nur wenn der special Tab aktiv ist
         const activeTab = localStorage.getItem('activeTab');
