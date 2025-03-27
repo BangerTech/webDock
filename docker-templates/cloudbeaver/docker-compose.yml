@@ -1,0 +1,16 @@
+name: cloudbeaver
+services:
+  cloudbeaver:
+    container_name: cloudbeaver
+    image: dbeaver/cloudbeaver:latest
+    restart: unless-stopped
+    ports:
+      - "8978:8978"
+    volumes:
+      - ./cloudbeaver/workspace:/opt/cloudbeaver/workspace
+    networks:
+      - webdock-network
+
+networks:
+  webdock-network:
+    external: true

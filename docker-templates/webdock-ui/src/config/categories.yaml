@@ -4,6 +4,8 @@ categories:
     icon: "fa-code"
     description: "Development environments and tools"
     containers:
+      - name: "cloudbeaver"
+        description: "Web-based database management tool for MySQL, PostgreSQL, SQLite and other databases."
       - name: "codeserver"
         description: "Runs VS Code in a web browser."
       - name: "filebrowser"
