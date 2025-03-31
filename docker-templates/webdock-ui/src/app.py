@@ -11592,14 +11592,31 @@ def setup_prometheus(container_name, install_path, config_data=None):
         logger.info(f"Created Prometheus configuration files in {prometheus_dir}")
         
         # Verwende die vom Frontend übermittelte Host-IP-Adresse oder localhost als Standard
-        host_ip = "localhost"  # Standardwert
+        # Lade die network_info.json
+        network_info_path = os.path.join(COMPOSE_DATA_DIR, "config", "network_info.json")
+        host_ip = "localhost"  # Standardwert als Fallback
         
-        # Prüfe, ob Konfigurationsdaten vorhanden sind
-        if config_data and isinstance(config_data, dict) and 'prometheus' in config_data:
-            prometheus_config = config_data.get('prometheus', {})
-            if 'host_ip' in prometheus_config and prometheus_config['host_ip']:
-                host_ip = prometheus_config['host_ip']
+        try:
+            if os.path.exists(network_info_path):
+                with open(network_info_path, "r") as f:
+                    network_info = json.load(f)
+                    if "ip_address" in network_info and network_info["ip_address"]:
+                        host_ip = network_info["ip_address"]
+                        logger.info(f"Using IP address from network_info.json: {host_ip}")
+            else:
+                logger.warning(f"network_info.json not found at {network_info_path}")
+        except Exception as e:
+            logger.error(f"Failed to load network_info.json: {str(e)}")
+        
+        # Wenn network_info.json nicht verfügbar ist oder keine IP enthält, 
+        # verwende die vom Frontend übermittelte Host-IP-Adresse falls vorhanden
+        if host_ip == "localhost" and config_data and isinstance(config_data, dict) and "prometheus" in config_data:
+            prometheus_config = config_data.get("prometheus", {})
+            if "host_ip" in prometheus_config and prometheus_config["host_ip"]:
+                host_ip = prometheus_config["host_ip"]
                 logger.info(f"Using host IP address from frontend: {host_ip}")
+        
+        logger.info(f"Using host IP address for Prometheus: {host_ip}")
         
         logger.info(f"Using host IP address for Prometheus: {host_ip}")
         
