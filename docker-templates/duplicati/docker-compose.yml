@@ -2,13 +2,15 @@ services:
   duplicati:
     image: lscr.io/linuxserver/duplicati:latest
     container_name: duplicati
+    networks:
+      - webdock-network
     environment:
       - PUID=0
       - PGID=0
       - TZ=Etc/UTC
       - CLI_ARGS= #optional
       - DUPLICATI__WEBSERVICE_PASSWORD= #optional
-      - SETTINGS_ENCRYPTION_KEY=
+      - SETTINGS_ENCRYPTION_KEY=12345678
             
     volumes:
       - ./config:/config
@@ -17,3 +19,6 @@ services:
     ports:
       - 8200:8200
     restart: unless-stopped
+networks:
+  webdock-network:
+    external: true
