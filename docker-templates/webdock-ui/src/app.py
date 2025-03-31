@@ -12173,7 +12173,8 @@ def get_network_info():
     """Gibt Informationen über das Netzwerk zurück"""
     try:
         # Versuche zuerst, die Netzwerkinformationen aus der JSON-Datei zu lesen
-        network_info_file = os.path.join(app.config.get('CONFIG_DIR', '/app/config'), 'network_info.json')
+        # Verwende den korrekten Pfad zur Konfigurationsdatei
+        network_info_file = os.path.join(app.config.get('COMPOSE_DATA_DIR', '/app/webdock-data'), 'config', 'network_info.json')
         logger.info(f"Looking for network info file at: {network_info_file}")
         
         if os.path.exists(network_info_file):
