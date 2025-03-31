@@ -3487,6 +3487,32 @@
     // Event-Listener für spezielle Container-Felder einrichten
     function setupSpecialContainerFields(containerName, modal) {
         switch (containerName) {
+            case 'watchyourlan':
+            case 'watchyourlanarm':
+                // Hole die Netzwerkinformationen aus der API-Antwort
+                fetch('/api/network-info')
+                    .then(res => res.ok ? res.json() : null)
+                    .then(networkData => {
+                        if (networkData) {
+                            // Setze die Werte für die Formularfelder
+                            const networkInterfaceInput = modal.querySelector('#network-interface');
+                            const ipRangeInput = modal.querySelector('#ip-range');
+                            
+                            if (networkInterfaceInput && networkData.interface) {
+                                networkInterfaceInput.value = networkData.interface;
+                                console.log('Set network interface to:', networkData.interface);
+                            }
+                            
+                            if (ipRangeInput && networkData.ip_range) {
+                                ipRangeInput.value = networkData.ip_range;
+                                console.log('Set IP range to:', networkData.ip_range);
+                            }
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error fetching network info:', error);
+                    });
+                break;
             case 'mosquitto':
             case 'mosquitto-broker':
                 const authCheckbox = modal.querySelector('#mqtt-auth');
