@@ -8,6 +8,8 @@ services:
       - TZ=Etc/UTC
       - CLI_ARGS= #optional
       - DUPLICATI__WEBSERVICE_PASSWORD= #optional
+      - SETTINGS_ENCRYPTION_KEY=
+            
     volumes:
       - ./config:/config
       - ./backups:/backups
