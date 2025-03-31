@@ -19,7 +19,7 @@ scrape_configs:
     scrape_timeout: 2s
     static_configs:
       - targets:
-          - 'node_exporter:9100'
+          - '{{host_ip}}:9100'
 
   # Weitere Exporter können hier hinzugefügt werden
   # Beispiel:
@@ -28,4 +28,4 @@ scrape_configs:
   #   scrape_timeout: 2s
   #   static_configs:
   #     - targets:
-  #         - 'mysql_exporter:9104'
+  #         - '192.168.2.243:9104'
