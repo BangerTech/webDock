@@ -4051,7 +4051,7 @@ def setup_watchyourlan(container_name, install_path, config_data):
         env_vars = config_data.get('env', {})
         
         # Try to load network information from the saved file
-        network_info_path = '/app/config/network_info.json'  # Pfad innerhalb des Containers
+        network_info_path = '/app/webdock-data/config/network_info.json'  # Korrekter Pfad im Container
         network_info = {}
         
         try:
@@ -9589,7 +9589,7 @@ def setup_watchyourlan(container_name, install_path, config_data):
         env_vars = config_data.get('env', {})
         
         # Try to load network information from the saved file
-        network_info_path = '/app/config/network_info.json'  # Pfad innerhalb des Containers
+        network_info_path = '/app/webdock-data/config/network_info.json'  # Korrekter Pfad im Container
         network_info = {}
         
         try:
