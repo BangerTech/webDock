@@ -11691,6 +11691,11 @@ scrape_configs:
         
         # Erstelle die docker-compose.yml
         compose_file = os.path.join(install_path, 'docker-compose.yml')
+        
+        # Erstelle absolute Pfade für die Volumes
+        prometheus_config_path = os.path.join(install_path, 'prometheus')
+        prometheus_data_path = os.path.join(install_path, 'data')
+        
         with open(compose_file, 'w') as f:
             f.write(f"""version: '3'
 services:
@@ -11703,8 +11708,8 @@ services:
     ports:
       - "{port}:9090"
     volumes:
-      - {install_path}/prometheus:/etc/prometheus
-      - {install_path}/data:/prometheus
+      - {prometheus_config_path}:/etc/prometheus
+      - {prometheus_data_path}:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -11713,6 +11718,9 @@ networks:
   webdock-network:
     external: true
 """)
+        
+        logger.info(f"Prometheus config path: {prometheus_config_path}")
+        logger.info(f"Prometheus data path: {prometheus_data_path}")
         
         logger.info(f"Created Prometheus docker-compose.yml with port {port}")
         
