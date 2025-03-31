@@ -11635,7 +11635,7 @@ def setup_prometheus(container_name, install_path, config_data=None):
                 template_content = template_file.read()
             
             # Ersetze Platzhalter mit der Host-IP
-            template_content = template_content.replace("{{host_ip}}", host_ip)
+            template_content = template_content.replace("{{host_ip}}", host_ip).replace("{{ip_address}}", host_ip)
             
             # Schreibe den angepassten Inhalt in die Zieldatei
             with open(prometheus_yml, 'w') as target_file:
