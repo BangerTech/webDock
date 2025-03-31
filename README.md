@@ -25,6 +25,8 @@
 - [Sponsorship](#sponsorship)
 
 ## What is webDock?
+
+!!!! we are still under development !!!! 
 webDock is a powerful tool for managing and installing software on Debian-based systems. It provides a user-friendly interface for managing Docker containers and other software solutions.
 
 ### Features
@@ -72,6 +74,8 @@ WebDock fully supports both ARM (Raspberry Pi) and x86/x64 architectures. The sy
 27. **Spoolman** - 3D printing filament manager
 28. **Uptime Kuma** - Uptime monitoring tool
 29. **Bambucam** - Live camera streaming
+30. **n8n** - Fair-code workflow automation platform with native AI capabilities
+31. **duplicati** - Open-source backup software 
 
 ## Technologies
 - Python 3.9+
