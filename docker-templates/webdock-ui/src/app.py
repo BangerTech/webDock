@@ -4152,7 +4152,7 @@ services:
       IGNOREIP: "no"
       NETWORK_INTERFACE: "{env_vars['NETWORK_INTERFACE']}"
       IP_RANGE: "{env_vars['IP_RANGE']}"
-      ARP_STRS: "[\"-I {env_vars['NETWORK_INTERFACE']} {env_vars['IP_RANGE']}\"]"
+      ARP_STRS: '-I {env_vars['NETWORK_INTERFACE']} {env_vars['IP_RANGE']}'
 
 networks:
   webdock-network:
@@ -4161,10 +4161,16 @@ networks:
         
         # Create the WatchYourLAN config_v2.yaml file
         config_file = os.path.join(wyl_config_dir, 'config_v2.yaml')
+        
+        # Create ARP scan string based on network interface and IP range
+        arp_str = f"-I {env_vars['NETWORK_INTERFACE']} {env_vars['IP_RANGE']}"
+        logger.info(f"Using ARP scan string: {arp_str}")
+        
         with open(config_file, 'w') as f:
             f.write(f"""arp_args: ""
-arp_strs: []
-arp_strs_joined: ""
+arp_strs:
+  - "{arp_str}"
+arp_strs_joined: "{arp_str}"
 color: light
 hist_in_db: false
 host: 0.0.0.0
@@ -9691,7 +9697,7 @@ services:
       IGNOREIP: "no"
       NETWORK_INTERFACE: "{env_vars['NETWORK_INTERFACE']}"
       IP_RANGE: "{env_vars['IP_RANGE']}"
-      ARP_STRS: "[\"-I {env_vars['NETWORK_INTERFACE']} {env_vars['IP_RANGE']}\"]"
+      ARP_STRS: '-I {env_vars['NETWORK_INTERFACE']} {env_vars['IP_RANGE']}'
 
 networks:
   webdock-network:
@@ -9700,10 +9706,16 @@ networks:
         
         # Create the WatchYourLAN config_v2.yaml file
         config_file = os.path.join(wyl_config_dir, 'config_v2.yaml')
+        
+        # Create ARP scan string based on network interface and IP range
+        arp_str = f"-I {env_vars['NETWORK_INTERFACE']} {env_vars['IP_RANGE']}"
+        logger.info(f"Using ARP scan string: {arp_str}")
+        
         with open(config_file, 'w') as f:
             f.write(f"""arp_args: ""
-arp_strs: []
-arp_strs_joined: ""
+arp_strs:
+  - "{arp_str}"
+arp_strs_joined: "{arp_str}"
 color: light
 hist_in_db: false
 host: 0.0.0.0
