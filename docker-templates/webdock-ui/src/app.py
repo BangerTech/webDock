@@ -4050,36 +4050,59 @@ def setup_watchyourlan(container_name, install_path, config_data):
         # Get environment variables from config data
         env_vars = config_data.get('env', {})
         
-        # Set default values if not provided
-        if 'NETWORK_INTERFACE' not in env_vars or not env_vars['NETWORK_INTERFACE']:
-            env_vars['NETWORK_INTERFACE'] = get_default_network_interface()
-            logger.info(f"Using default network interface: {env_vars['NETWORK_INTERFACE']}")
+        # Try to load network information from the saved file
+        network_info_path = '/home/webDock/webdock-data/config/network_info.json'
+        network_info = {}
         
+        try:
+            if os.path.exists(network_info_path):
+                with open(network_info_path, 'r') as f:
+                    network_info = json.load(f)
+                logger.info(f"Loaded network information from {network_info_path}: {network_info}")
+            else:
+                logger.warning(f"Network information file not found at {network_info_path}")
+        except Exception as e:
+            logger.error(f"Error loading network information: {str(e)}")
+        
+        # Set network interface from saved information or detect it
+        if 'NETWORK_INTERFACE' not in env_vars or not env_vars['NETWORK_INTERFACE']:
+            if network_info and 'interface' in network_info:
+                env_vars['NETWORK_INTERFACE'] = network_info['interface']
+                logger.info(f"Using network interface from saved config: {env_vars['NETWORK_INTERFACE']}")
+            else:
+                env_vars['NETWORK_INTERFACE'] = get_default_network_interface()
+                logger.info(f"Using detected network interface: {env_vars['NETWORK_INTERFACE']}")
+        
+        # Set IP range from saved information or detect it
         if 'IP_RANGE' not in env_vars or not env_vars['IP_RANGE']:
-            # Try to determine IP range from the network interface
-            ip_range = "192.168.1.0/24"  # Default value
-            try:
-                # Get IP address of the interface
-                result = subprocess.run(
-                    ['ip', 'addr', 'show', env_vars['NETWORK_INTERFACE']],
-                    capture_output=True,
-                    text=True
-                )
+            if network_info and 'ip_range' in network_info:
+                env_vars['IP_RANGE'] = network_info['ip_range']
+                logger.info(f"Using IP range from saved config: {env_vars['IP_RANGE']}")
+            else:
+                # Try to determine IP range from the network interface
+                ip_range = "192.168.1.0/24"  # Default value
+                try:
+                    # Get IP address of the interface
+                    result = subprocess.run(
+                        ['ip', 'addr', 'show', env_vars['NETWORK_INTERFACE']],
+                        capture_output=True,
+                        text=True
+                    )
+                    
+                    if result.returncode == 0:
+                        # Search for IPv4 addresses
+                        match = re.search(r'inet\s+(\d+\.\d+\.\d+\.\d+)/(\d+)', result.stdout)
+                        if match:
+                            ip_addr = match.group(1)
+                            # Extract the first three octets
+                            ip_parts = ip_addr.split('.')
+                            ip_range = f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}.0/24"
+                            logger.info(f"Detected IP range: {ip_range}")
+                except Exception as e:
+                    logger.error(f"Error detecting IP range: {str(e)}")
                 
-                if result.returncode == 0:
-                    # Search for IPv4 addresses
-                    match = re.search(r'inet\s+(\d+\.\d+\.\d+\.\d+)/(\d+)', result.stdout)
-                    if match:
-                        ip_addr = match.group(1)
-                        # Extract the first three octets
-                        ip_parts = ip_addr.split('.')
-                        ip_range = f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}.0/24"
-                        logger.info(f"Detected IP range: {ip_range}")
-            except Exception as e:
-                logger.error(f"Error detecting IP range: {str(e)}")
-            
-            env_vars['IP_RANGE'] = ip_range
-            logger.info(f"Using IP range: {ip_range}")
+                env_vars['IP_RANGE'] = ip_range
+                logger.info(f"Using IP range: {ip_range}")
         
         # Get port configuration
         bootstrap_port = "8850"  # Default value for node-bootstrap
@@ -9565,36 +9588,59 @@ def setup_watchyourlan(container_name, install_path, config_data):
         # Get environment variables from config data
         env_vars = config_data.get('env', {})
         
-        # Set default values if not provided
-        if 'NETWORK_INTERFACE' not in env_vars or not env_vars['NETWORK_INTERFACE']:
-            env_vars['NETWORK_INTERFACE'] = get_default_network_interface()
-            logger.info(f"Using default network interface: {env_vars['NETWORK_INTERFACE']}")
+        # Try to load network information from the saved file
+        network_info_path = '/home/webDock/webdock-data/config/network_info.json'
+        network_info = {}
         
+        try:
+            if os.path.exists(network_info_path):
+                with open(network_info_path, 'r') as f:
+                    network_info = json.load(f)
+                logger.info(f"Loaded network information from {network_info_path}: {network_info}")
+            else:
+                logger.warning(f"Network information file not found at {network_info_path}")
+        except Exception as e:
+            logger.error(f"Error loading network information: {str(e)}")
+        
+        # Set network interface from saved information or detect it
+        if 'NETWORK_INTERFACE' not in env_vars or not env_vars['NETWORK_INTERFACE']:
+            if network_info and 'interface' in network_info:
+                env_vars['NETWORK_INTERFACE'] = network_info['interface']
+                logger.info(f"Using network interface from saved config: {env_vars['NETWORK_INTERFACE']}")
+            else:
+                env_vars['NETWORK_INTERFACE'] = get_default_network_interface()
+                logger.info(f"Using detected network interface: {env_vars['NETWORK_INTERFACE']}")
+        
+        # Set IP range from saved information or detect it
         if 'IP_RANGE' not in env_vars or not env_vars['IP_RANGE']:
-            # Try to determine IP range from the network interface
-            ip_range = "192.168.1.0/24"  # Default value
-            try:
-                # Get IP address of the interface
-                result = subprocess.run(
-                    ['ip', 'addr', 'show', env_vars['NETWORK_INTERFACE']],
-                    capture_output=True,
-                    text=True
-                )
+            if network_info and 'ip_range' in network_info:
+                env_vars['IP_RANGE'] = network_info['ip_range']
+                logger.info(f"Using IP range from saved config: {env_vars['IP_RANGE']}")
+            else:
+                # Try to determine IP range from the network interface
+                ip_range = "192.168.1.0/24"  # Default value
+                try:
+                    # Get IP address of the interface
+                    result = subprocess.run(
+                        ['ip', 'addr', 'show', env_vars['NETWORK_INTERFACE']],
+                        capture_output=True,
+                        text=True
+                    )
+                    
+                    if result.returncode == 0:
+                        # Search for IPv4 addresses
+                        match = re.search(r'inet\s+(\d+\.\d+\.\d+\.\d+)/(\d+)', result.stdout)
+                        if match:
+                            ip_addr = match.group(1)
+                            # Extract the first three octets
+                            ip_parts = ip_addr.split('.')
+                            ip_range = f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}.0/24"
+                            logger.info(f"Detected IP range: {ip_range}")
+                except Exception as e:
+                    logger.error(f"Error detecting IP range: {str(e)}")
                 
-                if result.returncode == 0:
-                    # Search for IPv4 addresses
-                    match = re.search(r'inet\s+(\d+\.\d+\.\d+\.\d+)/(\d+)', result.stdout)
-                    if match:
-                        ip_addr = match.group(1)
-                        # Extract the first three octets
-                        ip_parts = ip_addr.split('.')
-                        ip_range = f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}.0/24"
-                        logger.info(f"Detected IP range: {ip_range}")
-            except Exception as e:
-                logger.error(f"Error detecting IP range: {str(e)}")
-            
-            env_vars['IP_RANGE'] = ip_range
-            logger.info(f"Using IP range: {ip_range}")
+                env_vars['IP_RANGE'] = ip_range
+                logger.info(f"Using IP range: {ip_range}")
         
         # Get port configuration
         bootstrap_port = "8850"  # Default value for node-bootstrap
