@@ -1,0 +1,17 @@
+services:
+  duplicati:
+    image: lscr.io/linuxserver/duplicati:latest
+    container_name: duplicati
+    environment:
+      - PUID=0
+      - PGID=0
+      - TZ=Etc/UTC
+      - CLI_ARGS= #optional
+      - DUPLICATI__WEBSERVICE_PASSWORD= #optional
+    volumes:
+      - ./config:/config
+      - ./backups:/backups
+      - /:/source
+    ports:
+      - 8200:8200
+    restart: unless-stopped
