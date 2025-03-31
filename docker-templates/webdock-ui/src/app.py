@@ -11692,9 +11692,14 @@ scrape_configs:
         # Erstelle die docker-compose.yml
         compose_file = os.path.join(install_path, 'docker-compose.yml')
         
-        # Erstelle absolute Pfade für die Volumes
-        prometheus_config_path = os.path.join(install_path, 'prometheus')
-        prometheus_data_path = os.path.join(install_path, 'data')
+        # Erstelle Pfade für die Volumes aus der Perspektive des Host-Systems
+        # Ersetze /app/webdock-data mit /home/webDock/webdock-data
+        host_install_path = install_path.replace('/app/webdock-data', '/home/webDock/webdock-data')
+        prometheus_config_path = os.path.join(host_install_path, 'prometheus')
+        prometheus_data_path = os.path.join(host_install_path, 'data')
+        
+        logger.info(f"Container install path: {install_path}")
+        logger.info(f"Host install path: {host_install_path}")
         
         with open(compose_file, 'w') as f:
             f.write(f"""version: '3'
