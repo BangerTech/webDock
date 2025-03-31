@@ -11578,18 +11578,18 @@ def setup_prometheus(container_name, install_path, config_data=None):
     """Setup für Prometheus"""
     try:
         # Erstelle Verzeichnisse
-        prometheus_dir = os.path.join(install_path, 'prometheus')
+        etc_prometheus_dir = os.path.join(install_path, 'etc', 'prometheus')
         data_dir = os.path.join(install_path, 'data')
         
         # Erstelle Verzeichnisse mit korrekten Berechtigungen
-        os.makedirs(prometheus_dir, exist_ok=True)
+        os.makedirs(etc_prometheus_dir, exist_ok=True)
         os.makedirs(data_dir, exist_ok=True)
         
         # Setze Berechtigungen (wichtig für Prometheus)
-        os.chmod(prometheus_dir, 0o755)
+        os.chmod(etc_prometheus_dir, 0o755)
         os.chmod(data_dir, 0o777)  # Prometheus benötigt Schreibrechte
         
-        logger.info(f"Created Prometheus configuration files in {prometheus_dir}")
+        logger.info(f"Created Prometheus configuration files in {etc_prometheus_dir}")
         
         # Verwende die vom Frontend übermittelte Host-IP-Adresse oder localhost als Standard
         host_ip = "localhost"  # Standardwert
@@ -11604,7 +11604,7 @@ def setup_prometheus(container_name, install_path, config_data=None):
         logger.info(f"Using host IP address for Prometheus: {host_ip}")
         
         # Erstelle prometheus.yml mit der ermittelten IP-Adresse
-        prometheus_yml = os.path.join(prometheus_dir, 'prometheus.yml')
+        prometheus_yml = os.path.join(etc_prometheus_dir, 'prometheus.yml')
         
         # Prüfe, ob eine Template-Konfigurationsdatei existiert
         template_prometheus_yml = os.path.join(COMPOSE_FILES_DIR, container_name, "prometheus.yml")
@@ -11663,7 +11663,7 @@ scrape_configs:
 """)
         
         # Erstelle alert.yml
-        alert_yml = os.path.join(prometheus_dir, 'alert.yml')
+        alert_yml = os.path.join(etc_prometheus_dir, 'alert.yml')
         with open(alert_yml, 'w') as f:
             f.write("""groups:
 - name: example
@@ -11703,7 +11703,7 @@ services:
     ports:
       - "{port}:9090"
     volumes:
-      - ./prometheus:/etc/prometheus
+      - ./etc:/etc
       - ./data:/prometheus
 
 networks:
