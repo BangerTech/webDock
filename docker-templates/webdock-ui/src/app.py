@@ -4152,7 +4152,7 @@ services:
       IGNOREIP: "no"
       NETWORK_INTERFACE: "{env_vars['NETWORK_INTERFACE']}"
       IP_RANGE: "{env_vars['IP_RANGE']}"
-      ARP_STRS: "-I {env_vars['NETWORK_INTERFACE']} {env_vars['IP_RANGE']}"
+      ARP_STRS: "[\"-I {env_vars['NETWORK_INTERFACE']} {env_vars['IP_RANGE']}\"]"
 
 networks:
   webdock-network:
@@ -9691,7 +9691,7 @@ services:
       IGNOREIP: "no"
       NETWORK_INTERFACE: "{env_vars['NETWORK_INTERFACE']}"
       IP_RANGE: "{env_vars['IP_RANGE']}"
-      ARP_STRS: "-I {env_vars['NETWORK_INTERFACE']} {env_vars['IP_RANGE']}"
+      ARP_STRS: "[\"-I {env_vars['NETWORK_INTERFACE']} {env_vars['IP_RANGE']}\"]"
 
 networks:
   webdock-network:
