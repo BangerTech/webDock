@@ -220,7 +220,7 @@ COMPOSE_DIR = os.path.join(CONFIG_DIR, 'compose-files')
 COMPOSE_FILES_DIR = os.getenv('COMPOSE_FILES_DIR', os.path.join(WEBDOCK_BASE_PATH, 'webdock-templates'))
 COMPOSE_DATA_DIR = os.getenv('COMPOSE_DATA_DIR', os.path.join(WEBDOCK_BASE_PATH, 'webdock-data'))
 
-# Verwende die bestehende Kategoriedatei im webdock-ui Verzeichnis
+CATEGORIES_FILE = os.path.join(CONFIG_DIR, 'categories.yaml')
 CATEGORIES_FILE = os.path.join(COMPOSE_DATA_DIR, 'webdock-ui', 'src', 'config', 'categories.yaml')
 
 # Logge die wichtigen Pfade
@@ -5768,7 +5768,7 @@ COMPOSE_DIR = os.path.join(CONFIG_DIR, 'compose-files')
 COMPOSE_FILES_DIR = os.getenv('COMPOSE_FILES_DIR', os.path.join(WEBDOCK_BASE_PATH, 'webdock-templates'))
 COMPOSE_DATA_DIR = os.getenv('COMPOSE_DATA_DIR', os.path.join(WEBDOCK_BASE_PATH, 'webdock-data'))
 
-# Verwende die bestehende Kategoriedatei im webdock-ui Verzeichnis
+CATEGORIES_FILE = os.path.join(CONFIG_DIR, 'categories.yaml')
 CATEGORIES_FILE = os.path.join(COMPOSE_DATA_DIR, 'webdock-ui', 'src', 'config', 'categories.yaml')
 
 # Logge die wichtigen Pfade

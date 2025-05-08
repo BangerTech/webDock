@@ -8,9 +8,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /usr/bin/docker:/usr/bin/docker:ro
       - /usr/libexec/docker/cli-plugins/docker-compose:/usr/libexec/docker/cli-plugins/docker-compose:ro
-      - ${WEBDOCK_INSTALL_DIR:-/home/webDock}:/app/webdock
-      - ${WEBDOCK_INSTALL_DIR:-/home/webDock}/webdock-templates:/app/webdock-templates
-      - ${WEBDOCK_INSTALL_DIR:-/home/webDock}/webdock-data:/app/webdock-data
+      - ../../:/app/webdock
+      - ../../webdock-templates:/app/webdock-templates
+      - ../../webdock-data:/app/webdock-data
       - ./src/static/img:/app/static/img
     environment:
       - DOCKER_HOST=unix:///var/run/docker.sock

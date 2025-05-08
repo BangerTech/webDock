@@ -180,38 +180,26 @@ GITHUB_RAW_URL="https://raw.githubusercontent.com/BangerTech/webDock/$GITHUB_BRA
 # Funktion zum Kopieren lokaler Dateien
 copy_local_files() {
     echo "Using local files..."
-    # Kopiere Basis-Dateien
-    sudo cp webdock-templates/webdock-ui/docker-compose.yml "$BASE_DIR/" || return 1
-    sudo cp webdock-templates/webdock-ui/Dockerfile "$BASE_DIR/" || return 1
-    sudo cp webdock-templates/webdock-ui/requirements.txt "$BASE_DIR/" || return 1
+    # Stelle sicher, dass die Zielverzeichnisse für Icons und Config existieren,
+    # falls die App sie nicht selbst anlegt.
+    # Die App SOLLTE dies aber tun.
+    sudo mkdir -p "$INSTALL_DIR/webdock-data/webdock-ui/src/static/img/icons"
+    sudo mkdir -p "$INSTALL_DIR/webdock-data/webdock-ui/src/config"
+
+    # Kopiere Logo und Icons, falls sie direkt in webdock-data erwartet werden (unwahrscheinlich)
+    # Wahrscheinlicher ist, dass die App sie aus dem gemounteten /app/webdock Pfad nimmt.
+    # Diese Kopieraktionen sind wahrscheinlich nicht mehr nötig, wenn die App
+    # korrekte Pfade relativ zu /app/webdock/docker-templates/webdock-ui/src verwendet.
+    # sudo cp webdock-templates/webdock-ui/src/static/img/logo1.png "$INSTALL_DIR/webdock-data/webdock-ui/src/static/img/" || echo "Warning: Could not copy logo1.png to data directory"
+    # sudo cp webdock-templates/webdock-ui/src/static/img/icons/* "$INSTALL_DIR/webdock-data/webdock-ui/src/static/img/icons/" || echo "Warning: Could not copy icons to data directory"
     
-    # Modify app.py to use local files directly instead of copying them
-    # Create the local_compose_dir variable in app.py to match the structure
-    local_app_content=$(cat webdock-templates/webdock-ui/src/app.py)
+    # Kopiere categories.yaml in das Config-Verzeichnis innerhalb von webdock-data, 
+    # da die App dies dort erwartet (gemäß CONFIG_DIR=/app/webdock-data/config)
+    sudo mkdir -p "$INSTALL_DIR/webdock-data/config"
+    sudo cp "$INSTALL_DIR/docker-templates/webdock-ui/src/config/categories.yaml" "$INSTALL_DIR/webdock-data/config/categories.yaml" || return 1
     
-    # Make sure app.py is configured to use local files and paths
-    # Get the app.py from local directory with local file path handling
-    modified_app_content="$(cat webdock-templates/webdock-ui/src/app.py | \
-      sed "s|COMPOSE_FILES_DIR = .*|COMPOSE_FILES_DIR = '$COMPOSE_FILES_DIR'|g" | \
-      sed "s|WEBDOCK_BASE_PATH = .*|WEBDOCK_BASE_PATH = '$INSTALL_DIR'|g" | \
-      sed "s|COMPOSE_DATA_DIR = .*|COMPOSE_DATA_DIR = '$COMPOSE_DATA_DIR'|g")"
-    echo "$modified_app_content" | sudo tee "$SRC_DIR/app.py" > /dev/null || return 1
-    
-    sudo cp webdock-templates/webdock-ui/src/templates/index.html "$SRC_DIR/templates/" || return 1
-    sudo cp webdock-templates/webdock-ui/src/static/css/style.css "$SRC_DIR/static/css/" || return 1
-    sudo cp webdock-templates/webdock-ui/src/static/js/main.js "$SRC_DIR/static/js/" || return 1
-    
-    # Kopiere Logo und Icons
-    sudo cp webdock-templates/webdock-ui/src/static/img/logo1.png "$SRC_DIR/static/img/" || echo "Warning: Could not copy logo1.png"
-    sudo cp webdock-templates/webdock-ui/src/static/img/icons/* "$SRC_DIR/static/img/icons/" || echo "Warning: Could not copy icons"
-    
-    # Kopiere Konfigurationsdateien
-    sudo cp webdock-templates/webdock-ui/src/config/categories.yaml "$SRC_DIR/config/" || return 1
-    
-    # Don't copy Docker-Compose-Dateien, use them directly from their original location
-    # Instead of creating a nested symbolic link, we ensure the app uses the correct environment variables
-    
-    echo "Using local docker-compose files directly from $COMPOSE_FILES_DIR"
+    echo "Local files (docker-compose.yml, Dockerfile, app.py etc.) will be used directly from docker-templates/webdock-ui/ by Docker Compose."
+    echo "app.py should use environment variables for paths (WEBDOCK_BASE_PATH, COMPOSE_DATA_DIR, etc.) set in docker-compose.yml."
     return 0
 }
 
@@ -546,22 +534,32 @@ else
 fi
 
 echo "=== Starting container ==="
-# Neustart des Containers
-cd "$BASE_DIR" || { echo "Error: Could not change to $BASE_DIR"; exit 1; }
-sudo docker compose down
+# Wechsle NICHT mehr in ein Unterverzeichnis.
+# Bleibe im Hauptverzeichnis des geklonten Repositories ($INSTALL_DIR)
+# sudo docker compose down # Optional, falls alte Container laufen
 
-# Set environment variables for Docker Compose
-export WEBDOCK_INSTALL_DIR="$INSTALL_DIR"
-echo "Setting WEBDOCK_INSTALL_DIR=$WEBDOCK_INSTALL_DIR"
+# Definiere den Pfad zur relevanten docker-compose.yml
+UI_COMPOSE_FILE="$INSTALL_DIR/docker-templates/webdock-ui/docker-compose.yml"
 
-echo "=== Starting container with live logs ==="
+if [ ! -f "$UI_COMPOSE_FILE" ]; then
+    echo "Error: WebDock UI docker-compose.yml not found at $UI_COMPOSE_FILE"
+    exit 1
+fi
+
+# Entferne den expliziten Export von WEBDOCK_INSTALL_DIR, da die docker-compose.yml es nicht mehr direkt verwendet.
+# Die relativen Pfade in der docker-compose.yml sind jetzt der Schlüssel.
+# export WEBDOCK_INSTALL_DIR="$INSTALL_DIR"
+# echo "Setting WEBDOCK_INSTALL_DIR=$WEBDOCK_INSTALL_DIR" # Nicht mehr relevant für die UI-Compose-Datei
+
+echo "=== Starting WebDock UI container with live logs using $UI_COMPOSE_FILE ==="
 echo "Press Ctrl+C to stop viewing logs (container will continue running in the background)"
 
-# Starte den Container im Hintergrund, um eine saubere Beendigung zu ermöglichen
-sudo -E docker compose up -d --build
+# Starte den Container im Hintergrund mit der spezifischen Compose-Datei
+sudo -E docker compose -f "$UI_COMPOSE_FILE" down # Zuerst stoppen, um Konflikte zu vermeiden
+sudo -E docker compose -f "$UI_COMPOSE_FILE" up -d --build
 
 # Zeige die Logs an und warte auf Abbruch durch den Benutzer
-sudo docker compose logs -f || true
+sudo docker compose -f "$UI_COMPOSE_FILE" logs -f || true
 
 # Prüfe, ob der Container noch läuft
 if sudo docker ps --format '{{.Names}}' | grep -q "webdock-ui"; then
